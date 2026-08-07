@@ -17,5 +17,6 @@ Format: context, decision, consequences ([Nygard][nygard]).
 | [7](0007-normalize-keystrokes-to-physical-keys.md) | Normalize keystrokes to physical keys | Accepted |
 | [8](0008-keymap-structure.md) | Keymap structure: defaults in code, overrides in TOML | Accepted |
 | [9](0009-transactions-and-multiple-cursors.md) | Transactions and multiple cursors in the core model | Accepted |
+| [10](0010-rows-as-the-unit-of-display.md) | Rows, not lines, as the unit of display | Accepted |
 
 [nygard]: https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions
