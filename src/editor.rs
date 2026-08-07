@@ -176,6 +176,24 @@ impl Editor {
         self.view.selections.collapse_to_cursors();
     }
 
+    /// Takes the lines a selection touches, break included. Pressing again
+    /// swallows the next line, because the selection now ends on its start.
+    pub fn select_line(&mut self) {
+        let text = &self.document.text;
+        self.view.selections = self.view.selections.mapped(|selection| {
+            let last = text.line_of(selection.max());
+            Selection {
+                anchor: text.line_start(text.line_of(selection.min())),
+                head: match last + 1 < text.line_count() {
+                    true => text.line_start(last + 1),
+                    false => text.len(),
+                },
+                goal_column: None,
+            }
+        });
+        self.view.scroll_to_cursor(&self.document.text);
+    }
+
     pub fn add_cursor(&mut self, direction: Direction) {
         self.view.add_cursor(&self.document.text, direction);
     }
@@ -554,6 +572,57 @@ mod tests {
         editor.add_cursor(Direction::Forward);
 
         assert_eq!(ranges(&editor), [3..3, 6..6, 10..10]);
+    }
+
+    #[test]
+    fn selecting_a_line_takes_its_break_too() {
+        let mut editor = editor("first\nsecond\nthird\n", 8);
+        editor.select_line();
+
+        assert_eq!(editor.view.selections.primary().range(), 6..13);
+    }
+
+    #[test]
+    fn selecting_again_swallows_the_next_line() {
+        let mut editor = editor("first\nsecond\nthird\n", 8);
+        editor.select_line();
+        editor.select_line();
+
+        assert_eq!(editor.view.selections.primary().range(), 6..19);
+    }
+
+    #[test]
+    fn a_selection_across_lines_expands_to_all_of_them() {
+        let mut editor = editor("first\nsecond\nthird\n", 0);
+        editor.view.selections = Selection {
+            anchor: 3,
+            head: 8,
+            goal_column: None,
+        }
+        .into();
+        editor.select_line();
+
+        assert_eq!(editor.view.selections.primary().range(), 0..13);
+    }
+
+    #[test]
+    fn selecting_the_last_line_stops_at_the_end() {
+        let mut editor = editor("first\nlast", 7);
+        editor.select_line();
+        assert_eq!(editor.view.selections.primary().range(), 6..10);
+
+        editor.select_line();
+        assert_eq!(editor.view.selections.primary().range(), 6..10);
+    }
+
+    #[test]
+    fn selected_lines_can_be_cut_at_every_cursor() {
+        let mut editor = editor("one\ntwo\nthree\n", 0);
+        editor.view.selections.push(Selection::cursor(8));
+        editor.select_line();
+        editor.cut();
+
+        assert_eq!(content(&editor), "two\n");
     }
 
     #[test]

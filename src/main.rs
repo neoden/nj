@@ -122,6 +122,7 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Char('v') if ctrl => editor.paste(),
         KeyCode::Char('d') if ctrl => editor.select_next_occurrence(),
         KeyCode::Char('l') if ctrl && extend => editor.select_all_occurrences(),
+        KeyCode::Char('l') if ctrl => editor.select_line(),
         KeyCode::Up if ctrl && alt => editor.add_cursor(Backward),
         KeyCode::Down if ctrl && alt => editor.add_cursor(Forward),
 
