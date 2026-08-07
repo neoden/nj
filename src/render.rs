@@ -6,13 +6,16 @@ use crossterm::style::{
 };
 use crossterm::{cursor, queue};
 
-use crate::document::Document;
-use crate::layout::{self, Glyph};
-use crate::view::{CellStyle, View};
+use crate::editor::Editor;
+use crate::layout::{self, Glyph, DEFAULT_TAB_WIDTH};
+use crate::prompt::Prompt;
+use crate::view::CellStyle;
 
 /// Draws a whole frame. Every cell is rewritten, so the screen is never
 /// cleared first: clearing is what makes a terminal flicker.
-pub fn draw(out: &mut impl Write, document: &Document, view: &View, status: &str) -> Result<()> {
+pub fn draw(out: &mut impl Write, editor: &Editor, status: &str) -> Result<()> {
+    let document = &editor.document;
+    let view = &editor.view;
     let mut drawn = 0;
 
     for row in view.rows(&document.text) {
@@ -57,15 +60,63 @@ pub fn draw(out: &mut impl Write, document: &Document, view: &View, status: &str
         queue!(out, cursor::MoveTo(0, row as u16), Print(&blank))?;
     }
 
-    queue!(
-        out,
-        cursor::MoveTo(0, view.height as u16),
-        SetAttribute(Attribute::Reverse),
-        Print(pad(status, view.gutter + view.width)),
-        SetAttribute(Attribute::Reset),
-    )?;
+    let width = view.gutter + view.width;
+    match &editor.prompt {
+        Some(prompt) => draw_prompt(out, prompt, view.height, width)?,
+        None => queue!(
+            out,
+            cursor::MoveTo(0, view.height as u16),
+            SetAttribute(Attribute::Reverse),
+            Print(pad(status, width)),
+            SetAttribute(Attribute::Reset),
+        )?,
+    }
 
     out.flush()?;
+    Ok(())
+}
+
+/// Each field is a labelled line with the caret drawn on it, since the real
+/// terminal cursor stays hidden and we paint our own everywhere else.
+fn draw_prompt(
+    out: &mut impl Write,
+    prompt: &Prompt,
+    top: usize,
+    width: usize,
+) -> Result<()> {
+    for (index, field) in prompt.fields.iter().enumerate() {
+        let contents = field.contents();
+        let label = format!(" {} ", field.label);
+        let offset = label.chars().count();
+        let column_of =
+            |byte| offset + layout::column_of_byte(&contents, byte, DEFAULT_TAB_WIDTH);
+
+        let active = index == prompt.active;
+        let caret = active.then(|| column_of(field.cursor));
+        let selection = field.selection();
+        let selected = column_of(selection.start)..column_of(selection.end);
+
+        queue!(out, cursor::MoveTo(0, (top + index) as u16))?;
+        for (column, glyph) in pad(&format!("{label}{contents}"), width).chars().enumerate() {
+            if caret == Some(column) {
+                queue!(
+                    out,
+                    SetAttribute(Attribute::Reverse),
+                    Print(glyph),
+                    SetAttribute(Attribute::NoReverse)
+                )?;
+            } else if active && selected.contains(&column) {
+                queue!(
+                    out,
+                    SetBackgroundColor(Color::DarkGrey),
+                    Print(glyph),
+                    ResetColor
+                )?;
+            } else {
+                queue!(out, Print(glyph))?;
+            }
+        }
+    }
     Ok(())
 }
 

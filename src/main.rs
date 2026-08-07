@@ -4,6 +4,7 @@ mod editor;
 mod key;
 mod layout;
 mod movement;
+mod prompt;
 mod render;
 mod selection;
 mod terminal;
@@ -23,6 +24,7 @@ use crate::document::Document;
 use crate::editor::Editor;
 use crate::key::{Key, KeyCode, Mods};
 use crate::movement::{Direction, Motion};
+use crate::prompt::{Prompt, Purpose};
 use crate::selection::{Selection, SelectionSet};
 use crate::terminal::Terminal;
 
@@ -47,17 +49,19 @@ fn run(term: &Terminal, editor: &mut Editor) -> Result<()> {
 
     loop {
         let (width, height) = crossterm::terminal::size()?;
+        let strip = editor.prompt.as_ref().map_or(1, Prompt::height);
         editor.view.fit(
             width as usize,
             height as usize,
             editor.document.text.line_count(),
+            strip,
         );
-        render::draw(
-            &mut out,
-            &editor.document,
-            &editor.view,
-            &status(term, editor),
-        )?;
+
+        let status = match &editor.message {
+            Some(message) => format!(" {message}"),
+            None => status(term, editor),
+        };
+        render::draw(&mut out, editor, &status)?;
 
         if !handle(event::read()?, editor) {
             return Ok(());
@@ -77,7 +81,13 @@ fn handle(event: Event, editor: &mut Editor) -> bool {
     match event {
         Event::Key(event) => match Key::from_event(&event) {
             Some(key) if is_quit(key) => return false,
-            Some(key) => handle_key(key, &event, editor),
+            Some(key) => {
+                editor.message = None;
+                match editor.prompt.is_some() {
+                    true => handle_prompt_key(key, &event, editor),
+                    false => handle_key(key, &event, editor),
+                }
+            }
             None => {}
         },
         Event::Mouse(mouse) => handle_mouse(mouse, editor),
@@ -91,6 +101,42 @@ fn handle(event: Event, editor: &mut Editor) -> bool {
 
 fn is_quit(key: Key) -> bool {
     key.code == KeyCode::Char('q') && key.mods == Mods::CTRL
+}
+
+/// While the strip is open it takes the keyboard: this is the `in_prompt`
+/// context of ADR 8, written by hand until the keymap exists.
+fn handle_prompt_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
+    use Direction::{Backward, Forward};
+
+    let ctrl = key.mods.contains(Mods::CTRL);
+    let extend = key.mods.contains(Mods::SHIFT);
+    let Some(prompt) = &mut editor.prompt else {
+        return;
+    };
+
+    match key.code {
+        KeyCode::Esc => return editor.cancel_prompt(),
+        KeyCode::Enter => return editor.accept_prompt(),
+        KeyCode::Tab => prompt.focus_next_field(),
+        KeyCode::Backspace if ctrl => prompt.delete(Motion::Word(Backward)),
+        KeyCode::Delete if ctrl => prompt.delete(Motion::Word(Forward)),
+        KeyCode::Backspace => prompt.delete(Motion::Grapheme(Backward)),
+        KeyCode::Delete => prompt.delete(Motion::Grapheme(Forward)),
+        KeyCode::Char('a') if ctrl => prompt.select_all(),
+        KeyCode::Left if ctrl => prompt.move_cursor(Motion::Word(Backward), extend),
+        KeyCode::Right if ctrl => prompt.move_cursor(Motion::Word(Forward), extend),
+        KeyCode::Left => prompt.move_cursor(Motion::Grapheme(Backward), extend),
+        KeyCode::Right => prompt.move_cursor(Motion::Grapheme(Forward), extend),
+        KeyCode::Home => prompt.move_cursor(Motion::LineEdge(Backward), extend),
+        KeyCode::End => prompt.move_cursor(Motion::LineEdge(Forward), extend),
+        _ => {
+            if let Some(character) = key::text_char(event) {
+                prompt.insert(&character.to_string());
+            }
+        }
+    }
+
+    editor.prompt_changed();
 }
 
 /// Temporary bindings: these become commands once the keymap exists.
@@ -113,9 +159,12 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Char('z') if ctrl && extend => editor.redo(),
         KeyCode::Char('y') if ctrl => editor.redo(),
         KeyCode::Char('z') if ctrl => editor.undo(),
-        KeyCode::Char('s') if ctrl => {
-            let _ = editor.document.save();
-        }
+        KeyCode::Char('s') if ctrl => editor.save(),
+        KeyCode::Char('g') if ctrl => editor.open_prompt(Purpose::GotoLine),
+        KeyCode::Char('f') if ctrl => editor.open_prompt(Purpose::Search),
+        KeyCode::Char('h') if ctrl => editor.open_prompt(Purpose::Replace),
+        KeyCode::F(3) if extend => editor.search_next(Backward),
+        KeyCode::F(3) => editor.search_next(Forward),
 
         KeyCode::Char('c') if ctrl => editor.copy(),
         KeyCode::Char('x') if ctrl => editor.cut(),

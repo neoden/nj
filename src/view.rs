@@ -80,11 +80,12 @@ impl Default for View {
 }
 
 impl View {
-    /// Divides the terminal into a gutter, a text area and a status line.
-    pub fn fit(&mut self, term_width: usize, term_height: usize, line_count: usize) {
+    /// Divides the terminal into a gutter, a text area and the strip at the
+    /// bottom, which is one status line or a taller prompt.
+    pub fn fit(&mut self, term_width: usize, term_height: usize, line_count: usize, strip: usize) {
         self.gutter = digits(line_count) + 1;
         self.width = term_width.saturating_sub(self.gutter);
-        self.height = term_height.saturating_sub(1);
+        self.height = term_height.saturating_sub(strip);
     }
 
     /// Rows filling the screen, top to bottom.
@@ -409,19 +410,19 @@ mod tests {
 
     fn view(width: usize, height: usize) -> View {
         let mut view = View::default();
-        view.fit(width, height, 1);
+        view.fit(width, height, 1, 1);
         view
     }
 
     #[test]
     fn gutter_grows_with_the_line_count() {
         let mut view = View::default();
-        view.fit(80, 24, 9);
+        view.fit(80, 24, 9, 1);
         assert_eq!(view.gutter, 2);
         assert_eq!(view.width, 78);
         assert_eq!(view.height, 23);
 
-        view.fit(80, 24, 1000);
+        view.fit(80, 24, 1000, 1);
         assert_eq!(view.gutter, 5);
         assert_eq!(view.width, 75);
     }
@@ -577,7 +578,7 @@ mod tests {
 
     fn view_of(text: &Text, offset: usize) -> View {
         let mut view = view(80, 25);
-        view.fit(80, 25, text.line_count());
+        view.fit(80, 25, text.line_count(), 1);
         view.selections = SelectionSet::single(offset);
         view
     }
@@ -658,7 +659,7 @@ mod tests {
     fn the_screen_follows_the_cursor() {
         let text = Text::from_str(&"line\n".repeat(100));
         let mut view = view_of(&text, 0);
-        view.fit(80, 11, text.line_count());
+        view.fit(80, 11, text.line_count(), 1);
 
         for _ in 0..20 {
             view.move_selections(&text, Motion::Row(Direction::Forward), false);

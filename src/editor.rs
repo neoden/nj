@@ -3,6 +3,7 @@ use std::ops::Range;
 use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::document::{Document, EditKind};
 use crate::movement::{self, Class, Direction, Motion};
+use crate::prompt::{Prompt, Purpose};
 use crate::selection::{Selection, SelectionSet};
 use crate::text::Text;
 use crate::transaction::{CursorAfter, Transaction};
@@ -12,6 +13,9 @@ pub struct Editor {
     pub document: Document,
     pub view: View,
     pub clipboard: Clipboard,
+    pub prompt: Option<Prompt>,
+    pub message: Option<String>,
+    last_search: Option<String>,
     system: Option<SystemClipboard>,
 }
 
@@ -21,7 +25,167 @@ impl Editor {
             document,
             view: View::default(),
             clipboard: Clipboard::default(),
+            prompt: None,
+            message: None,
+            last_search: None,
             system: None,
+        }
+    }
+
+    pub fn open_prompt(&mut self, purpose: Purpose) {
+        let mut prompt = Prompt::new(purpose, self.view.selections.clone());
+
+        // A selection spanning lines means something else entirely, so only a
+        // fragment seeds the query. What is seeded stays selected, so typing
+        // replaces it instead of appending to it.
+        if matches!(purpose, Purpose::Search | Purpose::Replace)
+            && let Some(selected) = self.selected_text().filter(|text| !text.contains('\n'))
+        {
+            prompt.insert(&selected);
+            prompt.select_all();
+        }
+
+        self.prompt = Some(prompt);
+        self.prompt_changed();
+    }
+
+    fn selected_text(&self) -> Option<String> {
+        let primary = self.view.selections.primary();
+        match primary.is_empty() {
+            true => None,
+            false => Some(self.document.text.slice(primary.range()).to_string()),
+        }
+    }
+
+    /// `Esc` undoes what an incremental search did to the cursors.
+    pub fn cancel_prompt(&mut self) {
+        if let Some(prompt) = self.prompt.take()
+            && prompt.purpose == Purpose::Search
+        {
+            self.view.selections = prompt.origin;
+            self.view.scroll_to_cursor(&self.document.text);
+        }
+    }
+
+    /// What `Enter` in the strip does depends on what it was opened for.
+    pub fn accept_prompt(&mut self) {
+        let Some(prompt) = &self.prompt else {
+            return;
+        };
+        let purpose = prompt.purpose;
+        let first = prompt.contents(0);
+
+        match purpose {
+            Purpose::GotoLine => match parse_line_number(&first) {
+                Some(line) => self.goto_line(line),
+                None => self.message = Some("not a line number".to_owned()),
+            },
+            Purpose::Search => self.last_search = Some(first),
+            Purpose::Replace => {
+                let replacement = prompt.contents(1);
+                self.replace_all(&first, &replacement);
+            }
+        }
+
+        self.prompt = None;
+    }
+
+    /// Incremental search: every keystroke searches again from where the
+    /// cursor stood when the prompt opened, so the match never drifts forward
+    /// as the query grows.
+    pub fn prompt_changed(&mut self) {
+        let Some(prompt) = &self.prompt else {
+            return;
+        };
+        if prompt.purpose != Purpose::Search {
+            return;
+        }
+
+        let needle = prompt.contents(0);
+        let origin = prompt.origin.clone();
+        if needle.is_empty() {
+            self.view.selections = origin;
+            return;
+        }
+
+        match self.find(&needle, origin.primary().min(), Direction::Forward) {
+            Some(at) => self.select_match(at, needle.len()),
+            None => self.message = Some("not found".to_owned()),
+        }
+    }
+
+    pub fn search_next(&mut self, direction: Direction) {
+        let Some(needle) = self.last_search.clone() else {
+            return;
+        };
+        let from = match direction {
+            Direction::Forward => self.view.selections.primary().max(),
+            Direction::Backward => self.view.selections.primary().min(),
+        };
+
+        match self.find(&needle, from, direction) {
+            Some(at) => self.select_match(at, needle.len()),
+            None => self.message = Some("not found".to_owned()),
+        }
+    }
+
+    /// Both directions wrap, which is what every editor's find does.
+    fn find(&self, needle: &str, from: usize, direction: Direction) -> Option<usize> {
+        let text = &self.document.text;
+        match direction {
+            Direction::Forward => text.find(needle, from).or_else(|| text.find(needle, 0)),
+            Direction::Backward => {
+                last_match_before(text, needle, from).or_else(|| last_match_before(text, needle, text.len()))
+            }
+        }
+    }
+
+    fn select_match(&mut self, at: usize, length: usize) {
+        self.view.selections = Selection {
+            anchor: at,
+            head: at + length,
+            goal_column: None,
+        }
+        .into();
+        self.view.scroll_to_cursor(&self.document.text);
+    }
+
+    fn replace_all(&mut self, needle: &str, replacement: &str) {
+        if needle.is_empty() {
+            return;
+        }
+
+        let mut matches = Vec::new();
+        let mut at = 0;
+        while let Some(found) = self.document.text.find(needle, at) {
+            at = found + needle.len();
+            matches.push(Selection {
+                anchor: found,
+                head: at,
+                goal_column: None,
+            });
+        }
+
+        if matches.is_empty() {
+            self.message = Some("not found".to_owned());
+            return;
+        }
+
+        self.message = Some(format!("replaced {}", matches.len()));
+        self.view.selections = SelectionSet::from_selections(matches, 0);
+        self.insert(replacement);
+    }
+
+    fn goto_line(&mut self, line: usize) {
+        let text = &self.document.text;
+        let line = line.min(text.line_count().saturating_sub(1));
+        self.view.selections = Selection::cursor(text.line_start(line)).into();
+        self.view.scroll_to_cursor(text);
+    }
+
+    pub fn save(&mut self) {
+        if let Err(error) = self.document.save() {
+            self.message = Some(format!("{error:#}"));
         }
     }
 
@@ -291,6 +455,25 @@ impl Editor {
     }
 }
 
+fn last_match_before(text: &Text, needle: &str, limit: usize) -> Option<usize> {
+    let mut found = None;
+    let mut at = 0;
+    while let Some(next) = text.find(needle, at) {
+        if next >= limit {
+            break;
+        }
+        at = next + needle.len();
+        found = Some(next);
+    }
+    found
+}
+
+/// Line numbers are what people count from one.
+fn parse_line_number(input: &str) -> Option<usize> {
+    let line = input.trim().parse::<usize>().ok()?;
+    Some(line.saturating_sub(1))
+}
+
 /// What a copy or a cut takes for one cursor.
 fn copied_range(text: &Text, selection: &Selection, lines: bool) -> Range<usize> {
     if !lines {
@@ -354,7 +537,9 @@ mod tests {
 
     fn editor(content: &str, offset: usize) -> Editor {
         let mut editor = Editor::new(Document::from_text(Text::from_str(content)));
-        editor.view.fit(80, 25, editor.document.text.line_count());
+        editor
+            .view
+            .fit(80, 25, editor.document.text.line_count(), 1);
         editor.view.selections = SelectionSet::single(offset);
         editor
     }
@@ -572,6 +757,140 @@ mod tests {
         editor.add_cursor(Direction::Forward);
 
         assert_eq!(ranges(&editor), [3..3, 6..6, 10..10]);
+    }
+
+    fn type_into_prompt(editor: &mut Editor, typed: &str) {
+        for character in typed.chars() {
+            editor
+                .prompt
+                .as_mut()
+                .expect("prompt is open")
+                .insert(&character.to_string());
+            editor.prompt_changed();
+        }
+    }
+
+    #[test]
+    fn goto_line_moves_the_cursor_to_its_start() {
+        let mut editor = editor("one\ntwo\nthree\n", 0);
+        editor.open_prompt(Purpose::GotoLine);
+        type_into_prompt(&mut editor, "3");
+        editor.accept_prompt();
+
+        assert_eq!(editor.view.selections.primary().head, 8);
+        assert!(editor.prompt.is_none());
+    }
+
+    #[test]
+    fn goto_line_complains_about_nonsense() {
+        let mut editor = editor("one\ntwo\n", 0);
+        editor.open_prompt(Purpose::GotoLine);
+        type_into_prompt(&mut editor, "later");
+        editor.accept_prompt();
+
+        assert_eq!(editor.view.selections.primary().head, 0);
+        assert!(editor.message.is_some());
+    }
+
+    #[test]
+    fn opening_search_takes_the_selected_text() {
+        let mut editor = editor("alpha beta gamma", 0);
+        editor.view.selections = Selection {
+            anchor: 6,
+            head: 10,
+            goal_column: None,
+        }
+        .into();
+        editor.open_prompt(Purpose::Search);
+
+        let prompt = editor.prompt.as_ref().unwrap();
+        assert_eq!(prompt.contents(0), "beta");
+        // Seeded and selected, so the next keystroke replaces it.
+        assert_eq!(prompt.fields[0].selection(), 0..4);
+        // The match under the cursor stays put rather than jumping ahead.
+        assert_eq!(editor.view.selections.primary().range(), 6..10);
+    }
+
+    #[test]
+    fn a_selection_across_lines_does_not_seed_the_query() {
+        let mut editor = editor("one\ntwo", 0);
+        editor.view.selections = Selection {
+            anchor: 0,
+            head: 7,
+            goal_column: None,
+        }
+        .into();
+        editor.open_prompt(Purpose::Search);
+
+        assert_eq!(editor.prompt.as_ref().unwrap().contents(0), "");
+    }
+
+    #[test]
+    fn search_follows_every_keystroke() {
+        let mut editor = editor("alpha beta gamma", 0);
+        editor.open_prompt(Purpose::Search);
+
+        type_into_prompt(&mut editor, "b");
+        assert_eq!(editor.view.selections.primary().range(), 6..7);
+
+        type_into_prompt(&mut editor, "eta");
+        assert_eq!(editor.view.selections.primary().range(), 6..10);
+    }
+
+    #[test]
+    fn search_starts_over_from_where_it_opened() {
+        let mut editor = editor("aa ab", 0);
+        editor.open_prompt(Purpose::Search);
+
+        // Typing `a` then `b` must not chase the first match forward.
+        type_into_prompt(&mut editor, "ab");
+        assert_eq!(editor.view.selections.primary().range(), 3..5);
+    }
+
+    #[test]
+    fn escape_puts_the_cursor_back() {
+        let mut editor = editor("alpha beta", 2);
+        editor.open_prompt(Purpose::Search);
+        type_into_prompt(&mut editor, "beta");
+        assert_eq!(editor.view.selections.primary().range(), 6..10);
+
+        editor.cancel_prompt();
+        assert_eq!(editor.view.selections.primary().head, 2);
+    }
+
+    #[test]
+    fn repeating_a_search_walks_the_matches_and_wraps() {
+        let mut editor = editor("x . x . x", 0);
+        editor.open_prompt(Purpose::Search);
+        type_into_prompt(&mut editor, "x");
+        editor.accept_prompt();
+
+        editor.search_next(Direction::Forward);
+        assert_eq!(editor.view.selections.primary().range(), 4..5);
+
+        editor.search_next(Direction::Forward);
+        assert_eq!(editor.view.selections.primary().range(), 8..9);
+
+        editor.search_next(Direction::Forward);
+        assert_eq!(editor.view.selections.primary().range(), 0..1);
+
+        editor.search_next(Direction::Backward);
+        assert_eq!(editor.view.selections.primary().range(), 8..9);
+    }
+
+    #[test]
+    fn replace_changes_every_occurrence_in_one_step() {
+        let mut editor = editor("one two one", 0);
+        editor.open_prompt(Purpose::Replace);
+        type_into_prompt(&mut editor, "one");
+        editor.prompt.as_mut().unwrap().focus_next_field();
+        type_into_prompt(&mut editor, "1");
+        editor.accept_prompt();
+
+        assert_eq!(content(&editor), "1 two 1");
+
+        editor.undo();
+        assert_eq!(content(&editor), "one two one");
     }
 
     #[test]

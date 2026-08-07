@@ -58,11 +58,15 @@ impl Text {
     pub fn find(&self, needle: &str, from: usize) -> Option<usize> {
         let first = needle.chars().next()?;
         self.rope
-            .char_indices_at(from)
+            .char_indices_at(self.rope.ceil_char_boundary(from))
             .find(|&(index, character)| {
+                let end = index + needle.len();
+                // The needle's length may land inside a character of the
+                // document, which is not a match and not a valid slice.
                 character == first
-                    && index + needle.len() <= self.len()
-                    && self.rope.slice(index..index + needle.len()) == *needle
+                    && end <= self.len()
+                    && self.rope.is_char_boundary(end)
+                    && self.rope.slice(index..end) == *needle
             })
             .map(|(index, _)| index)
     }
@@ -144,6 +148,32 @@ mod tests {
         assert_eq!(text.to_string(), "привет, мир");
         text.remove(0..12);
         assert_eq!(text.to_string(), ", мир");
+    }
+
+    #[test]
+    fn finding_reports_byte_offsets() {
+        let text = Text::from_str("one two one");
+        assert_eq!(text.find("one", 0), Some(0));
+        assert_eq!(text.find("one", 1), Some(8));
+        assert_eq!(text.find("three", 0), None);
+    }
+
+    #[test]
+    fn a_needle_never_cuts_a_character_in_half() {
+        // The needle is two bytes long and `ф` starts one byte in.
+        let text = Text::from_str("aфb");
+        assert_eq!(text.find("ab", 0), None);
+
+        let text = Text::from_str("= '·'");
+        assert_eq!(text.find("''", 0), None);
+        assert_eq!(text.find("'·'", 0), Some(2));
+    }
+
+    #[test]
+    fn finding_works_around_multibyte_text() {
+        let text = Text::from_str("привет мир привет");
+        assert_eq!(text.find("мир", 0), Some(13));
+        assert_eq!(text.find("привет", 1), Some(20));
     }
 
     #[test]
