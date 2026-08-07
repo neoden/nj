@@ -19,13 +19,6 @@ pub enum LineEnding {
 }
 
 impl LineEnding {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            LineEnding::Lf => "\n",
-            LineEnding::Crlf => "\r\n",
-        }
-    }
-
     /// Mixed files are saved with whichever ending came first.
     fn detect(text: &str) -> Self {
         match text.find('\n') {
@@ -101,10 +94,9 @@ impl Document {
         };
 
         Self {
-            text,
             line_ending,
             has_bom,
-            ..Self::default()
+            ..Self::from_text(text)
         }
     }
 

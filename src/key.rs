@@ -38,10 +38,6 @@ pub struct Key {
 }
 
 impl Key {
-    pub fn new(code: KeyCode, mods: Mods) -> Self {
-        Self { code, mods }
-    }
-
     pub fn from_event(event: &KeyEvent) -> Option<Self> {
         if event.kind == KeyEventKind::Release {
             return None;
@@ -128,6 +124,10 @@ mod tests {
         KeyEvent::new(code, modifiers)
     }
 
+    fn expected(code: KeyCode, mods: Mods) -> Option<Key> {
+        Some(Key { code, mods })
+    }
+
     #[test]
     fn layouts_agree_in_length() {
         assert_eq!(CYRILLIC.chars().count(), LATIN.chars().count());
@@ -138,7 +138,7 @@ mod tests {
         let event = key(TermKeyCode::Char('ф'), KeyModifiers::CONTROL);
         assert_eq!(
             Key::from_event(&event),
-            Some(Key::new(KeyCode::Char('a'), Mods::CTRL))
+            expected(KeyCode::Char('a'), Mods::CTRL)
         );
     }
 
@@ -147,7 +147,7 @@ mod tests {
         let event = key(TermKeyCode::Char('ф'), KeyModifiers::NONE);
         assert_eq!(
             Key::from_event(&event),
-            Some(Key::new(KeyCode::Char('ф'), Mods::empty()))
+            expected(KeyCode::Char('ф'), Mods::empty())
         );
         assert_eq!(text_char(&event), Some('ф'));
     }
@@ -160,7 +160,7 @@ mod tests {
         );
         assert_eq!(
             Key::from_event(&event),
-            Some(Key::new(KeyCode::Char('k'), Mods::CTRL | Mods::SHIFT))
+            expected(KeyCode::Char('k'), Mods::CTRL | Mods::SHIFT)
         );
     }
 
@@ -169,7 +169,7 @@ mod tests {
         let event = key(TermKeyCode::BackTab, KeyModifiers::SHIFT);
         assert_eq!(
             Key::from_event(&event),
-            Some(Key::new(KeyCode::Tab, Mods::SHIFT))
+            expected(KeyCode::Tab, Mods::SHIFT)
         );
     }
 

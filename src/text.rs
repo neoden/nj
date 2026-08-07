@@ -28,10 +28,6 @@ impl Text {
         self.rope.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.rope.len() == 0
-    }
-
     /// A trailing break opens a new empty last line, the way editors count.
     pub fn line_count(&self) -> usize {
         self.rope.len_lines(LINES)
