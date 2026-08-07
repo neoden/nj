@@ -68,8 +68,24 @@ impl SelectionSet {
         Selection::cursor(offset).into()
     }
 
+    pub fn from_selections(selections: Vec<Selection>, primary: usize) -> Self {
+        if selections.is_empty() {
+            return Self::single(0);
+        }
+        let mut set = Self {
+            primary: primary.min(selections.len() - 1),
+            selections,
+        };
+        set.normalize();
+        set
+    }
+
     pub fn len(&self) -> usize {
         self.selections.len()
+    }
+
+    pub fn primary_index(&self) -> usize {
+        self.primary
     }
 
     pub fn primary(&self) -> Selection {

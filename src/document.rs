@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+use crate::selection::SelectionSet;
 use crate::text::Text;
+use crate::transaction::Transaction;
 
 const BOM: &str = "\u{feff}";
 
@@ -39,9 +41,19 @@ pub struct Document {
     pub path: Option<PathBuf>,
     pub line_ending: LineEnding,
     pub has_bom: bool,
+    pub modified: bool,
+    undo_stack: Vec<Transaction>,
+    redo_stack: Vec<Transaction>,
 }
 
 impl Document {
+    pub fn from_text(text: Text) -> Self {
+        Self {
+            text,
+            ..Self::default()
+        }
+    }
+
     /// A missing file opens as an empty buffer, so `ned newfile` works.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
@@ -79,15 +91,45 @@ impl Document {
 
         Self {
             text,
-            path: None,
             line_ending,
             has_bom,
+            ..Self::default()
         }
     }
 
-    pub fn save(&self) -> Result<()> {
+    /// Returns where the cursors end up.
+    pub fn apply(&mut self, transaction: Transaction) -> SelectionSet {
+        let selections = transaction.selections_after().clone();
+        let inverse = transaction.apply(&mut self.text);
+        self.undo_stack.push(inverse);
+        self.redo_stack.clear();
+        self.modified = true;
+        selections
+    }
+
+    pub fn undo(&mut self) -> Option<SelectionSet> {
+        let transaction = self.undo_stack.pop()?;
+        let selections = transaction.selections_after().clone();
+        let inverse = transaction.apply(&mut self.text);
+        self.redo_stack.push(inverse);
+        self.modified = true;
+        Some(selections)
+    }
+
+    pub fn redo(&mut self) -> Option<SelectionSet> {
+        let transaction = self.redo_stack.pop()?;
+        let selections = transaction.selections_after().clone();
+        let inverse = transaction.apply(&mut self.text);
+        self.undo_stack.push(inverse);
+        self.modified = true;
+        Some(selections)
+    }
+
+    pub fn save(&mut self) -> Result<()> {
         let path = self.path.as_ref().context("document has no path")?;
-        fs::write(path, self.encode()).with_context(|| format!("cannot write {}", path.display()))
+        fs::write(path, self.encode()).with_context(|| format!("cannot write {}", path.display()))?;
+        self.modified = false;
+        Ok(())
     }
 
     fn encode(&self) -> String {

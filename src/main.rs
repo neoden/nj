@@ -1,4 +1,5 @@
 mod document;
+mod editor;
 mod key;
 mod layout;
 mod movement;
@@ -6,21 +7,22 @@ mod render;
 mod selection;
 mod terminal;
 mod text;
+mod transaction;
 mod view;
 
 use std::io;
 
 use anyhow::Result;
 use crossterm::event::{
-    self, Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    self, Event, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
 use crate::document::Document;
+use crate::editor::Editor;
 use crate::key::{Key, KeyCode, Mods};
 use crate::movement::{Direction, Motion};
 use crate::selection::{Selection, SelectionSet};
 use crate::terminal::Terminal;
-use crate::view::View;
 
 const MOUSE_SCROLL_LINES: isize = 3;
 
@@ -33,31 +35,35 @@ fn main() -> Result<()> {
     };
 
     let term = Terminal::enter()?;
-    let result = run(&term, &document);
+    let result = run(&term, &mut Editor::new(document));
     drop(term);
     result
 }
 
-fn run(term: &Terminal, document: &Document) -> Result<()> {
+fn run(term: &Terminal, editor: &mut Editor) -> Result<()> {
     let mut out = io::stdout();
-    let mut view = View::default();
 
     loop {
         let (width, height) = crossterm::terminal::size()?;
-        view.fit(
+        editor.view.fit(
             width as usize,
             height as usize,
-            document.text.line_count(),
+            editor.document.text.line_count(),
         );
-        render::draw(&mut out, document, &view, &status(term, document, &view))?;
+        render::draw(
+            &mut out,
+            &editor.document,
+            &editor.view,
+            &status(term, editor),
+        )?;
 
         match event::read()? {
             Event::Key(event) => match Key::from_event(&event) {
                 Some(key) if is_quit(key) => return Ok(()),
-                Some(key) => handle_key(key, &mut view, document),
+                Some(key) => handle_key(key, &event, editor),
                 None => {}
             },
-            Event::Mouse(mouse) => handle_mouse(mouse, &mut view, document),
+            Event::Mouse(mouse) => handle_mouse(mouse, editor),
             _ => {}
         }
     }
@@ -68,42 +74,66 @@ fn is_quit(key: Key) -> bool {
 }
 
 /// Temporary bindings: these become commands once the keymap exists.
-fn handle_key(key: Key, view: &mut View, document: &Document) {
+fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
     use Direction::{Backward, Forward};
 
-    let text = &document.text;
     let extend = key.mods.contains(Mods::SHIFT);
     let ctrl = key.mods.contains(Mods::CTRL);
-    let page = view.height.saturating_sub(1);
+    let page = editor.view.height.saturating_sub(1);
 
     match key.code {
-        KeyCode::Left if ctrl => view.move_selections(text, Motion::Word(Backward), extend),
-        KeyCode::Right if ctrl => view.move_selections(text, Motion::Word(Forward), extend),
-        KeyCode::Left => view.move_selections(text, Motion::Grapheme(Backward), extend),
-        KeyCode::Right => view.move_selections(text, Motion::Grapheme(Forward), extend),
-        KeyCode::Up => view.move_selections(text, Motion::Row(Backward), extend),
-        KeyCode::Down => view.move_selections(text, Motion::Row(Forward), extend),
-        KeyCode::Home if ctrl => view.move_selections(text, Motion::Document(Backward), extend),
-        KeyCode::End if ctrl => view.move_selections(text, Motion::Document(Forward), extend),
-        KeyCode::Home => view.move_selections(text, Motion::LineEdge(Backward), extend),
-        KeyCode::End => view.move_selections(text, Motion::LineEdge(Forward), extend),
+        KeyCode::Backspace if ctrl => editor.delete(Motion::Word(Backward)),
+        KeyCode::Delete if ctrl => editor.delete(Motion::Word(Forward)),
+        KeyCode::Backspace => editor.delete(Motion::Grapheme(Backward)),
+        KeyCode::Delete => editor.delete(Motion::Grapheme(Forward)),
+        KeyCode::Enter => editor.insert("\n"),
+        KeyCode::Tab => editor.insert("\t"),
+
+        KeyCode::Char('z') if ctrl && extend => editor.redo(),
+        KeyCode::Char('y') if ctrl => editor.redo(),
+        KeyCode::Char('z') if ctrl => editor.undo(),
+        KeyCode::Char('s') if ctrl => {
+            let _ = editor.document.save();
+        }
+
+        KeyCode::Left if ctrl => editor.move_selections(Motion::Word(Backward), extend),
+        KeyCode::Right if ctrl => editor.move_selections(Motion::Word(Forward), extend),
+        KeyCode::Left => editor.move_selections(Motion::Grapheme(Backward), extend),
+        KeyCode::Right => editor.move_selections(Motion::Grapheme(Forward), extend),
+        KeyCode::Up => editor.move_selections(Motion::Row(Backward), extend),
+        KeyCode::Down => editor.move_selections(Motion::Row(Forward), extend),
+        KeyCode::Home if ctrl => editor.move_selections(Motion::Document(Backward), extend),
+        KeyCode::End if ctrl => editor.move_selections(Motion::Document(Forward), extend),
+        KeyCode::Home => editor.move_selections(Motion::LineEdge(Backward), extend),
+        KeyCode::End => editor.move_selections(Motion::LineEdge(Forward), extend),
         KeyCode::PageUp => {
             for _ in 0..page {
-                view.move_selections(text, Motion::Row(Backward), extend);
+                editor.move_selections(Motion::Row(Backward), extend);
             }
         }
         KeyCode::PageDown => {
             for _ in 0..page {
-                view.move_selections(text, Motion::Row(Forward), extend);
+                editor.move_selections(Motion::Row(Forward), extend);
             }
         }
-        KeyCode::Esc => view.selections.collapse_to_primary(),
-        _ => {}
+
+        KeyCode::Esc => editor.view.selections.collapse_to_primary(),
+        _ => {
+            if let Some(character) = key::text_char(event) {
+                insert_char(editor, character);
+            }
+        }
     }
 }
 
-fn handle_mouse(mouse: MouseEvent, view: &mut View, document: &Document) {
-    let text = &document.text;
+fn insert_char(editor: &mut Editor, character: char) {
+    let mut buffer = [0u8; 4];
+    editor.insert(character.encode_utf8(&mut buffer));
+}
+
+fn handle_mouse(mouse: MouseEvent, editor: &mut Editor) {
+    let view = &mut editor.view;
+    let text = &editor.document.text;
     let column = (mouse.column as usize).saturating_sub(view.gutter);
     let row = mouse.row as usize;
 
@@ -112,9 +142,8 @@ fn handle_mouse(mouse: MouseEvent, view: &mut View, document: &Document) {
         MouseEventKind::ScrollDown => view.scroll_lines(MOUSE_SCROLL_LINES, text),
         MouseEventKind::Down(MouseButton::Left) if row < view.height => {
             let offset = view.offset_at_screen(text, row, column);
-            let cursor = Selection::cursor(offset);
             match mouse.modifiers.contains(KeyModifiers::ALT) {
-                true => view.selections.push(cursor),
+                true => view.selections.push(Selection::cursor(offset)),
                 false => view.selections = SelectionSet::single(offset),
             }
         }
@@ -131,20 +160,25 @@ fn handle_mouse(mouse: MouseEvent, view: &mut View, document: &Document) {
     }
 }
 
-fn status(term: &Terminal, document: &Document, view: &View) -> String {
+fn status(term: &Terminal, editor: &Editor) -> String {
+    let document = &editor.document;
     let path = document
         .path
         .as_ref()
         .map_or("[scratch]".to_owned(), |path| path.display().to_string());
+    let path = match document.modified {
+        true => format!("{path} •"),
+        false => path,
+    };
     let keyboard = match term.keyboard_enhanced {
         true => "enhanced",
         false => "legacy (some keys unavailable)",
     };
 
-    let head = view.selections.primary().head;
+    let head = editor.view.selections.primary().head;
     let line = document.text.line_of(head);
     let column = head - document.text.line_start(line);
-    let cursors = match view.selections.len() {
+    let cursors = match editor.view.selections.len() {
         1 => String::new(),
         count => format!(" · {count} cursors"),
     };

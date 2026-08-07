@@ -142,11 +142,6 @@ impl View {
         0
     }
 
-    pub fn visible_lines(&self, text: &Text) -> Range<usize> {
-        let end = self.top_line.saturating_add(self.height).min(text.line_count());
-        self.top_line..end
-    }
-
     /// Scrolling stops with the last line at the bottom of the screen; there
     /// is no empty space past the end of the document.
     pub fn max_top_line(&self, text: &Text) -> usize {
@@ -158,28 +153,6 @@ impl View {
             .top_line
             .saturating_add_signed(delta)
             .min(self.max_top_line(text));
-    }
-
-    /// Bounded by the widest line currently on screen, so scrolling right
-    /// cannot wander into empty space.
-    pub fn scroll_columns(&mut self, delta: isize, text: &Text) {
-        let widest = self
-            .visible_lines(text)
-            .map(|line| layout::line_width(&text.line_str(line), self.tab_width))
-            .max()
-            .unwrap_or(0);
-        let limit = widest.saturating_sub(self.width);
-        self.left_column = self.left_column.saturating_add_signed(delta).min(limit);
-    }
-
-    pub fn scroll_to_top(&mut self) {
-        self.top_line = 0;
-        self.left_column = 0;
-    }
-
-    pub fn scroll_to_bottom(&mut self, text: &Text) {
-        self.top_line = self.max_top_line(text);
-        self.left_column = 0;
     }
 
     pub fn move_selections(&mut self, text: &Text, motion: Motion, extend: bool) {
@@ -357,7 +330,8 @@ impl View {
         runs.finish()
     }
 
-    pub fn visible_text(&self, line: &str, start_column: usize) -> String {
+    #[cfg(test)]
+    fn visible_text(&self, line: &str, start_column: usize) -> String {
         self.visible_runs(line, start_column, &LineHighlight::default())
             .into_iter()
             .map(|(text, _)| text)
@@ -416,17 +390,25 @@ mod tests {
         assert_eq!(view.width, 75);
     }
 
+    fn visible_lines(view: &View, text: &Text) -> Range<usize> {
+        let rows: Vec<_> = view.rows(text).collect();
+        match (rows.first(), rows.last()) {
+            (Some(first), Some(last)) => first.line..last.line + 1,
+            _ => 0..0,
+        }
+    }
+
     #[test]
     fn visible_lines_stop_at_the_end_of_the_document() {
         let text = Text::from_str("1\n2\n3\n");
         let mut view = view(80, 25);
-        assert_eq!(view.visible_lines(&text), 0..4);
+        assert_eq!(visible_lines(&view, &text), 0..4);
 
         view.height = 2;
-        assert_eq!(view.visible_lines(&text), 0..2);
+        assert_eq!(visible_lines(&view, &text), 0..2);
 
         view.top_line = 3;
-        assert_eq!(view.visible_lines(&text), 3..4);
+        assert_eq!(visible_lines(&view, &text), 3..4);
     }
 
     #[test]
@@ -440,10 +422,8 @@ mod tests {
 
         view.scroll_lines(99, &text);
         assert_eq!(view.top_line, 6);
-        assert_eq!(view.visible_lines(&text), 6..10);
+        assert_eq!(visible_lines(&view, &text), 6..10);
 
-        view.scroll_to_bottom(&text);
-        assert_eq!(view.top_line, 6);
     }
 
     #[test]
@@ -456,14 +436,15 @@ mod tests {
     }
 
     #[test]
-    fn horizontal_scrolling_stops_at_the_widest_visible_line() {
-        let text = Text::from_str("short\nmuch longer line");
-        let mut view = view(10, 25);
+    fn the_screen_scrolls_sideways_for_the_cursor() {
+        let text = Text::from_str("a very long line indeed");
+        let mut view = view_of(&text, 0);
+        view.width = 10;
 
-        view.scroll_columns(99, &text);
-        assert_eq!(view.left_column, 16 - view.width);
+        view.move_selections(&text, Motion::LineEdge(Direction::Forward), false);
+        assert_eq!(view.left_column, text.len() + 1 - view.width);
 
-        view.scroll_columns(-99, &text);
+        view.move_selections(&text, Motion::LineEdge(Direction::Backward), false);
         assert_eq!(view.left_column, 0);
     }
 
