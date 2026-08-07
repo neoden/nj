@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::text::Text;
@@ -105,6 +107,36 @@ pub fn word(text: &Text, offset: usize, direction: Direction) -> usize {
     }
 
     offset
+}
+
+/// The word an offset sits in or touches. A cursor resting on whitespace
+/// takes the word behind it, which is where it usually stands after typing.
+pub fn word_around(text: &Text, offset: usize) -> Range<usize> {
+    let solid = |class: Option<Class>| class.filter(|&class| class != Class::Whitespace);
+    let class = solid(Class::at(text, offset)).or_else(|| {
+        solid(step(text, offset, Direction::Backward).and_then(|previous| Class::at(text, previous)))
+    });
+    let Some(class) = class else {
+        return offset..offset;
+    };
+
+    let mut start = offset;
+    while let Some(previous) = step(text, start, Direction::Backward) {
+        if Class::at(text, previous) != Some(class) {
+            break;
+        }
+        start = previous;
+    }
+
+    let mut end = offset;
+    while Class::at(text, end) == Some(class) {
+        match step(text, end, Direction::Forward) {
+            Some(next) => end = next,
+            None => break,
+        }
+    }
+
+    start..end
 }
 
 fn step(text: &Text, offset: usize, direction: Direction) -> Option<usize> {

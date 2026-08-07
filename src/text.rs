@@ -59,6 +59,18 @@ impl Text {
         (byte < self.len()).then(|| self.rope.char(byte))
     }
 
+    pub fn find(&self, needle: &str, from: usize) -> Option<usize> {
+        let first = needle.chars().next()?;
+        self.rope
+            .char_indices_at(from)
+            .find(|&(index, character)| {
+                character == first
+                    && index + needle.len() <= self.len()
+                    && self.rope.slice(index..index + needle.len()) == *needle
+            })
+            .map(|(index, _)| index)
+    }
+
     pub fn line_start(&self, line: usize) -> usize {
         self.rope.line_to_byte_idx(line, LINES)
     }

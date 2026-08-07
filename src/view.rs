@@ -219,6 +219,42 @@ impl View {
         (head, Some(goal))
     }
 
+    /// Grows the column of cursors from whichever end is being extended.
+    pub fn add_cursor(&mut self, text: &Text, direction: Direction) {
+        let edge = match direction {
+            Direction::Backward => self.selections.iter().next(),
+            Direction::Forward => self.selections.iter().last(),
+        };
+        let Some(&edge) = edge else {
+            return;
+        };
+
+        let row = self.row_of(text, edge.head);
+        let target = match direction {
+            Direction::Backward => self.previous_row(text, row),
+            Direction::Forward => self.next_row(text, row),
+        };
+        let Some(target) = target else {
+            return;
+        };
+
+        let content = text.line_str(row.line);
+        let column =
+            layout::column_of_byte(&content, edge.head - text.line_start(row.line), self.tab_width);
+        let goal = edge.goal_column.unwrap_or(column - row.start_column);
+
+        let content = text.line_str(target.line);
+        let head = text.line_start(target.line)
+            + layout::byte_at_column(&content, target.start_column + goal, self.tab_width);
+
+        self.selections.push(Selection {
+            anchor: head,
+            head,
+            goal_column: Some(goal),
+        });
+        self.scroll_to_cursor(text);
+    }
+
     /// Brings the primary cursor back on screen, keeping a margin above and
     /// below it where the document allows.
     pub fn scroll_to_cursor(&mut self, text: &Text) {

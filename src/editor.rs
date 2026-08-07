@@ -1,5 +1,7 @@
 use crate::document::{Document, EditKind};
-use crate::movement::{self, Class, Motion};
+use crate::movement::{self, Class, Direction, Motion};
+use crate::selection::{Selection, SelectionSet};
+use crate::text::Text;
 use crate::transaction::Transaction;
 use crate::view::View;
 
@@ -60,6 +62,83 @@ impl Editor {
         }
     }
 
+    pub fn add_cursor(&mut self, direction: Direction) {
+        self.view.add_cursor(&self.document.text, direction);
+    }
+
+    /// First press selects the word under each cursor; every press after that
+    /// adds the next occurrence of it, wrapping around the document.
+    pub fn select_next_occurrence(&mut self) {
+        let Some(search) = self.take_search() else {
+            return;
+        };
+
+        let text = &self.document.text;
+        let from = self.view.selections.primary().max();
+        let Some(at) = search
+            .find(text, from)
+            .or_else(|| search.find(text, 0))
+        else {
+            return;
+        };
+
+        let found = search.selection_at(at);
+        if self
+            .view
+            .selections
+            .iter()
+            .any(|selection| selection.range() == found.range())
+        {
+            return;
+        }
+
+        self.view.selections.push(found);
+        self.view.scroll_to_cursor(&self.document.text);
+    }
+
+    pub fn select_all_occurrences(&mut self) {
+        let Some(search) = self.take_search() else {
+            return;
+        };
+
+        let text = &self.document.text;
+        let mut selections = Vec::new();
+        let mut at = 0;
+        while let Some(found) = search.find(text, at) {
+            at = found + search.needle.len();
+            selections.push(search.selection_at(found));
+        }
+
+        self.view.selections = SelectionSet::from_selections(selections, 0);
+        self.view.scroll_to_cursor(&self.document.text);
+    }
+
+    /// Bare cursors first expand to the word they touch; only once something
+    /// is selected is there anything to search for.
+    fn take_search(&mut self) -> Option<Search> {
+        let text = &self.document.text;
+        if self.view.selections.iter().any(Selection::is_empty) {
+            self.view.selections = self.view.selections.mapped(|selection| {
+                if !selection.is_empty() {
+                    return selection;
+                }
+                let word = movement::word_around(text, selection.head);
+                Selection {
+                    anchor: word.start,
+                    head: word.end,
+                    goal_column: None,
+                }
+            });
+            return None;
+        }
+
+        let range = self.view.selections.primary().range();
+        Some(Search {
+            whole_word: movement::word_around(text, range.start) == range,
+            needle: text.slice(range).to_string(),
+        })
+    }
+
     pub fn undo(&mut self) {
         if let Some(selections) = self.document.undo() {
             self.view.selections = selections;
@@ -77,6 +156,41 @@ impl Editor {
     fn apply(&mut self, transaction: Transaction, kind: EditKind) {
         self.view.selections = self.document.apply(transaction, kind);
         self.view.scroll_to_cursor(&self.document.text);
+    }
+}
+
+struct Search {
+    needle: String,
+    /// A selection that covers exactly one word searches for that word, not
+    /// for the letters in it: renaming `i` should not match every `if`.
+    whole_word: bool,
+}
+
+impl Search {
+    fn find(&self, text: &Text, from: usize) -> Option<usize> {
+        let mut at = from;
+        loop {
+            let found = text.find(&self.needle, at)?;
+            if !self.whole_word || self.is_whole_word(text, found) {
+                return Some(found);
+            }
+            at = movement::grapheme(text, found, Direction::Forward);
+        }
+    }
+
+    fn is_whole_word(&self, text: &Text, at: usize) -> bool {
+        let before = movement::grapheme(text, at, Direction::Backward);
+        let word_before = before != at && text.char_at(before).map(Class::of) == Some(Class::Word);
+        let word_after = text.char_at(at + self.needle.len()).map(Class::of) == Some(Class::Word);
+        !word_before && !word_after
+    }
+
+    fn selection_at(&self, at: usize) -> Selection {
+        Selection {
+            anchor: at,
+            head: at + self.needle.len(),
+            goal_column: None,
+        }
     }
 }
 
@@ -205,6 +319,117 @@ mod tests {
             .map(|selection| selection.head)
             .collect();
         assert_eq!(heads, [1, 3]);
+    }
+
+    fn ranges(editor: &Editor) -> Vec<std::ops::Range<usize>> {
+        editor
+            .view
+            .selections
+            .iter()
+            .map(Selection::range)
+            .collect()
+    }
+
+    #[test]
+    fn the_first_press_selects_the_word_under_the_cursor() {
+        let mut editor = editor("foo bar foo", 1);
+        editor.select_next_occurrence();
+
+        assert_eq!(editor.view.selections.len(), 1);
+        assert_eq!(editor.view.selections.primary().range(), 0..3);
+    }
+
+    #[test]
+    fn a_cursor_resting_after_a_word_still_finds_it() {
+        let mut editor = editor("foo bar", 3);
+        editor.select_next_occurrence();
+
+        assert_eq!(editor.view.selections.primary().range(), 0..3);
+    }
+
+    #[test]
+    fn further_presses_add_occurrences_and_wrap() {
+        let mut editor = editor("foo bar foo baz foo", 0);
+        editor.select_next_occurrence();
+        editor.select_next_occurrence();
+        assert_eq!(ranges(&editor), [0..3, 8..11]);
+
+        editor.select_next_occurrence();
+        assert_eq!(ranges(&editor), [0..3, 8..11, 16..19]);
+
+        // Everything is selected, so the wrap finds nothing new.
+        editor.select_next_occurrence();
+        assert_eq!(ranges(&editor), [0..3, 8..11, 16..19]);
+    }
+
+    #[test]
+    fn a_whole_word_selection_skips_words_containing_it() {
+        let mut editor = editor("foo foobar foo", 0);
+        editor.select_next_occurrence();
+        editor.select_next_occurrence();
+
+        assert_eq!(ranges(&editor), [0..3, 11..14]);
+    }
+
+    #[test]
+    fn a_partial_selection_matches_anywhere() {
+        let mut editor = editor("foo foobar", 0);
+        editor.view.selections = Selection {
+            anchor: 0,
+            head: 2,
+            goal_column: None,
+        }
+        .into();
+        editor.select_next_occurrence();
+
+        assert_eq!(ranges(&editor), [0..2, 4..6]);
+    }
+
+    #[test]
+    fn selecting_all_occurrences_replaces_the_cursors() {
+        let mut editor = editor("x = x + x", 0);
+        editor.select_next_occurrence();
+        editor.select_all_occurrences();
+
+        assert_eq!(ranges(&editor), [0..1, 4..5, 8..9]);
+    }
+
+    #[test]
+    fn every_occurrence_can_be_edited_at_once() {
+        let mut editor = editor("id, id, id", 0);
+        editor.select_next_occurrence();
+        editor.select_all_occurrences();
+        editor.insert("key");
+
+        assert_eq!(content(&editor), "key, key, key");
+    }
+
+    #[test]
+    fn cursors_stack_up_and_down() {
+        let mut editor = editor("aaaa\nbbbb\ncccc", 6);
+        editor.add_cursor(Direction::Forward);
+        assert_eq!(ranges(&editor), [6..6, 11..11]);
+
+        editor.add_cursor(Direction::Backward);
+        assert_eq!(ranges(&editor), [1..1, 6..6, 11..11]);
+    }
+
+    #[test]
+    fn cursors_do_not_stack_past_the_document() {
+        let mut editor = editor("only", 2);
+        editor.add_cursor(Direction::Backward);
+        editor.add_cursor(Direction::Forward);
+
+        assert_eq!(editor.view.selections.len(), 1);
+    }
+
+    #[test]
+    fn a_stacked_cursor_keeps_the_goal_column_over_a_short_line() {
+        let mut editor = editor("aaaa\nx\ncccc", 3);
+        editor.add_cursor(Direction::Forward);
+        editor.add_cursor(Direction::Forward);
+
+        assert_eq!(ranges(&editor), [3..3, 6..6, 10..10]);
     }
 
     fn type_text(editor: &mut Editor, text: &str) {

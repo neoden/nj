@@ -79,6 +79,7 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
 
     let extend = key.mods.contains(Mods::SHIFT);
     let ctrl = key.mods.contains(Mods::CTRL);
+    let alt = key.mods.contains(Mods::ALT);
     let page = editor.view.height.saturating_sub(1);
 
     match key.code {
@@ -95,6 +96,11 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Char('s') if ctrl => {
             let _ = editor.document.save();
         }
+
+        KeyCode::Char('d') if ctrl => editor.select_next_occurrence(),
+        KeyCode::Char('l') if ctrl && extend => editor.select_all_occurrences(),
+        KeyCode::Up if ctrl && alt => editor.add_cursor(Backward),
+        KeyCode::Down if ctrl && alt => editor.add_cursor(Forward),
 
         KeyCode::Left if ctrl => editor.move_selections(Motion::Word(Backward), extend),
         KeyCode::Right if ctrl => editor.move_selections(Motion::Word(Forward), extend),
