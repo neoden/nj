@@ -1,5 +1,5 @@
-use crate::document::Document;
-use crate::movement::{self, Motion};
+use crate::document::{Document, EditKind};
+use crate::movement::{self, Class, Motion};
 use crate::transaction::Transaction;
 use crate::view::View;
 
@@ -25,7 +25,7 @@ impl Editor {
         let transaction = Transaction::edit(&self.view.selections, |selection| {
             (selection.range(), inserted.to_owned())
         });
-        self.apply(transaction);
+        self.apply(transaction, insert_kind(inserted));
     }
 
     /// A cursor with nothing selected eats the neighbouring text instead.
@@ -51,8 +51,12 @@ impl Editor {
             (range, String::new())
         });
 
+        let kind = match motion {
+            Motion::Grapheme(direction) => EditKind::Delete(direction),
+            _ => EditKind::Other,
+        };
         if !transaction.is_empty() {
-            self.apply(transaction);
+            self.apply(transaction, kind);
         }
     }
 
@@ -70,9 +74,18 @@ impl Editor {
         }
     }
 
-    fn apply(&mut self, transaction: Transaction) {
-        self.view.selections = self.document.apply(transaction);
+    fn apply(&mut self, transaction: Transaction, kind: EditKind) {
+        self.view.selections = self.document.apply(transaction, kind);
         self.view.scroll_to_cursor(&self.document.text);
+    }
+}
+
+/// Only single characters join a group; a paste or a line break stands alone.
+fn insert_kind(inserted: &str) -> EditKind {
+    let mut characters = inserted.chars();
+    match (characters.next(), characters.next()) {
+        (Some(character), None) if character != '\n' => EditKind::Insert(Class::of(character)),
+        _ => EditKind::Other,
     }
 }
 
@@ -192,6 +205,103 @@ mod tests {
             .map(|selection| selection.head)
             .collect();
         assert_eq!(heads, [1, 3]);
+    }
+
+    fn type_text(editor: &mut Editor, text: &str) {
+        for character in text.chars() {
+            editor.insert(&character.to_string());
+        }
+    }
+
+    #[test]
+    fn typing_a_word_undoes_in_one_step() {
+        let mut editor = editor("", 0);
+        type_text(&mut editor, "hello");
+
+        editor.undo();
+        assert_eq!(content(&editor), "");
+    }
+
+    #[test]
+    fn a_word_boundary_starts_a_new_step() {
+        let mut editor = editor("", 0);
+        type_text(&mut editor, "foo bar");
+
+        editor.undo();
+        assert_eq!(content(&editor), "foo ");
+        editor.undo();
+        assert_eq!(content(&editor), "foo");
+        editor.undo();
+        assert_eq!(content(&editor), "");
+    }
+
+    #[test]
+    fn moving_the_cursor_starts_a_new_step() {
+        let mut editor = editor("", 0);
+        type_text(&mut editor, "ab");
+        editor.move_selections(Motion::Grapheme(Direction::Backward), false);
+        editor.insert("c");
+        assert_eq!(content(&editor), "acb");
+
+        editor.undo();
+        assert_eq!(content(&editor), "ab");
+    }
+
+    #[test]
+    fn a_line_break_stands_alone() {
+        let mut editor = editor("", 0);
+        type_text(&mut editor, "ab");
+        editor.insert("\n");
+        type_text(&mut editor, "cd");
+
+        editor.undo();
+        assert_eq!(content(&editor), "ab\n");
+        editor.undo();
+        assert_eq!(content(&editor), "ab");
+    }
+
+    #[test]
+    fn pasted_text_stands_alone() {
+        let mut editor = editor("", 0);
+        type_text(&mut editor, "ab");
+        editor.insert("pasted");
+
+        editor.undo();
+        assert_eq!(content(&editor), "ab");
+    }
+
+    #[test]
+    fn backspaces_undo_together() {
+        let mut editor = editor("hello", 5);
+        for _ in 0..3 {
+            editor.delete(Motion::Grapheme(Direction::Backward));
+        }
+        assert_eq!(content(&editor), "he");
+
+        editor.undo();
+        assert_eq!(content(&editor), "hello");
+    }
+
+    #[test]
+    fn typing_after_deleting_starts_a_new_step() {
+        let mut editor = editor("ab", 2);
+        editor.delete(Motion::Grapheme(Direction::Backward));
+        editor.insert("c");
+
+        editor.undo();
+        assert_eq!(content(&editor), "a");
+    }
+
+    #[test]
+    fn redo_restores_a_whole_group() {
+        let mut editor = editor("", 0);
+        type_text(&mut editor, "word");
+        editor.undo();
+        assert_eq!(content(&editor), "");
+
+        editor.redo();
+        assert_eq!(content(&editor), "word");
+        assert_eq!(editor.view.selections.primary().head, 4);
     }
 
     #[test]

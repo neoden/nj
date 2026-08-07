@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+use crate::movement::{Class, Direction};
 use crate::selection::SelectionSet;
 use crate::text::Text;
 use crate::transaction::Transaction;
@@ -42,8 +43,18 @@ pub struct Document {
     pub line_ending: LineEnding,
     pub has_bom: bool,
     pub modified: bool,
-    undo_stack: Vec<Transaction>,
-    redo_stack: Vec<Transaction>,
+    undo_stack: Vec<Vec<Transaction>>,
+    redo_stack: Vec<Vec<Transaction>>,
+    last_edit: Option<(EditKind, SelectionSet)>,
+}
+
+/// What an edit was, for deciding whether the next one continues it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditKind {
+    Insert(Class),
+    Delete(Direction),
+    /// Never joins anything: pastes, line breaks, word deletions.
+    Other,
 }
 
 impl Document {
@@ -98,31 +109,62 @@ impl Document {
     }
 
     /// Returns where the cursors end up.
-    pub fn apply(&mut self, transaction: Transaction) -> SelectionSet {
+    pub fn apply(&mut self, transaction: Transaction, kind: EditKind) -> SelectionSet {
         let selections = transaction.selections_after().clone();
+        let joins = self.joins_previous(&transaction, kind);
         let inverse = transaction.apply(&mut self.text);
-        self.undo_stack.push(inverse);
+
+        match self.undo_stack.last_mut().filter(|_| joins) {
+            // Groups are kept in the order they will be applied, and undoing
+            // runs newest first.
+            Some(group) => group.insert(0, inverse),
+            None => self.undo_stack.push(vec![inverse]),
+        }
+
         self.redo_stack.clear();
+        self.last_edit = Some((kind, selections.clone()));
         self.modified = true;
         selections
     }
 
+    /// Typing continues a group only while nothing moved the cursors and the
+    /// edit is still of the same nature — the word boundary ends it.
+    fn joins_previous(&self, transaction: &Transaction, kind: EditKind) -> bool {
+        let Some((last_kind, last_selections)) = &self.last_edit else {
+            return false;
+        };
+        kind != EditKind::Other && *last_kind == kind && last_selections == transaction.selections_before()
+    }
+
     pub fn undo(&mut self) -> Option<SelectionSet> {
-        let transaction = self.undo_stack.pop()?;
-        let selections = transaction.selections_after().clone();
-        let inverse = transaction.apply(&mut self.text);
+        let group = self.undo_stack.pop()?;
+        let (inverse, selections) = self.apply_group(group);
         self.redo_stack.push(inverse);
+        self.last_edit = None;
         self.modified = true;
         Some(selections)
     }
 
     pub fn redo(&mut self) -> Option<SelectionSet> {
-        let transaction = self.redo_stack.pop()?;
-        let selections = transaction.selections_after().clone();
-        let inverse = transaction.apply(&mut self.text);
+        let group = self.redo_stack.pop()?;
+        let (inverse, selections) = self.apply_group(group);
         self.undo_stack.push(inverse);
+        self.last_edit = None;
         self.modified = true;
         Some(selections)
+    }
+
+    fn apply_group(&mut self, group: Vec<Transaction>) -> (Vec<Transaction>, SelectionSet) {
+        let mut selections = SelectionSet::single(0);
+        let mut inverse = Vec::with_capacity(group.len());
+
+        for transaction in group {
+            selections = transaction.selections_after().clone();
+            inverse.push(transaction.apply(&mut self.text));
+        }
+
+        inverse.reverse();
+        (inverse, selections)
     }
 
     pub fn save(&mut self) -> Result<()> {

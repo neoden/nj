@@ -45,6 +45,10 @@ impl Transaction {
         }
     }
 
+    pub fn selections_before(&self) -> &SelectionSet {
+        &self.before
+    }
+
     pub fn selections_after(&self) -> &SelectionSet {
         &self.after
     }

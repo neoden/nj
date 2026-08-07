@@ -20,14 +20,14 @@ pub enum Motion {
 /// Word movement stops wherever the class changes, so `foo.bar` is three
 /// stops rather than one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Class {
+pub enum Class {
     Whitespace,
     Word,
     Punctuation,
 }
 
 impl Class {
-    fn of(character: char) -> Self {
+    pub fn of(character: char) -> Self {
         if character.is_whitespace() {
             Class::Whitespace
         } else if character.is_alphanumeric() || character == '_' {
