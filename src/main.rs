@@ -123,7 +123,8 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
             }
         }
 
-        KeyCode::Esc => editor.view.selections.collapse_to_primary(),
+        KeyCode::Esc if editor.view.selections.len() > 1 => editor.remove_secondary_cursors(),
+        KeyCode::Esc => editor.cancel_selection(),
         _ => {
             if let Some(character) = key::text_char(event) {
                 insert_char(editor, character);

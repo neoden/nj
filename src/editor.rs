@@ -62,6 +62,15 @@ impl Editor {
         }
     }
 
+    pub fn remove_secondary_cursors(&mut self) {
+        self.view.selections.collapse_to_primary();
+        self.view.scroll_to_cursor(&self.document.text);
+    }
+
+    pub fn cancel_selection(&mut self) {
+        self.view.selections.collapse_to_cursors();
+    }
+
     pub fn add_cursor(&mut self, direction: Direction) {
         self.view.add_cursor(&self.document.text, direction);
     }

@@ -120,6 +120,10 @@ impl SelectionSet {
         self.primary = 0;
     }
 
+    pub fn collapse_to_cursors(&mut self) {
+        *self = self.mapped(|selection| Selection::cursor(selection.head));
+    }
+
     fn normalize(&mut self) {
         let primary_head = self.selections[self.primary].head;
         self.selections.sort_by_key(|s| (s.min(), s.max()));
@@ -233,11 +237,22 @@ mod tests {
     }
 
     #[test]
-    fn escape_leaves_one_cursor() {
+    fn removing_secondary_cursors_keeps_the_primary_selection() {
         let mut set = SelectionSet::single(0);
         set.push(selection(20, 25));
         set.collapse_to_primary();
+
         assert_eq!(set.len(), 1);
         assert_eq!(set.primary(), selection(20, 25));
+    }
+
+    #[test]
+    fn cancelling_a_selection_leaves_a_cursor_at_its_head() {
+        let mut set = set(&[selection(4, 10), selection(20, 15)]);
+        set.collapse_to_cursors();
+
+        let heads: Vec<_> = set.iter().map(|selection| selection.head).collect();
+        assert_eq!(heads, [10, 15]);
+        assert!(set.iter().all(Selection::is_empty));
     }
 }
