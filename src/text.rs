@@ -55,6 +55,10 @@ impl Text {
         }
     }
 
+    pub fn char_at(&self, byte: usize) -> Option<char> {
+        (byte < self.len()).then(|| self.rope.char(byte))
+    }
+
     pub fn line_start(&self, line: usize) -> usize {
         self.rope.line_to_byte_idx(line, LINES)
     }

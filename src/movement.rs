@@ -11,9 +11,35 @@ pub enum Direction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Motion {
     Grapheme(Direction),
+    Word(Direction),
     Row(Direction),
     LineEdge(Direction),
     Document(Direction),
+}
+
+/// Word movement stops wherever the class changes, so `foo.bar` is three
+/// stops rather than one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Class {
+    Whitespace,
+    Word,
+    Punctuation,
+}
+
+impl Class {
+    fn of(character: char) -> Self {
+        if character.is_whitespace() {
+            Class::Whitespace
+        } else if character.is_alphanumeric() || character == '_' {
+            Class::Word
+        } else {
+            Class::Punctuation
+        }
+    }
+
+    fn at(text: &Text, offset: usize) -> Option<Self> {
+        text.char_at(offset).map(Class::of)
+    }
 }
 
 pub fn grapheme(text: &Text, offset: usize, direction: Direction) -> usize {
@@ -34,6 +60,56 @@ pub fn grapheme(text: &Text, offset: usize, direction: Direction) -> usize {
             None => offset,
         },
     }
+}
+
+/// Forward lands after the end of a word, backward on its start — the
+/// asymmetry every editor with this binding has.
+pub fn word(text: &Text, offset: usize, direction: Direction) -> usize {
+    let mut offset = offset;
+
+    match direction {
+        Direction::Forward => {
+            while Class::at(text, offset) == Some(Class::Whitespace) {
+                match step(text, offset, direction) {
+                    Some(next) => offset = next,
+                    None => return offset,
+                }
+            }
+            let Some(class) = Class::at(text, offset) else {
+                return offset;
+            };
+            while Class::at(text, offset) == Some(class) {
+                match step(text, offset, direction) {
+                    Some(next) => offset = next,
+                    None => return offset,
+                }
+            }
+        }
+        Direction::Backward => {
+            while let Some(previous) = step(text, offset, direction) {
+                if Class::at(text, previous) != Some(Class::Whitespace) {
+                    break;
+                }
+                offset = previous;
+            }
+            let Some(class) = step(text, offset, direction).and_then(|p| Class::at(text, p)) else {
+                return offset;
+            };
+            while let Some(previous) = step(text, offset, direction) {
+                if Class::at(text, previous) != Some(class) {
+                    break;
+                }
+                offset = previous;
+            }
+        }
+    }
+
+    offset
+}
+
+fn step(text: &Text, offset: usize, direction: Direction) -> Option<usize> {
+    let next = grapheme(text, offset, direction);
+    (next != offset).then_some(next)
 }
 
 pub fn line_edge(text: &Text, offset: usize, direction: Direction) -> usize {
@@ -101,6 +177,54 @@ mod tests {
         let text = Text::from_str("ab");
         assert_eq!(grapheme(&text, 0, Backward), 0);
         assert_eq!(grapheme(&text, 2, Forward), 2);
+    }
+
+    #[test]
+    fn words_end_forwards_and_start_backwards() {
+        let text = Text::from_str("hello world");
+        assert_eq!(word(&text, 0, Forward), 5);
+        assert_eq!(word(&text, 5, Forward), 11);
+        assert_eq!(word(&text, 11, Backward), 6);
+        assert_eq!(word(&text, 6, Backward), 0);
+    }
+
+    #[test]
+    fn punctuation_is_a_word_of_its_own() {
+        let text = Text::from_str("foo.bar");
+        assert_eq!(word(&text, 0, Forward), 3);
+        assert_eq!(word(&text, 3, Forward), 4);
+        assert_eq!(word(&text, 4, Forward), 7);
+        assert_eq!(word(&text, 7, Backward), 4);
+        assert_eq!(word(&text, 4, Backward), 3);
+    }
+
+    #[test]
+    fn identifiers_stay_whole() {
+        let text = Text::from_str("foo_bar42 x");
+        assert_eq!(word(&text, 0, Forward), 9);
+    }
+
+    #[test]
+    fn words_are_not_only_latin() {
+        let text = Text::from_str("привет мир");
+        assert_eq!(word(&text, 0, Forward), 12);
+        assert_eq!(word(&text, 12, Forward), 19);
+        assert_eq!(word(&text, 19, Backward), 13);
+    }
+
+    #[test]
+    fn line_breaks_are_whitespace() {
+        let text = Text::from_str("one\n\ntwo");
+        assert_eq!(word(&text, 3, Forward), 8);
+        assert_eq!(word(&text, 8, Backward), 5);
+    }
+
+    #[test]
+    fn words_stop_at_the_document_edges() {
+        let text = Text::from_str("  x  ");
+        assert_eq!(word(&text, 5, Forward), 5);
+        assert_eq!(word(&text, 0, Backward), 0);
+        assert_eq!(word(&text, 5, Backward), 2);
     }
 
     #[test]

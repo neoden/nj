@@ -200,6 +200,7 @@ impl View {
         let (head, goal_column) = match motion {
             Motion::Row(direction) => self.move_by_row(text, &selection, direction),
             Motion::Grapheme(direction) => (movement::grapheme(text, selection.head, direction), None),
+            Motion::Word(direction) => (movement::word(text, selection.head, direction), None),
             Motion::LineEdge(direction) => (movement::line_edge(text, selection.head, direction), None),
             Motion::Document(direction) => (movement::document_edge(text, direction), None),
         };

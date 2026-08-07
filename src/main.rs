@@ -77,6 +77,8 @@ fn handle_key(key: Key, view: &mut View, document: &Document) {
     let page = view.height.saturating_sub(1);
 
     match key.code {
+        KeyCode::Left if ctrl => view.move_selections(text, Motion::Word(Backward), extend),
+        KeyCode::Right if ctrl => view.move_selections(text, Motion::Word(Forward), extend),
         KeyCode::Left => view.move_selections(text, Motion::Grapheme(Backward), extend),
         KeyCode::Right => view.move_selections(text, Motion::Grapheme(Forward), extend),
         KeyCode::Up => view.move_selections(text, Motion::Row(Backward), extend),
