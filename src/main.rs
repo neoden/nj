@@ -1,3 +1,4 @@
+mod clipboard;
 mod document;
 mod editor;
 mod key;
@@ -64,6 +65,9 @@ fn run(term: &Terminal, editor: &mut Editor) -> Result<()> {
                 None => {}
             },
             Event::Mouse(mouse) => handle_mouse(mouse, editor),
+            // Bracketed paste: the terminal hands over the whole text at once
+            // instead of replaying it as keystrokes.
+            Event::Paste(text) => editor.insert(&text),
             _ => {}
         }
     }
@@ -97,6 +101,9 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
             let _ = editor.document.save();
         }
 
+        KeyCode::Char('c') if ctrl => editor.copy(),
+        KeyCode::Char('x') if ctrl => editor.cut(),
+        KeyCode::Char('v') if ctrl => editor.paste(),
         KeyCode::Char('d') if ctrl => editor.select_next_occurrence(),
         KeyCode::Char('l') if ctrl && extend => editor.select_all_occurrences(),
         KeyCode::Up if ctrl && alt => editor.add_cursor(Backward),

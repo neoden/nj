@@ -18,11 +18,21 @@ pub struct Transaction {
     after: SelectionSet,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorAfter {
+    /// Where the change ends, which is where typing leaves the cursor.
+    EndOfChange,
+    /// Where the cursor already was, displaced by the change. Only meaningful
+    /// for changes that insert entirely before it, such as pasting a line.
+    Displaced,
+}
+
 impl Transaction {
     /// Builds one change per cursor. Selections are sorted and disjoint, so
     /// the running delta gives each cursor its position in the new text.
     pub fn edit(
         selections: &SelectionSet,
+        cursor: CursorAfter,
         mut change: impl FnMut(&Selection) -> (Range<usize>, String),
     ) -> Self {
         let mut changes = Vec::with_capacity(selections.len());
@@ -31,8 +41,12 @@ impl Transaction {
 
         for selection in selections.iter() {
             let (range, text) = change(selection);
-            let head = range.start.saturating_add_signed(delta) + text.len();
-            delta += text.len() as isize - range.len() as isize;
+            let own = text.len() as isize - range.len() as isize;
+            let head = match cursor {
+                CursorAfter::EndOfChange => range.start.saturating_add_signed(delta) + text.len(),
+                CursorAfter::Displaced => selection.head.saturating_add_signed(delta + own),
+            };
+            delta += own;
 
             heads.push(Selection::cursor(head));
             changes.push(Change { range, text });
@@ -98,7 +112,7 @@ mod tests {
     use super::*;
 
     fn insert(selections: &SelectionSet, inserted: &str) -> Transaction {
-        Transaction::edit(selections, |selection| {
+        Transaction::edit(selections, CursorAfter::EndOfChange, |selection| {
             (selection.range(), inserted.to_owned())
         })
     }
@@ -176,7 +190,9 @@ mod tests {
     #[test]
     fn deleting_reports_what_it_removed() {
         let mut text = Text::from_str("abcd");
-        let transaction = Transaction::edit(&SelectionSet::single(0), |_| (1..3, String::new()));
+        let transaction = Transaction::edit(&SelectionSet::single(0), CursorAfter::EndOfChange, |_| {
+            (1..3, String::new())
+        });
 
         let undo = transaction.apply(&mut text);
         assert_eq!(text.to_string(), "ad");

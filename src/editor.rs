@@ -1,13 +1,17 @@
+use std::ops::Range;
+
+use crate::clipboard::Clipboard;
 use crate::document::{Document, EditKind};
 use crate::movement::{self, Class, Direction, Motion};
 use crate::selection::{Selection, SelectionSet};
 use crate::text::Text;
-use crate::transaction::Transaction;
+use crate::transaction::{CursorAfter, Transaction};
 use crate::view::View;
 
 pub struct Editor {
     pub document: Document,
     pub view: View,
+    pub clipboard: Clipboard,
 }
 
 impl Editor {
@@ -15,6 +19,7 @@ impl Editor {
         Self {
             document,
             view: View::default(),
+            clipboard: Clipboard::default(),
         }
     }
 
@@ -24,34 +29,109 @@ impl Editor {
     }
 
     pub fn insert(&mut self, inserted: &str) {
-        let transaction = Transaction::edit(&self.view.selections, |selection| {
-            (selection.range(), inserted.to_owned())
-        });
+        let transaction = Transaction::edit(
+            &self.view.selections,
+            CursorAfter::EndOfChange,
+            |selection| (selection.range(), inserted.to_owned()),
+        );
         self.apply(transaction, insert_kind(inserted));
+    }
+
+    /// With nothing selected, whole lines are taken — and put back as whole
+    /// lines, which is what every editor with this binding does.
+    pub fn copy(&mut self) {
+        let text = &self.document.text;
+        let lines = self.view.selections.iter().all(Selection::is_empty);
+        let pieces = self
+            .view
+            .selections
+            .iter()
+            .map(|selection| {
+                let mut piece = text.slice(copied_range(text, selection, lines)).to_string();
+                if lines && !piece.ends_with('\n') {
+                    piece.push('\n');
+                }
+                piece
+            })
+            .collect();
+
+        self.clipboard.set(pieces, lines);
+    }
+
+    pub fn cut(&mut self) {
+        self.copy();
+
+        let text = &self.document.text;
+        let lines = self.clipboard.holds_lines();
+        let transaction = Transaction::edit(
+            &self.view.selections,
+            CursorAfter::EndOfChange,
+            |selection| (copied_range(text, selection, lines), String::new()),
+        );
+
+        if !transaction.is_empty() {
+            self.apply(transaction, EditKind::Other);
+        }
+    }
+
+    pub fn paste(&mut self) {
+        if self.clipboard.is_empty() {
+            return;
+        }
+
+        let lines = self.clipboard.holds_lines();
+        let mut pieces = self
+            .clipboard
+            .pieces_for(self.view.selections.len())
+            .into_iter();
+
+        let text = &self.document.text;
+        let cursor = match lines {
+            true => CursorAfter::Displaced,
+            false => CursorAfter::EndOfChange,
+        };
+        let transaction = Transaction::edit(&self.view.selections, cursor, |selection| {
+            let range = match lines {
+                true => {
+                    let start = text.line_start(text.line_of(selection.head));
+                    start..start
+                }
+                false => selection.range(),
+            };
+            (range, pieces.next().unwrap_or_default())
+        });
+
+        self.apply(transaction, EditKind::Other);
     }
 
     /// A cursor with nothing selected eats the neighbouring text instead.
     pub fn delete(&mut self, motion: Motion) {
         let text = &self.document.text;
-        let transaction = Transaction::edit(&self.view.selections, |selection| {
-            let range = match selection.is_empty() {
-                false => selection.range(),
-                true => {
-                    let target = match motion {
-                        Motion::Word(direction) => movement::word(text, selection.head, direction),
-                        Motion::LineEdge(direction) => {
-                            movement::line_edge(text, selection.head, direction)
-                        }
-                        Motion::Grapheme(direction) => {
-                            movement::grapheme(text, selection.head, direction)
-                        }
-                        _ => selection.head,
-                    };
-                    selection.head.min(target)..selection.head.max(target)
-                }
-            };
-            (range, String::new())
-        });
+        let transaction = Transaction::edit(
+            &self.view.selections,
+            CursorAfter::EndOfChange,
+            |selection| {
+                let range = match selection.is_empty() {
+                    false => selection.range(),
+                    true => {
+                        let target = match motion {
+                            Motion::Word(direction) => {
+                                movement::word(text, selection.head, direction)
+                            }
+                            Motion::LineEdge(direction) => {
+                                movement::line_edge(text, selection.head, direction)
+                            }
+                            Motion::Grapheme(direction) => {
+                                movement::grapheme(text, selection.head, direction)
+                            }
+                            _ => selection.head,
+                        };
+                        selection.head.min(target)..selection.head.max(target)
+                    }
+                };
+                (range, String::new())
+            },
+        );
 
         let kind = match motion {
             Motion::Grapheme(direction) => EditKind::Delete(direction),
@@ -166,6 +246,16 @@ impl Editor {
         self.view.selections = self.document.apply(transaction, kind);
         self.view.scroll_to_cursor(&self.document.text);
     }
+}
+
+/// What a copy or a cut takes for one cursor.
+fn copied_range(text: &Text, selection: &Selection, lines: bool) -> Range<usize> {
+    if !lines {
+        return selection.range();
+    }
+    let line = text.line_of(selection.head);
+    let start = text.line_start(line);
+    start..(start + text.line_str(line).len() + 1).min(text.len())
 }
 
 struct Search {
@@ -439,6 +529,137 @@ mod tests {
         editor.add_cursor(Direction::Forward);
 
         assert_eq!(ranges(&editor), [3..3, 6..6, 10..10]);
+    }
+
+    #[test]
+    fn copying_and_pasting_a_selection() {
+        let mut editor = editor("hello world", 0);
+        editor.select_next_occurrence();
+        editor.copy();
+
+        editor.view.selections = SelectionSet::single(11);
+        editor.paste();
+        assert_eq!(content(&editor), "hello worldhello");
+    }
+
+    #[test]
+    fn pasting_replaces_a_selection() {
+        let mut editor = editor("keep drop", 5);
+        editor.select_next_occurrence();
+        editor.copy();
+        editor.paste();
+
+        assert_eq!(content(&editor), "keep drop");
+        assert_eq!(editor.view.selections.primary().head, 9);
+    }
+
+    #[test]
+    fn cutting_removes_what_it_took() {
+        let mut editor = editor("hello world", 6);
+        editor.select_next_occurrence();
+        editor.cut();
+
+        assert_eq!(content(&editor), "hello ");
+        assert_eq!(editor.clipboard.text(), "world");
+    }
+
+    #[test]
+    fn copying_without_a_selection_takes_the_whole_line() {
+        let mut editor = editor("first\nsecond\n", 8);
+        editor.copy();
+
+        assert_eq!(editor.clipboard.text(), "second\n");
+        assert!(editor.clipboard.holds_lines());
+    }
+
+    #[test]
+    fn pasting_a_line_puts_it_above_and_keeps_the_column() {
+        let mut editor = editor("first\nsecond\n", 8);
+        editor.copy();
+        editor.paste();
+
+        assert_eq!(content(&editor), "first\nsecond\nsecond\n");
+        // The cursor stayed on the same character of its own line.
+        assert_eq!(editor.view.selections.primary().head, 15);
+    }
+
+    #[test]
+    fn a_last_line_without_a_break_still_copies_as_a_line() {
+        let mut editor = editor("only", 2);
+        editor.copy();
+
+        assert_eq!(editor.clipboard.text(), "only\n");
+    }
+
+    #[test]
+    fn cutting_a_line_removes_it_whole() {
+        let mut editor = editor("first\nsecond\nthird\n", 8);
+        editor.cut();
+
+        assert_eq!(content(&editor), "first\nthird\n");
+    }
+
+    #[test]
+    fn each_cursor_pastes_its_own_piece() {
+        let mut editor = editor("aa bb", 0);
+        editor.view.selections = SelectionSet::from_selections(
+            vec![
+                Selection {
+                    anchor: 0,
+                    head: 2,
+                    goal_column: None,
+                },
+                Selection {
+                    anchor: 3,
+                    head: 5,
+                    goal_column: None,
+                },
+            ],
+            0,
+        );
+        editor.copy();
+        editor.paste();
+
+        assert_eq!(content(&editor), "aa bb");
+        assert_eq!(editor.clipboard.pieces_for(2), ["aa", "bb"]);
+    }
+
+    #[test]
+    fn one_cursor_pastes_everything_that_was_copied() {
+        let mut editor = editor("aa bb", 0);
+        editor.view.selections = SelectionSet::from_selections(
+            vec![
+                Selection {
+                    anchor: 0,
+                    head: 2,
+                    goal_column: None,
+                },
+                Selection {
+                    anchor: 3,
+                    head: 5,
+                    goal_column: None,
+                },
+            ],
+            0,
+        );
+        editor.copy();
+
+        editor.view.selections = SelectionSet::single(5);
+        editor.paste();
+        assert_eq!(content(&editor), "aa bbaa\nbb");
+    }
+
+    #[test]
+    fn pasting_is_one_undo_step() {
+        let mut editor = editor("word", 0);
+        editor.select_next_occurrence();
+        editor.copy();
+        editor.view.selections = SelectionSet::single(4);
+        editor.paste();
+        assert_eq!(content(&editor), "wordword");
+
+        editor.undo();
+        assert_eq!(content(&editor), "word");
     }
 
     fn type_text(editor: &mut Editor, text: &str) {
