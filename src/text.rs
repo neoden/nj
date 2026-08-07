@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 
@@ -42,6 +43,15 @@ impl Text {
         match slice.trailing_line_break_idx(LINES) {
             Some(idx) => slice.slice(..idx),
             None => slice,
+        }
+    }
+
+    /// Borrows when the line lives in a single chunk, which is the common case.
+    pub fn line_str(&self, line: usize) -> Cow<'_, str> {
+        let slice = self.line(line);
+        match slice.as_str() {
+            Some(text) => Cow::Borrowed(text),
+            None => Cow::Owned(slice.to_string()),
         }
     }
 
