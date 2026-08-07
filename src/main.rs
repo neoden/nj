@@ -12,6 +12,7 @@ mod transaction;
 mod view;
 
 use std::io;
+use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{
@@ -36,7 +37,7 @@ fn main() -> Result<()> {
     };
 
     let term = Terminal::enter()?;
-    let result = run(&term, &mut Editor::new(document));
+    let result = run(&term, &mut Editor::new(document).with_system_clipboard());
     drop(term);
     result
 }
@@ -58,19 +59,34 @@ fn run(term: &Terminal, editor: &mut Editor) -> Result<()> {
             &status(term, editor),
         )?;
 
-        match event::read()? {
-            Event::Key(event) => match Key::from_event(&event) {
-                Some(key) if is_quit(key) => return Ok(()),
-                Some(key) => handle_key(key, &event, editor),
-                None => {}
-            },
-            Event::Mouse(mouse) => handle_mouse(mouse, editor),
-            // Bracketed paste: the terminal hands over the whole text at once
-            // instead of replaying it as keystrokes.
-            Event::Paste(text) => editor.insert(&text),
-            _ => {}
+        if !handle(event::read()?, editor) {
+            return Ok(());
+        }
+        // Whatever else already arrived is processed before drawing again, so
+        // a burst of input costs one frame rather than one frame per event.
+        while event::poll(Duration::ZERO)? {
+            if !handle(event::read()?, editor) {
+                return Ok(());
+            }
         }
     }
+}
+
+/// Returns false when the editor should quit.
+fn handle(event: Event, editor: &mut Editor) -> bool {
+    match event {
+        Event::Key(event) => match Key::from_event(&event) {
+            Some(key) if is_quit(key) => return false,
+            Some(key) => handle_key(key, &event, editor),
+            None => {}
+        },
+        Event::Mouse(mouse) => handle_mouse(mouse, editor),
+        // Bracketed paste: the terminal hands over the whole text at once
+        // instead of replaying it as keystrokes.
+        Event::Paste(text) => editor.insert(&text),
+        _ => {}
+    }
+    true
 }
 
 fn is_quit(key: Key) -> bool {

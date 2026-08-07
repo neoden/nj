@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{bail, Result};
 use crossterm::cursor;
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -35,7 +35,16 @@ impl Terminal {
         let mut out = io::stdout();
         // Capturing the mouse takes the terminal's own selection away; holding
         // Shift while dragging bypasses us and gets it back.
-        execute!(out, EnterAlternateScreen, EnableMouseCapture, cursor::Hide)?;
+        //
+        // Bracketed paste makes the terminal hand over pasted text in one
+        // event; without it every pasted character arrives as a keystroke.
+        execute!(
+            out,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste,
+            cursor::Hide
+        )?;
 
         let keyboard_enhanced = matches!(supports_keyboard_enhancement(), Ok(true));
         if keyboard_enhanced {
@@ -67,7 +76,13 @@ fn restore() {
     if KEYBOARD_FLAGS_PUSHED.swap(false, Ordering::SeqCst) {
         let _ = execute!(out, PopKeyboardEnhancementFlags);
     }
-    let _ = execute!(out, cursor::Show, DisableMouseCapture, LeaveAlternateScreen);
+    let _ = execute!(
+        out,
+        cursor::Show,
+        DisableBracketedPaste,
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    );
     let _ = disable_raw_mode();
     let _ = out.flush();
 }

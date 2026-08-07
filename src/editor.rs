@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::clipboard::Clipboard;
+use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::document::{Document, EditKind};
 use crate::movement::{self, Class, Direction, Motion};
 use crate::selection::{Selection, SelectionSet};
@@ -12,6 +12,7 @@ pub struct Editor {
     pub document: Document,
     pub view: View,
     pub clipboard: Clipboard,
+    system: Option<SystemClipboard>,
 }
 
 impl Editor {
@@ -20,7 +21,14 @@ impl Editor {
             document,
             view: View::default(),
             clipboard: Clipboard::default(),
+            system: None,
         }
+    }
+
+    /// Left out by default so that tests never touch the real clipboard.
+    pub fn with_system_clipboard(mut self) -> Self {
+        self.system = Some(SystemClipboard::new());
+        self
     }
 
     pub fn move_selections(&mut self, motion: Motion, extend: bool) {
@@ -56,6 +64,11 @@ impl Editor {
             .collect();
 
         self.clipboard.set(pieces, lines);
+
+        let text = self.clipboard.text();
+        if let Some(system) = &mut self.system {
+            system.write(&text);
+        }
     }
 
     pub fn cut(&mut self) {
@@ -75,6 +88,7 @@ impl Editor {
     }
 
     pub fn paste(&mut self) {
+        self.adopt_foreign_clipboard();
         if self.clipboard.is_empty() {
             return;
         }
@@ -102,6 +116,17 @@ impl Editor {
         });
 
         self.apply(transaction, EditKind::Other);
+    }
+
+    /// Someone else copied since we did, so our pieces are stale: what the
+    /// desktop holds is one piece of text, and it is not made of lines.
+    fn adopt_foreign_clipboard(&mut self) {
+        let Some(text) = self.system.as_mut().and_then(SystemClipboard::read) else {
+            return;
+        };
+        if text != self.clipboard.text() {
+            self.clipboard.set(vec![text], false);
+        }
     }
 
     /// A cursor with nothing selected eats the neighbouring text instead.

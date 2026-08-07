@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 bitflags = "2.13.1"
-crossterm = "0.29.0"
+crossterm = { version = "0.29.0", features = ["osc52"] }
 ropey = { version = "2.0.0-beta.1", default-features = false, features = ["simd", "metric_lines_lf"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
