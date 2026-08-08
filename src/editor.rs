@@ -160,6 +160,34 @@ impl Editor {
         }
     }
 
+    /// Turns the hits into cursors and hands the keyboard back to the text,
+    /// which is the only reason anyone wants a cursor on every hit.
+    pub fn select_all_matches(&mut self) {
+        if self.matches.is_empty() {
+            return;
+        }
+
+        let at = self.view.selections.primary().min();
+        let primary = self
+            .matches
+            .iter()
+            .position(|found| found.start == at)
+            .unwrap_or(0);
+        let selections = self
+            .matches
+            .iter()
+            .map(|found| Selection {
+                anchor: found.start,
+                head: found.end,
+                goal_column: None,
+            })
+            .collect();
+
+        self.view.selections = SelectionSet::from_selections(selections, primary);
+        self.close_panel();
+        self.view.scroll_to_cursor(&self.document.text);
+    }
+
     pub fn go_to_match(&mut self, direction: Direction) {
         if self.matches.is_empty() {
             self.message = Some("not found".to_owned());
@@ -1027,6 +1055,24 @@ mod tests {
 
         editor.submit_prompt(false);
         assert_eq!(editor.panel_status(), "found: 2/3");
+    }
+
+    #[test]
+    fn every_hit_can_become_a_cursor() {
+        let mut editor = editor("id, id, id", 0);
+        editor.open_prompt(Purpose::Search);
+        type_into_prompt(&mut editor, "id");
+        editor.submit_prompt(false);
+
+        editor.select_all_matches();
+        assert_eq!(ranges(&editor), [0..2, 4..6, 8..10]);
+        // The keyboard goes back to the text, which is the point.
+        assert!(editor.panel.is_none());
+        // The hit we were standing on stays the primary one.
+        assert_eq!(editor.view.selections.primary().range(), 4..6);
+
+        editor.insert("key");
+        assert_eq!(content(&editor), "key, key, key");
     }
 
     #[test]

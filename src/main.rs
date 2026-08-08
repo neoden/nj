@@ -121,6 +121,7 @@ fn handle_panel_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Esc => return editor.close_panel(),
         KeyCode::Enter => return editor.submit_prompt(extend),
         KeyCode::F(3) => return editor.go_to_match(direction(extend)),
+        KeyCode::Char('l') if ctrl && extend => return editor.select_all_matches(),
         KeyCode::Tab => {
             prompt.focus_next_field();
             false
