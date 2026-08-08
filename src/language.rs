@@ -18,7 +18,7 @@ pub struct Language {
 }
 
 pub const PLAIN: Language = Language {
-    name: "text",
+    name: "Text",
     extensions: &[],
     filenames: &[],
     indent: Indent::Spaces(4),
@@ -27,56 +27,56 @@ pub const PLAIN: Language = Language {
 
 pub const LANGUAGES: &[Language] = &[
     Language {
-        name: "rust",
+        name: "Rust",
         extensions: &["rs"],
         filenames: &[],
         indent: Indent::Spaces(4),
         tab_width: 4,
     },
     Language {
-        name: "python",
+        name: "Python",
         extensions: &["py", "pyi"],
         filenames: &[],
         indent: Indent::Spaces(4),
         tab_width: 4,
     },
     Language {
-        name: "javascript",
+        name: "JavaScript",
         extensions: &["js", "mjs", "cjs", "jsx"],
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
     },
     Language {
-        name: "typescript",
+        name: "TypeScript",
         extensions: &["ts", "tsx"],
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
     },
     Language {
-        name: "html",
+        name: "HTML",
         extensions: &["html", "htm"],
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
     },
     Language {
-        name: "css",
+        name: "CSS",
         extensions: &["css", "scss"],
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
     },
     Language {
-        name: "json",
+        name: "JSON",
         extensions: &["json"],
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
     },
     Language {
-        name: "toml",
+        name: "TOML",
         extensions: &["toml"],
         filenames: &["Cargo.lock"],
         indent: Indent::Spaces(2),
@@ -84,42 +84,42 @@ pub const LANGUAGES: &[Language] = &[
     },
     Language {
         // Tabs are illegal in YAML, so this one can never be Indent::Tabs.
-        name: "yaml",
+        name: "YAML",
         extensions: &["yaml", "yml"],
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
     },
     Language {
-        name: "markdown",
+        name: "Markdown",
         extensions: &["md", "markdown"],
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
     },
     Language {
-        name: "go",
+        name: "Go",
         extensions: &["go"],
         filenames: &[],
         indent: Indent::Tabs,
         tab_width: 4,
     },
     Language {
-        name: "c",
+        name: "C",
         extensions: &["c", "h"],
         filenames: &[],
         indent: Indent::Spaces(4),
         tab_width: 4,
     },
     Language {
-        name: "c++",
+        name: "C++",
         extensions: &["cc", "cpp", "cxx", "hpp", "hh"],
         filenames: &[],
         indent: Indent::Spaces(4),
         tab_width: 4,
     },
     Language {
-        name: "shell",
+        name: "Shell",
         extensions: &["sh", "bash", "zsh"],
         filenames: &[".bashrc", ".zshrc", ".profile"],
         indent: Indent::Spaces(2),
@@ -127,7 +127,7 @@ pub const LANGUAGES: &[Language] = &[
     },
     Language {
         // Make demands a literal tab before every recipe line.
-        name: "makefile",
+        name: "Makefile",
         extensions: &["mk"],
         filenames: &["Makefile", "makefile", "GNUmakefile"],
         indent: Indent::Tabs,
@@ -176,28 +176,28 @@ mod tests {
 
     #[test]
     fn extensions_decide_the_language() {
-        assert_eq!(detect_name("src/main.rs"), "rust");
-        assert_eq!(detect_name("/tmp/a/b/script.py"), "python");
-        assert_eq!(detect_name("Cargo.toml"), "toml");
+        assert_eq!(detect_name("src/main.rs"), "Rust");
+        assert_eq!(detect_name("/tmp/a/b/script.py"), "Python");
+        assert_eq!(detect_name("Cargo.toml"), "TOML");
     }
 
     #[test]
     fn some_languages_are_known_by_name() {
-        assert_eq!(detect_name("Makefile"), "makefile");
-        assert_eq!(detect_name("project/GNUmakefile"), "makefile");
+        assert_eq!(detect_name("Makefile"), "Makefile");
+        assert_eq!(detect_name("project/GNUmakefile"), "Makefile");
     }
 
     #[test]
     fn anything_unknown_is_plain_text() {
-        assert_eq!(detect_name("notes"), "text");
-        assert_eq!(detect_name("archive.tar.gz"), "text");
+        assert_eq!(detect_name("notes"), "Text");
+        assert_eq!(detect_name("archive.tar.gz"), "Text");
     }
 
     #[test]
     fn languages_carry_their_own_indentation() {
-        assert_eq!(by_name("go").unwrap().indent, Indent::Tabs);
-        assert_eq!(by_name("makefile").unwrap().tab_width, 8);
-        assert_eq!(by_name("javascript").unwrap().indent, Indent::Spaces(2));
+        assert_eq!(by_name("Go").unwrap().indent, Indent::Tabs);
+        assert_eq!(by_name("Makefile").unwrap().tab_width, 8);
+        assert_eq!(by_name("JavaScript").unwrap().indent, Indent::Spaces(2));
     }
 
     #[test]
@@ -205,6 +205,6 @@ mod tests {
         for language in LANGUAGES {
             assert_eq!(by_name(language.name), Some(language));
         }
-        assert!(by_name("text").is_some());
+        assert!(by_name("Text").is_some());
     }
 }

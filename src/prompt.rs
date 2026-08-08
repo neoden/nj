@@ -14,9 +14,9 @@ pub enum Purpose {
 impl Purpose {
     fn labels(self) -> &'static [&'static str] {
         match self {
-            Purpose::GotoLine => &["line:"],
-            Purpose::Search => &["find:"],
-            Purpose::Replace => &["find:", "replace:"],
+            Purpose::GotoLine => &["Line:"],
+            Purpose::Search => &["Find:"],
+            Purpose::Replace => &["Find:", "Replace:"],
         }
     }
 }

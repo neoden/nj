@@ -2,10 +2,11 @@ use std::ops::Range;
 
 use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::document::{Document, EditKind};
+use crate::key;
 use crate::language::{self, Language};
 use crate::picker::{Pick, Picker};
 use crate::movement::{self, Class, Direction, Motion};
-use crate::panel::Panel;
+use crate::panel::{Confirm, Panel, Question};
 use crate::prompt::{Prompt, Purpose};
 use crate::selection::{Selection, SelectionSet};
 use crate::text::Text;
@@ -21,6 +22,7 @@ pub struct Editor {
     /// Every hit of the open query. Lives only while the prompt does, so
     /// nothing has to remember to invalidate it.
     pub matches: Vec<Range<usize>>,
+    pub quit: bool,
     last_search: Option<String>,
     system: Option<SystemClipboard>,
 }
@@ -38,6 +40,7 @@ impl Editor {
             panel: None,
             message: None,
             matches: Vec::new(),
+            quit: false,
             last_search: None,
             system: None,
         }
@@ -160,7 +163,7 @@ impl Editor {
             }
             Purpose::GotoLine => match parse_line_number(&first) {
                 Some(line) => self.goto_line(line),
-                None => self.message = Some("not a line number".to_owned()),
+                None => self.message = Some("Not a line number".to_owned()),
             },
             Purpose::Replace => {
                 let replacement = prompt.contents(1);
@@ -247,7 +250,7 @@ impl Editor {
 
     pub fn go_to_match(&mut self, direction: Direction) {
         if self.matches.is_empty() {
-            self.message = Some("not found".to_owned());
+            self.message = Some("Not found".to_owned());
             return;
         }
 
@@ -275,7 +278,7 @@ impl Editor {
     /// `found: 3/17`.
     fn search_status(&self) -> String {
         if self.matches.is_empty() {
-            return "found: none".to_owned();
+            return "Found: none".to_owned();
         }
         let at = self.view.selections.primary().min();
         let current = self
@@ -283,7 +286,7 @@ impl Editor {
             .iter()
             .position(|found| found.start == at)
             .map_or(0, |index| index + 1);
-        format!("found: {current}/{}", self.matches.len())
+        format!("Found: {current}/{}", self.matches.len())
     }
 
     pub fn search_next(&mut self, direction: Direction) {
@@ -297,7 +300,7 @@ impl Editor {
 
         match self.find(&needle, from, direction) {
             Some(at) => self.select_match(at, needle.len()),
-            None => self.message = Some("not found".to_owned()),
+            None => self.message = Some("Not found".to_owned()),
         }
     }
 
@@ -339,11 +342,11 @@ impl Editor {
         }
 
         if matches.is_empty() {
-            self.message = Some("not found".to_owned());
+            self.message = Some("Not found".to_owned());
             return;
         }
 
-        self.message = Some(format!("replaced {}", matches.len()));
+        self.message = Some(format!("Replaced {}", matches.len()));
         self.view.selections = SelectionSet::from_selections(matches, 0);
         self.insert(replacement);
     }
@@ -355,10 +358,39 @@ impl Editor {
         self.view.scroll_to_cursor(text);
     }
 
-    pub fn save(&mut self) {
-        if let Err(error) = self.document.save() {
-            self.message = Some(format!("{error:#}"));
+    pub fn save(&mut self) -> bool {
+        match self.document.save() {
+            Ok(()) => true,
+            Err(error) => {
+                self.message = Some(format!("{error:#}"));
+                false
+            }
         }
+    }
+
+    /// Nothing is ever discarded without being asked about first.
+    pub fn request_quit(&mut self) {
+        match self.document.modified {
+            false => self.quit = true,
+            true => self.panel = Some(Panel::Confirm(Confirm::quit())),
+        }
+    }
+
+    /// A failed save cancels the quit and says why, rather than losing the
+    /// file that could not be written.
+    pub fn answer(&mut self, answer: char) {
+        let Some(Panel::Confirm(confirm)) = &self.panel else {
+            return;
+        };
+
+        // The letters are commands, not text, so they are read off the
+        // physical key rather than the current keyboard layout.
+        match (confirm.about, key::physical_key(answer)) {
+            (Question::Quit, 's') => self.quit = self.save(),
+            (Question::Quit, 'q') => self.quit = true,
+            _ => return,
+        }
+        self.close_panel();
     }
 
     pub fn set_language(&mut self, language: &'static Language) {
@@ -969,6 +1001,63 @@ mod tests {
     }
 
     #[test]
+    fn an_unchanged_document_quits_at_once() {
+        let mut editor = editor("text", 0);
+        editor.request_quit();
+
+        assert!(editor.quit);
+        assert!(editor.panel.is_none());
+    }
+
+    #[test]
+    fn unsaved_changes_ask_first() {
+        let mut editor = editor("text", 0);
+        editor.insert("!");
+        editor.request_quit();
+
+        assert!(!editor.quit);
+        assert!(matches!(editor.panel, Some(Panel::Confirm(_))));
+    }
+
+    #[test]
+    fn the_question_can_be_answered_or_dropped() {
+        let mut editor = editor("text", 0);
+        editor.insert("!");
+
+        editor.request_quit();
+        editor.close_panel();
+        assert!(!editor.quit);
+
+        editor.request_quit();
+        editor.answer('q');
+        assert!(editor.quit);
+        assert!(editor.panel.is_none());
+    }
+
+    #[test]
+    fn the_answer_key_is_the_physical_one() {
+        let mut editor = editor("text", 0);
+        editor.insert("!");
+        editor.request_quit();
+
+        // `й` sits where `q` does on a US keyboard.
+        editor.answer('й');
+        assert!(editor.quit);
+    }
+
+    #[test]
+    fn a_save_that_fails_cancels_the_quit() {
+        // A scratch buffer has nowhere to be written to.
+        let mut editor = editor("text", 0);
+        editor.insert("!");
+        editor.request_quit();
+        editor.answer('s');
+
+        assert!(!editor.quit);
+        assert!(editor.message.is_some());
+    }
+
+    #[test]
     fn goto_line_moves_the_cursor_to_its_start() {
         let mut editor = editor("one\ntwo\nthree\n", 0);
         editor.open_prompt(Purpose::GotoLine);
@@ -1113,10 +1202,10 @@ mod tests {
         type_into_prompt(&mut editor, "x");
 
         assert_eq!(editor.matches, [0..1, 4..5, 8..9]);
-        assert_eq!(editor.panel_status(), "found: 1/3");
+        assert_eq!(editor.panel_status(), "Found: 1/3");
 
         editor.submit_prompt(false);
-        assert_eq!(editor.panel_status(), "found: 2/3");
+        assert_eq!(editor.panel_status(), "Found: 2/3");
     }
 
     #[test]
@@ -1144,7 +1233,7 @@ mod tests {
         type_into_prompt(&mut editor, "zzz");
 
         assert!(editor.matches.is_empty());
-        assert_eq!(editor.panel_status(), "found: none");
+        assert_eq!(editor.panel_status(), "Found: none");
     }
 
     #[test]

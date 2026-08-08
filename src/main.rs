@@ -47,7 +47,7 @@ fn main() -> Result<()> {
     let term = Terminal::enter()?;
     let mut editor = Editor::new(document).with_system_clipboard();
     if !term.keyboard_enhanced {
-        editor.message = Some("legacy keyboard: some combinations are unavailable".to_owned());
+        editor.message = Some("Legacy keyboard: some combinations are unavailable".to_owned());
     }
 
     let result = run(&mut editor);
@@ -77,24 +77,23 @@ fn run(editor: &mut Editor) -> Result<()> {
             continue;
         }
 
-        if !handle(event::read()?, editor) {
-            return Ok(());
-        }
+        handle(event::read()?, editor);
         // Whatever else already arrived is processed before drawing again, so
         // a burst of input costs one frame rather than one frame per event.
-        while event::poll(Duration::ZERO)? {
-            if !handle(event::read()?, editor) {
-                return Ok(());
-            }
+        while !editor.quit && event::poll(Duration::ZERO)? {
+            handle(event::read()?, editor);
+        }
+
+        if editor.quit {
+            return Ok(());
         }
     }
 }
 
-/// Returns false when the editor should quit.
-fn handle(event: Event, editor: &mut Editor) -> bool {
+fn handle(event: Event, editor: &mut Editor) {
     match event {
         Event::Key(event) => match Key::from_event(&event) {
-            Some(key) if is_quit(key) => return false,
+            Some(key) if is_quit(key) => editor.request_quit(),
             Some(key) => {
                 editor.message = None;
                 match editor.panel.is_some() {
@@ -110,7 +109,6 @@ fn handle(event: Event, editor: &mut Editor) -> bool {
         Event::Paste(text) => editor.insert(&text),
         _ => {}
     }
-    true
 }
 
 fn is_quit(key: Key) -> bool {
@@ -122,7 +120,16 @@ fn is_quit(key: Key) -> bool {
 fn handle_panel_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
     match editor.panel {
         Some(Panel::Picker(_)) => handle_picker_key(key, event, editor),
+        Some(Panel::Confirm(_)) => handle_confirm_key(key, editor),
         _ => handle_prompt_key(key, event, editor),
+    }
+}
+
+fn handle_confirm_key(key: Key, editor: &mut Editor) {
+    match key.code {
+        KeyCode::Esc => editor.close_panel(),
+        KeyCode::Char(answer) => editor.answer(answer),
+        _ => {}
     }
 }
 
@@ -312,7 +319,9 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Char('z') if ctrl && extend => editor.redo(),
         KeyCode::Char('y') if ctrl => editor.redo(),
         KeyCode::Char('z') if ctrl => editor.undo(),
-        KeyCode::Char('s') if ctrl => editor.save(),
+        KeyCode::Char('s') if ctrl => {
+            editor.save();
+        }
         KeyCode::Char('g') if ctrl => editor.open_prompt(Purpose::GotoLine),
         KeyCode::Char('f') if ctrl => editor.open_prompt(Purpose::Search),
         KeyCode::Char('h') if ctrl => editor.open_prompt(Purpose::Replace),

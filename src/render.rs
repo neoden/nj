@@ -76,6 +76,15 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
         match panel {
             Panel::Prompt(prompt) => draw_prompt(out, prompt, view.height + 1, width)?,
             Panel::Picker(picker) => draw_picker(out, picker, view.height + 1, width)?,
+            Panel::Confirm(confirm) => {
+                for (row, line) in confirm.rows().iter().enumerate() {
+                    queue!(
+                        out,
+                        cursor::MoveTo(0, (view.height + 1 + row) as u16),
+                        Print(pad(line, width)),
+                    )?;
+                }
+            }
         }
         rule(out, view.height + panel.height() - 1, width)?;
     }

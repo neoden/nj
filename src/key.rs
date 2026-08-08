@@ -105,7 +105,7 @@ const LATIN: &str = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`";
 
 /// Maps a character to the key at the same physical position on a US layout,
 /// so that `Ctrl+ф` reaches the command bound to `Ctrl+A`.
-fn physical_key(c: char) -> char {
+pub fn physical_key(c: char) -> char {
     match CYRILLIC.chars().position(|k| k == c) {
         Some(i) => LATIN.chars().nth(i).unwrap_or(c),
         None => c,
