@@ -10,6 +10,12 @@ pub const CONTROL_PLACEHOLDER: char = '·';
 /// Rows kept between the cursor and the edge of the screen while scrolling.
 const SCROLL_MARGIN: usize = 2;
 
+const STATUS_ROWS: usize = 1;
+/// Rows of text the panel may never take.
+const MIN_TEXT_ROWS: usize = 1;
+/// A panel is its two rules and a row of its own; less than that is no panel.
+const MIN_PANEL_ROWS: usize = 3;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellStyle {
     Normal,
@@ -66,6 +72,8 @@ pub struct View {
     pub width: usize,
     /// Rows of text, excluding the status line.
     pub height: usize,
+    /// Rows the panel got, which is not always what it asked for.
+    pub panel_height: usize,
     pub gutter: usize,
     pub tab_width: usize,
 }
@@ -78,6 +86,7 @@ impl Default for View {
             left_column: 0,
             width: 0,
             height: 0,
+            panel_height: 0,
             gutter: 0,
             tab_width: DEFAULT_TAB_WIDTH,
         }
@@ -85,12 +94,20 @@ impl Default for View {
 }
 
 impl View {
-    /// Divides the terminal into a gutter, a text area and the strip at the
-    /// bottom, which is one status line or a taller prompt.
-    pub fn fit(&mut self, term_width: usize, term_height: usize, line_count: usize, strip: usize) {
+    /// Divides the terminal into a gutter, a text area, the rows a panel asked
+    /// for and the status bar on the last one. A panel is cut down to what is
+    /// left rather than pushing the status bar off the screen, and a screen too
+    /// short to draw one in gets none at all.
+    pub fn fit(&mut self, term_width: usize, term_height: usize, line_count: usize, panel: usize) {
         self.gutter = digits(line_count) + 1;
         self.width = term_width.saturating_sub(self.gutter);
-        self.height = term_height.saturating_sub(strip);
+
+        let spare = term_height.saturating_sub(STATUS_ROWS + MIN_TEXT_ROWS);
+        self.panel_height = match panel.min(spare) {
+            height if height >= MIN_PANEL_ROWS => height,
+            _ => 0,
+        };
+        self.height = term_height.saturating_sub(self.panel_height + STATUS_ROWS);
     }
 
     /// Rows filling the screen, top to bottom.
@@ -429,21 +446,41 @@ mod tests {
 
     fn view(width: usize, height: usize) -> View {
         let mut view = View::default();
-        view.fit(width, height, 1, 1);
+        view.fit(width, height, 1, 0);
         view
     }
 
     #[test]
     fn gutter_grows_with_the_line_count() {
         let mut view = View::default();
-        view.fit(80, 24, 9, 1);
+        view.fit(80, 24, 9, 0);
         assert_eq!(view.gutter, 2);
         assert_eq!(view.width, 78);
         assert_eq!(view.height, 23);
 
-        view.fit(80, 24, 1000, 1);
+        view.fit(80, 24, 1000, 0);
         assert_eq!(view.gutter, 5);
         assert_eq!(view.width, 75);
+    }
+
+    #[test]
+    fn a_panel_never_pushes_the_status_bar_off_the_screen() {
+        let mut view = View::default();
+
+        view.fit(80, 24, 1, 13);
+        assert_eq!(view.panel_height, 13);
+        assert_eq!(view.height, 10);
+
+        // Asking for more than there is leaves the text a row and the status
+        // bar its own.
+        view.fit(80, 12, 1, 13);
+        assert_eq!(view.panel_height, 10);
+        assert_eq!(view.height, 1);
+
+        // Too short to draw a panel in at all.
+        view.fit(80, 4, 1, 13);
+        assert_eq!(view.panel_height, 0);
+        assert_eq!(view.height, 3);
     }
 
     fn visible_lines(view: &View, text: &Text) -> Range<usize> {
@@ -597,7 +634,7 @@ mod tests {
 
     fn view_of(text: &Text, offset: usize) -> View {
         let mut view = view(80, 25);
-        view.fit(80, 25, text.line_count(), 1);
+        view.fit(80, 25, text.line_count(), 0);
         view.selections = SelectionSet::single(offset);
         view
     }
@@ -678,7 +715,7 @@ mod tests {
     fn the_screen_follows_the_cursor() {
         let text = Text::from_str(&"line\n".repeat(100));
         let mut view = view_of(&text, 0);
-        view.fit(80, 11, text.line_count(), 1);
+        view.fit(80, 11, text.line_count(), 0);
 
         for _ in 0..20 {
             view.move_selections(&text, Motion::Row(Direction::Forward), false);

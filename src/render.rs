@@ -7,11 +7,15 @@ use crossterm::style::{
 use crossterm::{cursor, queue};
 
 use crate::editor::Editor;
-use crate::layout::{self, Glyph, DEFAULT_TAB_WIDTH};
+use crate::layout::{self, Glyph};
 use crate::panel::Panel;
 use crate::picker::Picker;
 use crate::prompt::{Field, Prompt};
 use crate::view::CellStyle;
+
+/// Panels and the status bar hold one-line strings rather than code, so a tab
+/// in one of them is worth a single column.
+const PANEL_TAB_WIDTH: usize = 1;
 
 /// Draws a whole frame. Every cell is rewritten, so the screen is never
 /// cleared first: clearing is what makes a terminal flicker.
@@ -71,29 +75,33 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
     }
 
     let width = view.gutter + view.width;
-    if let Some(panel) = &editor.panel {
+    // What the panel asked for is not what it got: only the view knows how much
+    // of the screen was left over, and it may have granted nothing at all.
+    let body = view.panel_height.saturating_sub(2);
+    if let Some(panel) = editor.panel.as_ref().filter(|_| body > 0) {
+        let top = view.height + 1;
         rule(out, view.height, width)?;
         match panel {
-            Panel::Prompt(prompt) => draw_prompt(out, prompt, view.height + 1, width)?,
-            Panel::Picker(picker) => draw_picker(out, picker, view.height + 1, width)?,
+            Panel::Prompt(prompt) => draw_prompt(out, prompt, top, width, body)?,
+            Panel::Picker(picker) => draw_picker(out, picker, top, width, body)?,
             Panel::Confirm(confirm) => {
-                for (row, line) in confirm.rows().iter().enumerate() {
+                for (row, line) in confirm.rows().iter().take(body).enumerate() {
                     queue!(
                         out,
-                        cursor::MoveTo(0, (view.height + 1 + row) as u16),
+                        cursor::MoveTo(0, (top + row) as u16),
                         Print(pad(line, width)),
                     )?;
                 }
             }
         }
-        rule(out, view.height + panel.height() - 1, width)?;
+        rule(out, view.height + view.panel_height - 1, width)?;
     }
 
     // The status bar is nailed to the last row so that it never moves when a
     // panel opens or changes height.
     queue!(
         out,
-        cursor::MoveTo(0, (view.height + editor.panel_height()) as u16),
+        cursor::MoveTo(0, (view.height + view.panel_height) as u16),
         SetAttribute(Attribute::Reverse),
         Print(status_line(left, right, width)),
         SetAttribute(Attribute::Reset),
@@ -106,10 +114,18 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
 /// The query sits at the bottom, right above the status bar, and the list
 /// grows upwards from it. That way neither the field nor the best candidate
 /// moves as the list changes size.
-fn draw_picker(out: &mut impl Write, picker: &Picker, top: usize, width: usize) -> Result<()> {
-    let rows = picker.visible().count();
+fn draw_picker(
+    out: &mut impl Write,
+    picker: &Picker,
+    top: usize,
+    width: usize,
+    height: usize,
+) -> Result<()> {
+    // The query keeps the bottom row; candidates take what is left of a strip
+    // that may be shorter than the list, best matches nearest the query.
+    let rows = picker.visible().count().min(height - 1);
 
-    for (row, (index, candidate)) in picker.visible().enumerate() {
+    for (row, (index, candidate)) in picker.visible().take(rows).enumerate() {
         let selected = index == picker.selected;
         // Indented to line up with the text of the query below.
         let line = pad(&format!("   {candidate}"), width);
@@ -148,15 +164,22 @@ fn status_line(left: &str, right: &str, width: usize) -> String {
         true => String::new(),
         false => format!("{right} "),
     };
-    let right = pad(&right, layout::line_width(&right, 1).min(width));
-    let left = pad(left, width.saturating_sub(right.chars().count()));
+    let columns = layout::line_width(&right, PANEL_TAB_WIDTH).min(width);
+    let right = pad(&right, columns);
+    let left = pad(left, width - columns);
     format!("{left}{right}")
 }
 
 /// Each field is a labelled line with the caret drawn on it, since the real
 /// terminal cursor stays hidden and we paint our own everywhere else.
-fn draw_prompt(out: &mut impl Write, prompt: &Prompt, top: usize, width: usize) -> Result<()> {
-    for (index, field) in prompt.fields.iter().enumerate() {
+fn draw_prompt(
+    out: &mut impl Write,
+    prompt: &Prompt,
+    top: usize,
+    width: usize,
+    height: usize,
+) -> Result<()> {
+    for (index, field) in prompt.fields.iter().take(height).enumerate() {
         draw_field(out, field, index == prompt.active, top + index, width)?;
     }
     Ok(())
@@ -173,23 +196,30 @@ fn draw_field(
 ) -> Result<()> {
     let contents = field.contents();
     let label = format!(" {} ", field.label);
-    let offset = label.chars().count();
-    let column_of = |byte| offset + layout::column_of_byte(&contents, byte, DEFAULT_TAB_WIDTH);
+    let offset = layout::line_width(&label, PANEL_TAB_WIDTH);
+    let column_of = |byte| offset + layout::column_of_byte(&contents, byte, PANEL_TAB_WIDTH);
 
     let caret = active.then(|| column_of(field.cursor));
     let selection = field.selection();
     let selected = column_of(selection.start)..column_of(selection.end);
 
+    // Walked as cells rather than characters: the caret is placed in display
+    // columns, so counting anything else drifts away from it on wide glyphs.
+    let line = pad(&format!("{label}{contents}"), width);
     queue!(out, cursor::MoveTo(0, row as u16))?;
-    for (column, glyph) in pad(&format!("{label}{contents}"), width).chars().enumerate() {
-        if caret == Some(column) {
+    for cell in layout::cells(&line, PANEL_TAB_WIDTH) {
+        let glyph = match cell.glyph {
+            Glyph::Text(text) => text,
+            _ => " ",
+        };
+        if caret == Some(cell.column) {
             queue!(
                 out,
                 SetAttribute(Attribute::Reverse),
                 Print(glyph),
                 SetAttribute(Attribute::NoReverse)
             )?;
-        } else if active && selected.contains(&column) {
+        } else if active && selected.contains(&cell.column) {
             queue!(
                 out,
                 SetBackgroundColor(Color::DarkGrey),
@@ -209,7 +239,7 @@ fn pad(text: &str, width: usize) -> String {
     let mut out = String::with_capacity(width);
     let mut column = 0;
 
-    for cell in layout::cells(text, 1) {
+    for cell in layout::cells(text, PANEL_TAB_WIDTH) {
         if cell.end_column() > width {
             break;
         }
@@ -234,5 +264,20 @@ mod tests {
         assert_eq!(pad("abcdef", 4), "abcd");
         assert_eq!(pad("日本", 3), "日 ");
         assert_eq!(pad("", 2), "  ");
+    }
+
+    fn columns(line: &str) -> usize {
+        layout::line_width(line, PANEL_TAB_WIDTH)
+    }
+
+    #[test]
+    fn the_status_bar_is_exactly_as_wide_as_the_screen() {
+        assert_eq!(columns(&status_line("left", "right", 20)), 20);
+        // Wide glyphs in a path are worth two columns each, which counting
+        // characters would have missed.
+        assert_eq!(columns(&status_line("left", "日本.rs", 20)), 20);
+        // Both halves want more room than there is.
+        assert_eq!(columns(&status_line("a long message", "日本語.rs", 12)), 12);
+        assert_eq!(columns(&status_line("", "", 8)), 8);
     }
 }

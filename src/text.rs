@@ -4,8 +4,9 @@ use std::ops::Range;
 
 use ropey::{LineType, Rope, RopeSlice};
 
-/// Buffers never contain CR: line endings are normalized on load and restored
-/// on save, so LF is the only break we ever have to recognize.
+/// Buffers hold no CRLF: line endings are normalized on load and restored on
+/// save, so LF is the only break we ever have to recognize. A lone CR is left
+/// where it is, being data rather than a line ending.
 const LINES: LineType = LineType::LF;
 
 /// The text of one buffer, addressed in byte offsets throughout.

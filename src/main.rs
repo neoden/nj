@@ -65,7 +65,7 @@ fn run(editor: &mut Editor) -> Result<()> {
             width as usize,
             height as usize,
             editor.document.text.line_count(),
-            editor.panel_height() + 1,
+            editor.panel_height(),
         );
 
         let (left, right) = status(editor);
@@ -94,7 +94,9 @@ fn run(editor: &mut Editor) -> Result<()> {
 fn handle(event: Event, editor: &mut Editor) {
     match event {
         Event::Key(event) => match Key::from_event(&event) {
-            Some(key) if is_quit(key) => editor.request_quit(),
+            // An open panel owns the keyboard (ADR 12), so even quitting waits
+            // for it to be dismissed rather than throwing it away.
+            Some(key) if is_quit(key) && editor.panel.is_none() => editor.request_quit(),
             Some(key) => {
                 editor.message = None;
                 match editor.panel.is_some() {
@@ -129,7 +131,11 @@ fn handle_panel_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
 fn handle_confirm_key(key: Key, editor: &mut Editor) {
     match key.code {
         KeyCode::Esc => editor.close_panel(),
-        KeyCode::Char(answer) => editor.answer(answer),
+        // Combinations are not answers: Ctrl+Q must not discard the changes it
+        // is asking about just because it carries a `q`.
+        KeyCode::Char(answer) if !key.mods.intersects(Mods::CTRL | Mods::ALT) => {
+            editor.answer(answer)
+        }
         _ => {}
     }
 }
@@ -425,7 +431,7 @@ fn status(editor: &Editor) -> (String, String) {
         .map_or("[scratch]".to_owned(), |path| path.display().to_string());
     let right = format!(
         "{path}{} · {} · {} lines · {}:{}",
-        if document.modified { "*" } else { "" },
+        if document.is_modified() { "*" } else { "" },
         document.language.name,
         document.text.line_count(),
         line + 1,

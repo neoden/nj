@@ -372,7 +372,7 @@ impl Editor {
 
     /// Nothing is ever discarded without being asked about first.
     pub fn request_quit(&mut self) {
-        match self.document.modified {
+        match self.document.is_modified() {
             false => self.quit = true,
             true => self.panel = Some(Panel::Confirm(Confirm::quit())),
         }
@@ -422,22 +422,30 @@ impl Editor {
     }
 
     /// With nothing selected, whole lines are taken — and put back as whole
-    /// lines, which is what every editor with this binding does.
+    /// lines, which is what every editor with this binding does. A line under
+    /// several cursors is taken once, however many of them sit on it.
     pub fn copy(&mut self) {
-        let text = &self.document.text;
         let lines = self.view.selections.iter().all(Selection::is_empty);
-        let pieces = self
-            .view
-            .selections
-            .iter()
-            .map(|selection| {
-                let mut piece = text.slice(copied_range(text, selection, lines)).to_string();
-                if lines && !piece.ends_with('\n') {
-                    piece.push('\n');
-                }
-                piece
-            })
-            .collect();
+        let text = &self.document.text;
+        let pieces = match lines {
+            true => self
+                .touched_lines()
+                .into_iter()
+                .map(|line| {
+                    let mut piece = text.slice(line_range(text, line)).to_string();
+                    if !piece.ends_with('\n') {
+                        piece.push('\n');
+                    }
+                    piece
+                })
+                .collect(),
+            false => self
+                .view
+                .selections
+                .iter()
+                .map(|selection| text.slice(selection.range()).to_string())
+                .collect(),
+        };
 
         self.clipboard.set(pieces, lines);
 
@@ -450,17 +458,40 @@ impl Editor {
     pub fn cut(&mut self) {
         self.copy();
 
-        let text = &self.document.text;
-        let lines = self.clipboard.holds_lines();
+        if self.clipboard.holds_lines() {
+            return self.cut_lines();
+        }
+
         let transaction = Transaction::edit(
             &self.view.selections,
             CursorAfter::EndOfChange,
-            |selection| (copied_range(text, selection, lines), String::new()),
+            |selection| (selection.range(), String::new()),
         );
 
         if !transaction.is_empty() {
             self.apply(transaction, EditKind::Other);
         }
+    }
+
+    /// One change per line rather than per cursor: a line removed twice would
+    /// take the line after it as well.
+    fn cut_lines(&mut self) {
+        let text = &self.document.text;
+        let changes: Vec<Change> = self
+            .touched_lines()
+            .into_iter()
+            .map(|line| Change {
+                range: line_range(text, line),
+                text: String::new(),
+            })
+            .collect();
+
+        let after = self.view.selections.mapped(|selection| {
+            Selection::cursor(transaction::displace(selection.head, &changes))
+        });
+
+        let transaction = Transaction::over_lines(&self.view.selections, changes, after);
+        self.apply(transaction, EditKind::Other);
     }
 
     pub fn paste(&mut self) {
@@ -469,11 +500,18 @@ impl Editor {
             return;
         }
 
+        // Whole lines land above the line a cursor is on, so cursors sharing a
+        // line share the one insertion, and only that one takes a piece.
         let lines = self.clipboard.holds_lines();
+        let leading = match lines {
+            true => self.first_on_each_line(|selection| selection.head),
+            false => vec![true; self.view.selections.len()],
+        };
         let mut pieces = self
             .clipboard
-            .pieces_for(self.view.selections.len())
+            .pieces_for(leading.iter().filter(|&&first| first).count())
             .into_iter();
+        let mut leading = leading.into_iter();
 
         let text = &self.document.text;
         let cursor = match lines {
@@ -481,6 +519,9 @@ impl Editor {
             false => CursorAfter::EndOfChange,
         };
         let transaction = Transaction::edit(&self.view.selections, cursor, |selection| {
+            if !leading.next().unwrap_or(true) {
+                return (selection.head..selection.head, String::new());
+            }
             let range = match lines {
                 true => {
                     let start = text.line_start(text.line_of(selection.head));
@@ -510,7 +551,7 @@ impl Editor {
     /// parser to say so.
     pub fn insert_newline(&mut self) {
         let text = &self.document.text;
-        let mut leading = self.first_on_each_line().into_iter();
+        let mut leading = self.first_on_each_line(Selection::min).into_iter();
 
         let transaction = Transaction::edit(
             &self.view.selections,
@@ -544,16 +585,16 @@ impl Editor {
         self.apply(transaction, EditKind::Other);
     }
 
-    /// Whether each selection is the first one on its line, so that only one
-    /// of them may reach back to the line start.
-    fn first_on_each_line(&self) -> Vec<bool> {
+    /// Whether each selection is the first one on its line, so that a line
+    /// edit happens once however many cursors sit on it.
+    fn first_on_each_line(&self, offset: impl Fn(&Selection) -> usize) -> Vec<bool> {
         let text = &self.document.text;
         let mut previous = None;
         self.view
             .selections
             .iter()
             .map(|selection| {
-                let line = text.line_of(selection.min());
+                let line = text.line_of(offset(selection));
                 let first = previous != Some(line);
                 previous = Some(line);
                 first
@@ -986,12 +1027,9 @@ fn parse_line_number(input: &str) -> Option<usize> {
     Some(line.saturating_sub(1))
 }
 
-/// What a copy or a cut takes for one cursor.
-fn copied_range(text: &Text, selection: &Selection, lines: bool) -> Range<usize> {
-    if !lines {
-        return selection.range();
-    }
-    let line = text.line_of(selection.head);
+/// A whole line with the break after it, which is what a copy takes when
+/// nothing is selected.
+fn line_range(text: &Text, line: usize) -> Range<usize> {
     let start = text.line_start(line);
     start..(start + text.line_str(line).len() + 1).min(text.len())
 }
@@ -1051,7 +1089,7 @@ mod tests {
         let mut editor = Editor::new(Document::from_text(Text::from_str(content)));
         editor
             .view
-            .fit(80, 25, editor.document.text.line_count(), 1);
+            .fit(80, 25, editor.document.text.line_count(), 0);
         editor.view.selections = SelectionSet::single(offset);
         editor
     }
@@ -1100,7 +1138,7 @@ mod tests {
         editor.delete(Motion::Grapheme(Direction::Backward));
 
         assert_eq!(content(&editor), "x");
-        assert!(!editor.document.modified);
+        assert!(!editor.document.is_modified());
     }
 
     #[test]
@@ -1571,6 +1609,53 @@ mod tests {
     }
 
     #[test]
+    fn undoing_back_to_what_was_saved_is_not_a_change() {
+        let path = std::env::temp_dir().join(format!("ned-{}-modified", std::process::id()));
+        std::fs::write(&path, "start").unwrap();
+
+        let mut editor = Editor::new(Document::open(&path).unwrap());
+        editor.view.selections = SelectionSet::single(5);
+        assert!(!editor.document.is_modified());
+
+        editor.insert("!");
+        assert!(editor.document.is_modified());
+
+        editor.save();
+        assert!(!editor.document.is_modified());
+
+        // Back to what the file holds, so there is nothing to warn about.
+        editor.undo();
+        assert!(editor.document.is_modified());
+        editor.redo();
+        assert!(!editor.document.is_modified());
+
+        // And an edit undone past the save is a change again.
+        editor.insert("?");
+        assert!(editor.document.is_modified());
+        editor.undo();
+        assert!(!editor.document.is_modified());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn typing_after_a_save_starts_its_own_revision() {
+        let path = std::env::temp_dir().join(format!("ned-{}-revision", std::process::id()));
+        std::fs::write(&path, "").unwrap();
+
+        let mut editor = Editor::new(Document::open(&path).unwrap());
+        type_text(&mut editor, "wor");
+        editor.save();
+
+        // The same word carries on, but it must not join the group that was
+        // written to disk.
+        type_text(&mut editor, "d");
+        assert!(editor.document.is_modified());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn an_unchanged_document_quits_at_once() {
         let mut editor = editor("text", 0);
         editor.request_quit();
@@ -1652,7 +1737,7 @@ mod tests {
     #[test]
     fn select_all_covers_the_document_and_stays_put() {
         let mut editor = editor(&"line\n".repeat(100), 0);
-        editor.view.fit(80, 11, editor.document.text.line_count(), 1);
+        editor.view.fit(80, 11, editor.document.text.line_count(), 0);
         editor.move_selections(Motion::Document(Direction::Forward), false);
         let top = editor.view.top_line;
 
@@ -1667,7 +1752,7 @@ mod tests {
     #[test]
     fn scrolling_leaves_the_cursors_alone() {
         let mut editor = editor(&"line\n".repeat(100), 0);
-        editor.view.fit(80, 11, editor.document.text.line_count(), 1);
+        editor.view.fit(80, 11, editor.document.text.line_count(), 0);
 
         editor.scroll(5);
         assert_eq!(editor.view.top_line, 5);
@@ -1949,6 +2034,36 @@ mod tests {
         editor.cut();
 
         assert_eq!(content(&editor), "first\nthird\n");
+    }
+
+    #[test]
+    fn a_line_under_two_cursors_is_cut_once() {
+        let mut editor = editor("one\ntwo\nthree\n", 0);
+        editor.view.selections.push(Selection::cursor(2));
+        editor.cut();
+
+        assert_eq!(content(&editor), "two\nthree\n");
+        assert_eq!(editor.clipboard.text(), "one\n");
+    }
+
+    #[test]
+    fn a_line_under_two_cursors_is_pasted_once() {
+        let mut editor = editor("one\ntwo\n", 0);
+        editor.copy();
+        editor.view.selections.push(Selection::cursor(2));
+        editor.paste();
+
+        assert_eq!(content(&editor), "one\none\ntwo\n");
+    }
+
+    #[test]
+    fn cursors_on_separate_lines_still_get_a_line_each() {
+        let mut editor = editor("one\ntwo\nthree\n", 0);
+        editor.view.selections.push(Selection::cursor(4));
+        editor.cut();
+
+        assert_eq!(content(&editor), "three\n");
+        assert_eq!(editor.clipboard.text(), "one\ntwo\n");
     }
 
     #[test]
