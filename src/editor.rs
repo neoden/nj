@@ -358,6 +358,23 @@ impl Editor {
         self.view.scroll_to_cursor(&self.document.text);
     }
 
+    /// The view stays where it is: jumping to the end of the file is not what
+    /// anyone wants from selecting everything.
+    pub fn select_all(&mut self) {
+        self.view.selections = Selection {
+            anchor: 0,
+            head: self.document.text.len(),
+            goal_column: None,
+        }
+        .into();
+    }
+
+    /// Moves the page without moving the cursors, which may leave them off
+    /// screen until something moves them again.
+    pub fn scroll(&mut self, delta: isize) {
+        self.view.scroll_lines(delta, &self.document.text);
+    }
+
     pub fn add_cursor(&mut self, direction: Direction) {
         self.view.add_cursor(&self.document.text, direction);
     }
@@ -790,6 +807,34 @@ mod tests {
 
         assert_eq!(editor.view.selections.primary().head, 0);
         assert!(editor.message.is_some());
+    }
+
+    #[test]
+    fn select_all_covers_the_document_and_stays_put() {
+        let mut editor = editor(&"line\n".repeat(100), 0);
+        editor.view.fit(80, 11, editor.document.text.line_count(), 1);
+        editor.move_selections(Motion::Document(Direction::Forward), false);
+        let top = editor.view.top_line;
+
+        editor.select_all();
+        assert_eq!(
+            editor.view.selections.primary().range(),
+            0..editor.document.text.len()
+        );
+        assert_eq!(editor.view.top_line, top);
+    }
+
+    #[test]
+    fn scrolling_leaves_the_cursors_alone() {
+        let mut editor = editor(&"line\n".repeat(100), 0);
+        editor.view.fit(80, 11, editor.document.text.line_count(), 1);
+
+        editor.scroll(5);
+        assert_eq!(editor.view.top_line, 5);
+        assert_eq!(editor.view.selections.primary().head, 0);
+
+        editor.scroll(-99);
+        assert_eq!(editor.view.top_line, 0);
     }
 
     #[test]

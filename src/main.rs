@@ -172,8 +172,11 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Char('d') if ctrl => editor.select_next_occurrence(),
         KeyCode::Char('l') if ctrl && extend => editor.select_all_occurrences(),
         KeyCode::Char('l') if ctrl => editor.select_line(),
+        KeyCode::Char('a') if ctrl => editor.select_all(),
         KeyCode::Up if ctrl && alt => editor.add_cursor(Backward),
         KeyCode::Down if ctrl && alt => editor.add_cursor(Forward),
+        KeyCode::Up if ctrl => editor.scroll(-1),
+        KeyCode::Down if ctrl => editor.scroll(1),
 
         KeyCode::Left if ctrl => editor.move_selections(Motion::Word(Backward), extend),
         KeyCode::Right if ctrl => editor.move_selections(Motion::Word(Forward), extend),
