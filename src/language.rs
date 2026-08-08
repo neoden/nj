@@ -25,6 +25,8 @@ pub struct Language {
     /// What one level of indentation is made of in a fresh file.
     pub indent: Indent,
     pub tab_width: usize,
+    /// None for languages that only have block comments, until we do those.
+    pub line_comment: Option<&'static str>,
 }
 
 pub const PLAIN: Language = Language {
@@ -33,6 +35,7 @@ pub const PLAIN: Language = Language {
     filenames: &[],
     indent: Indent::Spaces(4),
     tab_width: 4,
+    line_comment: None,
 };
 
 pub const LANGUAGES: &[Language] = &[
@@ -42,6 +45,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(4),
         tab_width: 4,
+        line_comment: Some("//"),
     },
     Language {
         name: "Python",
@@ -49,6 +53,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(4),
         tab_width: 4,
+        line_comment: Some("#"),
     },
     Language {
         name: "JavaScript",
@@ -56,6 +61,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
+        line_comment: Some("//"),
     },
     Language {
         name: "TypeScript",
@@ -63,6 +69,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
+        line_comment: Some("//"),
     },
     Language {
         name: "HTML",
@@ -70,6 +77,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
+        line_comment: None,
     },
     Language {
         name: "CSS",
@@ -77,6 +85,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
+        line_comment: None,
     },
     Language {
         name: "JSON",
@@ -84,6 +93,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
+        line_comment: None,
     },
     Language {
         name: "TOML",
@@ -91,6 +101,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &["Cargo.lock"],
         indent: Indent::Spaces(2),
         tab_width: 2,
+        line_comment: Some("#"),
     },
     Language {
         // Tabs are illegal in YAML, so this one can never be Indent::Tabs.
@@ -99,6 +110,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
+        line_comment: Some("#"),
     },
     Language {
         name: "Markdown",
@@ -106,6 +118,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
+        line_comment: None,
     },
     Language {
         name: "Go",
@@ -113,6 +126,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Tabs,
         tab_width: 4,
+        line_comment: Some("//"),
     },
     Language {
         name: "C",
@@ -120,6 +134,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(4),
         tab_width: 4,
+        line_comment: Some("//"),
     },
     Language {
         name: "C++",
@@ -127,6 +142,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[],
         indent: Indent::Spaces(4),
         tab_width: 4,
+        line_comment: Some("//"),
     },
     Language {
         name: "Shell",
@@ -134,6 +150,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &[".bashrc", ".zshrc", ".profile"],
         indent: Indent::Spaces(2),
         tab_width: 2,
+        line_comment: Some("#"),
     },
     Language {
         // Make demands a literal tab before every recipe line.
@@ -142,6 +159,7 @@ pub const LANGUAGES: &[Language] = &[
         filenames: &["Makefile", "makefile", "GNUmakefile"],
         indent: Indent::Tabs,
         tab_width: 8,
+        line_comment: Some("#"),
     },
 ];
 

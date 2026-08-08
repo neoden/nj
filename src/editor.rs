@@ -663,6 +663,71 @@ impl Editor {
         self.apply(transaction, EditKind::Other);
     }
 
+    /// Comments the touched lines, or uncomments them when every one of them
+    /// is already commented. Blank lines are left out either way.
+    pub fn toggle_comment(&mut self) {
+        let Some(token) = self.document.language.line_comment else {
+            self.message = Some("No line comment for this language".to_owned());
+            return;
+        };
+
+        let text = &self.document.text;
+        let lines: Vec<usize> = self
+            .touched_lines()
+            .into_iter()
+            .filter(|&line| !text.line_str(line).trim().is_empty())
+            .collect();
+        if lines.is_empty() {
+            return;
+        }
+
+        let commented = lines
+            .iter()
+            .all(|&line| text.line_str(line).trim_start().starts_with(token));
+
+        let changes = match commented {
+            true => lines
+                .iter()
+                .map(|&line| {
+                    let start = text.line_start(line);
+                    let content = text.line_str(line);
+                    let at = content.len() - content.trim_start().len();
+                    let rest = &content[at + token.len()..];
+                    let width = token.len() + usize::from(rest.starts_with(' '));
+                    Change {
+                        range: start + at..start + at + width,
+                        text: String::new(),
+                    }
+                })
+                .collect(),
+            false => {
+                // All the markers line up with the shallowest line, which is
+                // what keeps a commented-out block readable.
+                let column = lines
+                    .iter()
+                    .map(|&line| {
+                        let content = text.line_str(line);
+                        content.len() - content.trim_start().len()
+                    })
+                    .min()
+                    .unwrap_or(0);
+
+                lines
+                    .iter()
+                    .map(|&line| {
+                        let at = text.line_start(line) + column;
+                        Change {
+                            range: at..at,
+                            text: format!("{token} "),
+                        }
+                    })
+                    .collect()
+            }
+        };
+
+        self.apply_to_lines(changes);
+    }
+
     /// Lines under any cursor, each named once however many cursors sit on it.
     /// A selection ending exactly on a line start does not reach that line —
     /// it only swallowed the break before it.
@@ -1225,6 +1290,74 @@ mod tests {
         let mut editor = editor(content, offset);
         editor.document.indent = indent;
         editor
+    }
+
+    fn rust_editor(content: &str, offset: usize) -> Editor {
+        let mut editor = editor(content, offset);
+        editor.set_language(language::by_name("Rust").unwrap());
+        editor
+    }
+
+    #[test]
+    fn commenting_and_uncommenting_a_line() {
+        let mut editor = rust_editor("    code();\n", 4);
+        editor.toggle_comment();
+        assert_eq!(content(&editor), "    // code();\n");
+
+        editor.toggle_comment();
+        assert_eq!(content(&editor), "    code();\n");
+    }
+
+    #[test]
+    fn markers_line_up_with_the_shallowest_line() {
+        let mut editor = rust_editor("  one();\n      two();\n", 0);
+        editor.view.selections = Selection {
+            anchor: 0,
+            head: 20,
+            goal_column: None,
+        }
+        .into();
+        editor.toggle_comment();
+
+        assert_eq!(content(&editor), "  // one();\n  //     two();\n");
+    }
+
+    #[test]
+    fn a_half_commented_block_becomes_fully_commented() {
+        let mut editor = rust_editor("// one();\ntwo();\n", 0);
+        editor.view.selections = Selection {
+            anchor: 0,
+            head: 16,
+            goal_column: None,
+        }
+        .into();
+        editor.toggle_comment();
+
+        assert_eq!(content(&editor), "// // one();\n// two();\n");
+    }
+
+    #[test]
+    fn blank_lines_are_left_alone() {
+        let mut editor = rust_editor("one();\n\ntwo();\n", 0);
+        editor.view.selections = Selection {
+            anchor: 0,
+            head: 14,
+            goal_column: None,
+        }
+        .into();
+        editor.toggle_comment();
+
+        assert_eq!(content(&editor), "// one();\n\n// two();\n");
+    }
+
+    #[test]
+    fn a_language_without_line_comments_says_so() {
+        let mut editor = editor("{}\n", 0);
+        editor.set_language(language::by_name("JSON").unwrap());
+        editor.toggle_comment();
+
+        assert_eq!(content(&editor), "{}\n");
+        assert!(editor.message.is_some());
     }
 
     #[test]

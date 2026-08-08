@@ -339,6 +339,7 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Char('l') if ctrl && extend => editor.select_all_occurrences(),
         KeyCode::Char('l') if ctrl => editor.select_line(),
         KeyCode::Char('a') if ctrl => editor.select_all(),
+        KeyCode::Char('/') if ctrl => editor.toggle_comment(),
         KeyCode::Up if ctrl && alt => editor.add_cursor(Backward),
         KeyCode::Down if ctrl && alt => editor.add_cursor(Forward),
         KeyCode::Up if ctrl => editor.scroll(-1),
