@@ -19,5 +19,6 @@ Format: context, decision, consequences ([Nygard][nygard]).
 | [9](0009-transactions-and-multiple-cursors.md) | Transactions and multiple cursors in the core model | Accepted |
 | [10](0010-rows-as-the-unit-of-display.md) | Rows, not lines, as the unit of display | Accepted |
 | [11](0011-clipboard-through-external-helpers.md) | Reach the clipboard through external helpers | Accepted |
+| [12](0012-one-panel-and-a-pinned-status-bar.md) | One panel and a pinned status bar | Accepted |
 
 [nygard]: https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions
