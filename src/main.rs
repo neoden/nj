@@ -41,12 +41,17 @@ fn main() -> Result<()> {
     };
 
     let term = Terminal::enter()?;
-    let result = run(&term, &mut Editor::new(document).with_system_clipboard());
+    let mut editor = Editor::new(document).with_system_clipboard();
+    if !term.keyboard_enhanced {
+        editor.message = Some("legacy keyboard: some combinations are unavailable".to_owned());
+    }
+
+    let result = run(&mut editor);
     drop(term);
     result
 }
 
-fn run(term: &Terminal, editor: &mut Editor) -> Result<()> {
+fn run(editor: &mut Editor) -> Result<()> {
     let mut out = io::stdout();
 
     loop {
@@ -58,11 +63,8 @@ fn run(term: &Terminal, editor: &mut Editor) -> Result<()> {
             editor.panel_height() + 1,
         );
 
-        let left = match &editor.message {
-            Some(message) => format!(" {message}"),
-            None => status(term, editor),
-        };
-        render::draw(&mut out, editor, &left, &editor.panel_status())?;
+        let (left, right) = status(editor);
+        render::draw(&mut out, editor, &left, &right)?;
 
         if !handle(event::read()?, editor) {
             return Ok(());
@@ -295,34 +297,44 @@ fn handle_mouse(mouse: MouseEvent, editor: &mut Editor) {
     }
 }
 
-fn status(term: &Terminal, editor: &Editor) -> String {
+/// The right side is the document, always in the same place. The left side is
+/// whatever is going on right now, so the eye only goes there when something
+/// is happening.
+fn status(editor: &Editor) -> (String, String) {
     let document = &editor.document;
+    let head = editor.view.selections.primary().head;
+    let line = document.text.line_of(head);
+    let column = head - document.text.line_start(line);
+
     let path = document
         .path
         .as_ref()
         .map_or("[scratch]".to_owned(), |path| path.display().to_string());
-    let path = match document.modified {
-        true => format!("{path} •"),
-        false => path,
-    };
-    let keyboard = match term.keyboard_enhanced {
-        true => "enhanced",
-        false => "legacy (some keys unavailable)",
-    };
-
-    let head = editor.view.selections.primary().head;
-    let line = document.text.line_of(head);
-    let column = head - document.text.line_start(line);
-    let cursors = match editor.view.selections.len() {
-        1 => String::new(),
-        count => format!(" · {count} cursors"),
-    };
-
-    format!(
-        " {path} · {}:{}{cursors} · {} lines · {:?} · keyboard: {keyboard}",
+    let right = format!(
+        "{path}{} · {} lines · {}:{}",
+        if document.modified { "*" } else { "" },
+        document.text.line_count(),
         line + 1,
         column + 1,
-        document.text.line_count(),
-        document.line_ending,
-    )
+    );
+
+    let left = match &editor.message {
+        Some(message) => message.clone(),
+        None => {
+            let cursors = editor.view.selections.len();
+            [
+                editor.panel_status(),
+                match cursors {
+                    1 => String::new(),
+                    count => format!("{count} cursors"),
+                },
+            ]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
+        }
+    };
+
+    (format!(" {left}"), right)
 }
