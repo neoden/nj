@@ -2,6 +2,7 @@ mod clipboard;
 mod document;
 mod editor;
 mod key;
+mod language;
 mod layout;
 mod movement;
 mod panel;
@@ -311,8 +312,9 @@ fn status(editor: &Editor) -> (String, String) {
         .as_ref()
         .map_or("[scratch]".to_owned(), |path| path.display().to_string());
     let right = format!(
-        "{path}{} · {} lines · {}:{}",
+        "{path}{} · {} · {} lines · {}:{}",
         if document.modified { "*" } else { "" },
+        document.language.name,
         document.text.line_count(),
         line + 1,
         column + 1,

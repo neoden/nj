@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::document::{Document, EditKind};
+use crate::language::Language;
 use crate::movement::{self, Class, Direction, Motion};
 use crate::panel::Panel;
 use crate::prompt::{Prompt, Purpose};
@@ -25,9 +26,13 @@ pub struct Editor {
 
 impl Editor {
     pub fn new(document: Document) -> Self {
+        let view = View {
+            tab_width: document.language.tab_width,
+            ..View::default()
+        };
         Self {
             document,
-            view: View::default(),
+            view,
             clipboard: Clipboard::default(),
             panel: None,
             message: None,
@@ -302,6 +307,11 @@ impl Editor {
         if let Err(error) = self.document.save() {
             self.message = Some(format!("{error:#}"));
         }
+    }
+
+    pub fn set_language(&mut self, language: &'static Language) {
+        self.document.language = language;
+        self.view.tab_width = language.tab_width;
     }
 
     /// Left out by default so that tests never touch the real clipboard.

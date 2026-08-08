@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+use crate::language::{self, Language};
 use crate::movement::{Class, Direction};
 use crate::selection::SelectionSet;
 use crate::text::Text;
@@ -29,12 +30,13 @@ impl LineEnding {
 }
 
 /// One open file: its text plus everything needed to write it back unchanged.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Document {
     pub text: Text,
     pub path: Option<PathBuf>,
     pub line_ending: LineEnding,
     pub has_bom: bool,
+    pub language: &'static Language,
     pub modified: bool,
     undo_stack: Vec<Vec<Transaction>>,
     redo_stack: Vec<Vec<Transaction>>,
@@ -48,6 +50,22 @@ pub enum EditKind {
     Delete(Direction),
     /// Never joins anything: pastes, line breaks, word deletions.
     Other,
+}
+
+impl Default for Document {
+    fn default() -> Self {
+        Self {
+            text: Text::default(),
+            path: None,
+            line_ending: LineEnding::default(),
+            has_bom: false,
+            language: &language::PLAIN,
+            modified: false,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            last_edit: None,
+        }
+    }
 }
 
 impl Document {
@@ -66,6 +84,7 @@ impl Document {
             Err(err) if err.kind() == ErrorKind::NotFound => {
                 return Ok(Self {
                     path: Some(path.to_path_buf()),
+                    language: language::detect(path),
                     ..Self::default()
                 })
             }
@@ -77,6 +96,7 @@ impl Document {
 
         Ok(Self {
             path: Some(path.to_path_buf()),
+            language: language::detect(path),
             ..Self::parse(&content)
         })
     }
