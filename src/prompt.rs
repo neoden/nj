@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::movement::{self, Direction, Motion};
+use crate::movement::{self, Motion};
 use crate::selection::SelectionSet;
 use crate::text::Text;
 
@@ -40,13 +40,49 @@ impl Field {
         self.anchor.min(self.cursor)..self.anchor.max(self.cursor)
     }
 
-    fn replace_selection(&mut self, inserted: &str) {
+    pub fn insert(&mut self, inserted: &str) {
         let selection = self.selection();
         self.cursor = selection.start;
         self.text.remove(selection);
         self.text.insert(self.cursor, inserted);
         self.cursor += inserted.len();
         self.anchor = self.cursor;
+    }
+
+    /// Seeding a field selects what was put there, so that typing replaces it.
+    pub fn select_all(&mut self) {
+        self.anchor = 0;
+        self.cursor = self.text.len();
+    }
+
+    pub fn delete(&mut self, motion: Motion) {
+        if !self.selection().is_empty() {
+            return self.insert("");
+        }
+
+        let target = self.target(motion);
+        let range = self.cursor.min(target)..self.cursor.max(target);
+        self.cursor = range.start;
+        self.anchor = self.cursor;
+        self.text.remove(range);
+    }
+
+    pub fn move_cursor(&mut self, motion: Motion, extend: bool) {
+        self.cursor = self.target(motion);
+        if !extend {
+            self.anchor = self.cursor;
+        }
+    }
+
+    fn target(&self, motion: Motion) -> usize {
+        match motion {
+            Motion::Word(direction) => movement::word(&self.text, self.cursor, direction),
+            Motion::LineEdge(direction) | Motion::Document(direction) => {
+                movement::line_edge(&self.text, self.cursor, direction)
+            }
+            Motion::Grapheme(direction) => movement::grapheme(&self.text, self.cursor, direction),
+            Motion::Row(_) => self.cursor,
+        }
     }
 }
 
@@ -92,60 +128,26 @@ impl Prompt {
     }
 
     pub fn insert(&mut self, inserted: &str) {
-        self.fields[self.active].replace_selection(inserted);
+        self.fields[self.active].insert(inserted);
     }
 
-    /// Seeding a field selects what was put there, so that typing replaces it.
     pub fn select_all(&mut self) {
-        let field = &mut self.fields[self.active];
-        field.anchor = 0;
-        field.cursor = field.text.len();
+        self.fields[self.active].select_all();
     }
 
     pub fn delete(&mut self, motion: Motion) {
-        let field = &mut self.fields[self.active];
-        if !field.selection().is_empty() {
-            return field.replace_selection("");
-        }
-
-        let target = match motion {
-            Motion::Word(direction) => movement::word(&field.text, field.cursor, direction),
-            Motion::LineEdge(direction) => movement::line_edge(&field.text, field.cursor, direction),
-            _ => movement::grapheme(
-                &field.text,
-                field.cursor,
-                match motion {
-                    Motion::Grapheme(direction) => direction,
-                    _ => Direction::Backward,
-                },
-            ),
-        };
-
-        let range = field.cursor.min(target)..field.cursor.max(target);
-        field.cursor = range.start;
-        field.anchor = field.cursor;
-        field.text.remove(range);
+        self.fields[self.active].delete(motion);
     }
 
     pub fn move_cursor(&mut self, motion: Motion, extend: bool) {
-        let field = &mut self.fields[self.active];
-        field.cursor = match motion {
-            Motion::Word(direction) => movement::word(&field.text, field.cursor, direction),
-            Motion::LineEdge(direction) | Motion::Document(direction) => {
-                movement::line_edge(&field.text, field.cursor, direction)
-            }
-            Motion::Grapheme(direction) => movement::grapheme(&field.text, field.cursor, direction),
-            Motion::Row(_) => field.cursor,
-        };
-        if !extend {
-            field.anchor = field.cursor;
-        }
+        self.fields[self.active].move_cursor(motion, extend);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::movement::Direction;
 
     fn prompt(purpose: Purpose, typed: &str) -> Prompt {
         let mut prompt = Prompt::new(purpose, SelectionSet::single(0));

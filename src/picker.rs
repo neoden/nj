@@ -1,0 +1,214 @@
+use crate::fuzzy;
+use crate::prompt::Field;
+
+/// Rows of candidates shown at once. The query line sits above them.
+pub const VISIBLE: usize = 10;
+
+/// Candidates pulled from the source per turn of the main loop. Bounded so a
+/// directory with a hundred thousand files still draws its first frame at once.
+const BATCH: usize = 4096;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pick {
+    Language,
+}
+
+pub struct Picker {
+    pub pick: Pick,
+    pub query: Field,
+    source: Box<dyn Iterator<Item = String>>,
+    candidates: Vec<String>,
+    /// Indices into `candidates`, best first.
+    matches: Vec<usize>,
+    scores: Vec<i32>,
+    pub selected: usize,
+    exhausted: bool,
+}
+
+impl Picker {
+    pub fn new(pick: Pick, source: impl Iterator<Item = String> + 'static) -> Self {
+        Self {
+            pick,
+            query: Field {
+                label: ">",
+                ..Field::default()
+            },
+            source: Box::new(source),
+            candidates: Vec::new(),
+            matches: Vec::new(),
+            scores: Vec::new(),
+            selected: 0,
+            exhausted: false,
+        }
+    }
+
+    pub fn height(&self) -> usize {
+        1 + self.matches.len().min(VISIBLE)
+    }
+
+    pub fn is_loading(&self) -> bool {
+        !self.exhausted
+    }
+
+    pub fn total(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub fn len(&self) -> usize {
+        self.matches.len()
+    }
+
+    pub fn selection(&self) -> Option<&str> {
+        let index = *self.matches.get(self.selected)?;
+        Some(&self.candidates[index])
+    }
+
+    /// The window of matches on screen, kept around the selected one.
+    pub fn visible(&self) -> impl Iterator<Item = (usize, &str)> {
+        let first = self.selected.saturating_sub(VISIBLE - 1);
+        self.matches
+            .iter()
+            .enumerate()
+            .skip(first)
+            .take(VISIBLE)
+            .map(|(row, &index)| (row, self.candidates[index].as_str()))
+    }
+
+    /// Takes the next batch from the source. Returns false once it is spent.
+    pub fn pull(&mut self) -> bool {
+        let query = self.query.contents();
+        for _ in 0..BATCH {
+            let Some(candidate) = self.source.next() else {
+                self.exhausted = true;
+                return false;
+            };
+
+            // New candidates are placed straight into the ranking, so the list
+            // stays sorted without re-scoring everything seen so far.
+            if let Some(score) = fuzzy::score(&candidate, &query) {
+                let at = self.rank_of(score);
+                self.matches.insert(at, self.candidates.len());
+                self.scores.insert(at, score);
+            }
+            self.candidates.push(candidate);
+        }
+        true
+    }
+
+    pub fn refilter(&mut self) {
+        let query = self.query.contents();
+        let mut ranked: Vec<_> = self
+            .candidates
+            .iter()
+            .enumerate()
+            .filter_map(|(index, candidate)| {
+                fuzzy::score(candidate, &query).map(|score| (score, index))
+            })
+            .collect();
+        ranked.sort_by_key(|&(score, _)| std::cmp::Reverse(score));
+
+        self.scores = ranked.iter().map(|&(score, _)| score).collect();
+        self.matches = ranked.into_iter().map(|(_, index)| index).collect();
+        self.selected = 0;
+    }
+
+    pub fn move_selection(&mut self, delta: isize) {
+        if self.matches.is_empty() {
+            return;
+        }
+        let last = self.matches.len() - 1;
+        self.selected = self.selected.saturating_add_signed(delta).min(last);
+    }
+
+    fn rank_of(&self, score: i32) -> usize {
+        self.scores.partition_point(|&other| other >= score)
+    }
+}
+
+impl std::fmt::Debug for Picker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Picker")
+            .field("pick", &self.pick)
+            .field("candidates", &self.candidates.len())
+            .field("matches", &self.matches.len())
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn picker(items: &[&str]) -> Picker {
+        let items: Vec<String> = items.iter().map(|&item| item.to_owned()).collect();
+        let mut picker = Picker::new(Pick::Language, items.into_iter());
+        picker.pull();
+        picker
+    }
+
+    fn shown(picker: &Picker) -> Vec<&str> {
+        picker.visible().map(|(_, item)| item).collect()
+    }
+
+    #[test]
+    fn everything_shows_until_something_is_typed() {
+        let picker = picker(&["rust", "python", "go"]);
+        assert_eq!(picker.len(), 3);
+        assert!(!picker.is_loading());
+    }
+
+    #[test]
+    fn typing_narrows_and_ranks() {
+        let mut picker = picker(&["rust", "python", "typescript", "tidy"]);
+        picker.query.insert("ty");
+        picker.refilter();
+
+        // `python` has no `y` after its `t`, so it is not a match at all.
+        assert_eq!(shown(&picker), ["typescript", "tidy"]);
+    }
+
+    #[test]
+    fn a_query_matching_nothing_leaves_an_empty_list() {
+        let mut picker = picker(&["rust", "go"]);
+        picker.query.insert("zzz");
+        picker.refilter();
+
+        assert_eq!(picker.len(), 0);
+        assert_eq!(picker.selection(), None);
+    }
+
+    #[test]
+    fn candidates_arriving_later_land_in_the_right_place() {
+        let mut picker = Picker::new(Pick::Language, ["zebra", "go", "gopher"].into_iter().map(String::from));
+        picker.query.insert("go");
+        picker.pull();
+
+        // Sorted by score, not by arrival.
+        assert_eq!(shown(&picker), ["go", "gopher"]);
+    }
+
+    #[test]
+    fn the_selection_walks_the_list_and_stops_at_its_ends() {
+        let mut picker = picker(&["one", "two", "three"]);
+        assert_eq!(picker.selection(), Some("one"));
+
+        picker.move_selection(1);
+        assert_eq!(picker.selection(), Some("two"));
+
+        picker.move_selection(99);
+        assert_eq!(picker.selection(), Some("three"));
+
+        picker.move_selection(-99);
+        assert_eq!(picker.selection(), Some("one"));
+    }
+
+    #[test]
+    fn typing_starts_the_selection_over() {
+        let mut picker = picker(&["rust", "python", "go"]);
+        picker.move_selection(2);
+        picker.query.insert("o");
+        picker.refilter();
+
+        assert_eq!(picker.selected, 0);
+    }
+}

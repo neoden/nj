@@ -9,7 +9,8 @@ use crossterm::{cursor, queue};
 use crate::editor::Editor;
 use crate::layout::{self, Glyph, DEFAULT_TAB_WIDTH};
 use crate::panel::Panel;
-use crate::prompt::Prompt;
+use crate::picker::Picker;
+use crate::prompt::{Field, Prompt};
 use crate::view::CellStyle;
 
 /// Draws a whole frame. Every cell is rewritten, so the screen is never
@@ -74,6 +75,7 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
         rule(out, view.height, width)?;
         match panel {
             Panel::Prompt(prompt) => draw_prompt(out, prompt, view.height + 1, width)?,
+            Panel::Picker(picker) => draw_picker(out, picker, view.height + 1, width)?,
         }
         rule(out, view.height + panel.height() - 1, width)?;
     }
@@ -90,6 +92,32 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
 
     out.flush()?;
     Ok(())
+}
+
+/// The query sits at the bottom, right above the status bar, and the list
+/// grows upwards from it. That way neither the field nor the best candidate
+/// moves as the list changes size.
+fn draw_picker(out: &mut impl Write, picker: &Picker, top: usize, width: usize) -> Result<()> {
+    let rows = picker.visible().count();
+
+    for (row, (index, candidate)) in picker.visible().enumerate() {
+        let selected = index == picker.selected;
+        // Indented to line up with the text of the query below.
+        let line = pad(&format!("   {candidate}"), width);
+
+        queue!(out, cursor::MoveTo(0, (top + rows - 1 - row) as u16))?;
+        match selected {
+            true => queue!(
+                out,
+                SetBackgroundColor(Color::DarkGrey),
+                Print(line),
+                ResetColor
+            )?,
+            false => queue!(out, Print(line))?,
+        }
+    }
+
+    draw_field(out, &picker.query, true, top + rows, width)
 }
 
 fn rule(out: &mut impl Write, row: usize, width: usize) -> Result<()> {
@@ -120,38 +148,47 @@ fn status_line(left: &str, right: &str, width: usize) -> String {
 /// terminal cursor stays hidden and we paint our own everywhere else.
 fn draw_prompt(out: &mut impl Write, prompt: &Prompt, top: usize, width: usize) -> Result<()> {
     for (index, field) in prompt.fields.iter().enumerate() {
-        let contents = field.contents();
-        let label = format!(" {} ", field.label);
-        let offset = label.chars().count();
-        let column_of =
-            |byte| offset + layout::column_of_byte(&contents, byte, DEFAULT_TAB_WIDTH);
+        draw_field(out, field, index == prompt.active, top + index, width)?;
+    }
+    Ok(())
+}
 
-        let active = index == prompt.active;
-        let caret = active.then(|| column_of(field.cursor));
-        let selection = field.selection();
-        let selected = column_of(selection.start)..column_of(selection.end);
+/// The caret and the selection are painted by us, since the terminal's own
+/// cursor stays hidden everywhere in this editor.
+fn draw_field(
+    out: &mut impl Write,
+    field: &Field,
+    active: bool,
+    row: usize,
+    width: usize,
+) -> Result<()> {
+    let contents = field.contents();
+    let label = format!(" {} ", field.label);
+    let offset = label.chars().count();
+    let column_of = |byte| offset + layout::column_of_byte(&contents, byte, DEFAULT_TAB_WIDTH);
 
-        let line = pad(&format!("{label}{contents}"), width);
+    let caret = active.then(|| column_of(field.cursor));
+    let selection = field.selection();
+    let selected = column_of(selection.start)..column_of(selection.end);
 
-        queue!(out, cursor::MoveTo(0, (top + index) as u16))?;
-        for (column, glyph) in line.chars().enumerate() {
-            if caret == Some(column) {
-                queue!(
-                    out,
-                    SetAttribute(Attribute::Reverse),
-                    Print(glyph),
-                    SetAttribute(Attribute::NoReverse)
-                )?;
-            } else if active && selected.contains(&column) {
-                queue!(
-                    out,
-                    SetBackgroundColor(Color::DarkGrey),
-                    Print(glyph),
-                    ResetColor
-                )?;
-            } else {
-                queue!(out, Print(glyph))?;
-            }
+    queue!(out, cursor::MoveTo(0, row as u16))?;
+    for (column, glyph) in pad(&format!("{label}{contents}"), width).chars().enumerate() {
+        if caret == Some(column) {
+            queue!(
+                out,
+                SetAttribute(Attribute::Reverse),
+                Print(glyph),
+                SetAttribute(Attribute::NoReverse)
+            )?;
+        } else if active && selected.contains(&column) {
+            queue!(
+                out,
+                SetBackgroundColor(Color::DarkGrey),
+                Print(glyph),
+                ResetColor
+            )?;
+        } else {
+            queue!(out, Print(glyph))?;
         }
     }
     Ok(())

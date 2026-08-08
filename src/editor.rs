@@ -2,7 +2,8 @@ use std::ops::Range;
 
 use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::document::{Document, EditKind};
-use crate::language::Language;
+use crate::language::{self, Language};
+use crate::picker::{Pick, Picker};
 use crate::movement::{self, Class, Direction, Motion};
 use crate::panel::Panel;
 use crate::prompt::{Prompt, Purpose};
@@ -63,14 +64,65 @@ impl Editor {
         self.panel.as_ref()?.as_prompt()
     }
 
+    pub fn open_picker(&mut self, pick: Pick) {
+        let mut picker = match pick {
+            Pick::Language => Picker::new(
+                pick,
+                language::LANGUAGES
+                    .iter()
+                    .chain([&language::PLAIN])
+                    .map(|language| language.name.to_owned()),
+            ),
+        };
+        picker.pull();
+        self.panel = Some(Panel::Picker(picker));
+    }
+
+    /// True while a picker still has candidates to read, which is what keeps
+    /// the main loop from going back to sleep.
+    pub fn is_loading(&self) -> bool {
+        match &self.panel {
+            Some(Panel::Picker(picker)) => picker.is_loading(),
+            _ => false,
+        }
+    }
+
+    pub fn load_more(&mut self) {
+        if let Some(Panel::Picker(picker)) = &mut self.panel {
+            picker.pull();
+        }
+    }
+
+    pub fn accept_pick(&mut self) {
+        let Some(Panel::Picker(picker)) = &self.panel else {
+            return;
+        };
+        let Some(chosen) = picker.selection() else {
+            return;
+        };
+
+        match picker.pick {
+            Pick::Language => match language::by_name(chosen) {
+                Some(language) => self.set_language(language),
+                None => return,
+            },
+        }
+        self.close_panel();
+    }
+
     pub fn panel_height(&self) -> usize {
         self.panel.as_ref().map_or(0, Panel::height)
     }
 
-    /// The right-hand side of the status bar belongs to whatever is open.
+    /// The situational half of the status bar belongs to whatever is open.
     pub fn panel_status(&self) -> String {
-        match self.prompt().map(|prompt| prompt.purpose) {
-            Some(Purpose::Search | Purpose::Replace) => self.search_status(),
+        match &self.panel {
+            Some(Panel::Prompt(prompt))
+                if matches!(prompt.purpose, Purpose::Search | Purpose::Replace) =>
+            {
+                self.search_status()
+            }
+            Some(Panel::Picker(picker)) => format!("{}/{}", picker.len(), picker.total()),
             _ => String::new(),
         }
     }

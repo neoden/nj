@@ -4,8 +4,10 @@ mod editor;
 mod key;
 mod language;
 mod layout;
+mod fuzzy;
 mod movement;
 mod panel;
+mod picker;
 mod prompt;
 mod render;
 mod selection;
@@ -27,6 +29,7 @@ use crate::editor::Editor;
 use crate::key::{Key, KeyCode, Mods};
 use crate::movement::{Direction, Motion};
 use crate::panel::Panel;
+use crate::picker::Pick;
 use crate::prompt::Purpose;
 use crate::selection::{Selection, SelectionSet};
 use crate::terminal::Terminal;
@@ -66,6 +69,13 @@ fn run(editor: &mut Editor) -> Result<()> {
 
         let (left, right) = status(editor);
         render::draw(&mut out, editor, &left, &right)?;
+
+        // A panel still reading its candidates must not let the loop go back
+        // to sleep, or the list would stop filling until the next keystroke.
+        if editor.is_loading() && !event::poll(Duration::ZERO)? {
+            editor.load_more();
+            continue;
+        }
 
         if !handle(event::read()?, editor) {
             return Ok(());
@@ -110,6 +120,94 @@ fn is_quit(key: Key) -> bool {
 /// An open panel owns the keyboard: this is the context of ADR 8, written by
 /// hand until the keymap exists.
 fn handle_panel_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
+    match editor.panel {
+        Some(Panel::Picker(_)) => handle_picker_key(key, event, editor),
+        _ => handle_prompt_key(key, event, editor),
+    }
+}
+
+fn handle_picker_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
+    use Direction::{Backward, Forward};
+
+    let ctrl = key.mods.contains(Mods::CTRL);
+    let extend = key.mods.contains(Mods::SHIFT);
+    let page = crate::picker::VISIBLE as isize;
+    let Some(picker) = editor.panel.as_mut().and_then(Panel::as_picker_mut) else {
+        return;
+    };
+
+    let filtered = match key.code {
+        KeyCode::Esc => return editor.close_panel(),
+        KeyCode::Enter => return editor.accept_pick(),
+        // The list grows upwards from the query, so moving up the screen
+        // means moving away from the best match.
+        KeyCode::Up => {
+            picker.move_selection(1);
+            false
+        }
+        KeyCode::Down => {
+            picker.move_selection(-1);
+            false
+        }
+        KeyCode::PageUp => {
+            picker.move_selection(page);
+            false
+        }
+        KeyCode::PageDown => {
+            picker.move_selection(-page);
+            false
+        }
+        KeyCode::Backspace if ctrl => {
+            picker.query.delete(Motion::Word(Backward));
+            true
+        }
+        KeyCode::Backspace => {
+            picker.query.delete(Motion::Grapheme(Backward));
+            true
+        }
+        KeyCode::Delete => {
+            picker.query.delete(Motion::Grapheme(Forward));
+            true
+        }
+        KeyCode::Left if ctrl => {
+            picker.query.move_cursor(Motion::Word(Backward), extend);
+            false
+        }
+        KeyCode::Right if ctrl => {
+            picker.query.move_cursor(Motion::Word(Forward), extend);
+            false
+        }
+        KeyCode::Left => {
+            picker.query.move_cursor(Motion::Grapheme(Backward), extend);
+            false
+        }
+        KeyCode::Right => {
+            picker.query.move_cursor(Motion::Grapheme(Forward), extend);
+            false
+        }
+        KeyCode::Home => {
+            picker.query.move_cursor(Motion::LineEdge(Backward), extend);
+            false
+        }
+        KeyCode::End => {
+            picker.query.move_cursor(Motion::LineEdge(Forward), extend);
+            false
+        }
+        _ => match key::text_char(event) {
+            Some(character) => {
+                picker.query.insert(&character.to_string());
+                true
+            }
+            None => false,
+        },
+    };
+
+    if filtered {
+        picker.refilter();
+    }
+}
+
+fn handle_prompt_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
     use Direction::{Backward, Forward};
 
     let ctrl = key.mods.contains(Mods::CTRL);
@@ -218,6 +316,8 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Char('g') if ctrl => editor.open_prompt(Purpose::GotoLine),
         KeyCode::Char('f') if ctrl => editor.open_prompt(Purpose::Search),
         KeyCode::Char('h') if ctrl => editor.open_prompt(Purpose::Replace),
+        // Temporary: this belongs in the command palette.
+        KeyCode::Char('m') if ctrl && extend => editor.open_picker(Pick::Language),
         KeyCode::F(3) if extend => editor.search_next(Backward),
         KeyCode::F(3) => editor.search_next(Forward),
 
