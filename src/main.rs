@@ -114,29 +114,79 @@ fn handle_prompt_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         return;
     };
 
-    match key.code {
+    // Only an edited query needs the search run again; anything else would
+    // drag the cursor back to the first hit.
+    let edited = match key.code {
         KeyCode::Esc => return editor.cancel_prompt(),
-        KeyCode::Enter => return editor.accept_prompt(),
-        KeyCode::Tab => prompt.focus_next_field(),
-        KeyCode::Backspace if ctrl => prompt.delete(Motion::Word(Backward)),
-        KeyCode::Delete if ctrl => prompt.delete(Motion::Word(Forward)),
-        KeyCode::Backspace => prompt.delete(Motion::Grapheme(Backward)),
-        KeyCode::Delete => prompt.delete(Motion::Grapheme(Forward)),
-        KeyCode::Char('a') if ctrl => prompt.select_all(),
-        KeyCode::Left if ctrl => prompt.move_cursor(Motion::Word(Backward), extend),
-        KeyCode::Right if ctrl => prompt.move_cursor(Motion::Word(Forward), extend),
-        KeyCode::Left => prompt.move_cursor(Motion::Grapheme(Backward), extend),
-        KeyCode::Right => prompt.move_cursor(Motion::Grapheme(Forward), extend),
-        KeyCode::Home => prompt.move_cursor(Motion::LineEdge(Backward), extend),
-        KeyCode::End => prompt.move_cursor(Motion::LineEdge(Forward), extend),
-        _ => {
-            if let Some(character) = key::text_char(event) {
-                prompt.insert(&character.to_string());
-            }
+        KeyCode::Enter => return editor.submit_prompt(extend),
+        KeyCode::F(3) => return editor.go_to_match(direction(extend)),
+        KeyCode::Tab => {
+            prompt.focus_next_field();
+            false
         }
-    }
+        KeyCode::Backspace if ctrl => {
+            prompt.delete(Motion::Word(Backward));
+            true
+        }
+        KeyCode::Delete if ctrl => {
+            prompt.delete(Motion::Word(Forward));
+            true
+        }
+        KeyCode::Backspace => {
+            prompt.delete(Motion::Grapheme(Backward));
+            true
+        }
+        KeyCode::Delete => {
+            prompt.delete(Motion::Grapheme(Forward));
+            true
+        }
+        KeyCode::Char('a') if ctrl => {
+            prompt.select_all();
+            false
+        }
+        KeyCode::Left if ctrl => {
+            prompt.move_cursor(Motion::Word(Backward), extend);
+            false
+        }
+        KeyCode::Right if ctrl => {
+            prompt.move_cursor(Motion::Word(Forward), extend);
+            false
+        }
+        KeyCode::Left => {
+            prompt.move_cursor(Motion::Grapheme(Backward), extend);
+            false
+        }
+        KeyCode::Right => {
+            prompt.move_cursor(Motion::Grapheme(Forward), extend);
+            false
+        }
+        KeyCode::Home => {
+            prompt.move_cursor(Motion::LineEdge(Backward), extend);
+            false
+        }
+        KeyCode::End => {
+            prompt.move_cursor(Motion::LineEdge(Forward), extend);
+            false
+        }
+        _ => match key::text_char(event) {
+            Some(character) => {
+                prompt.insert(&character.to_string());
+                true
+            }
+            None => false,
+        },
+    };
 
-    editor.prompt_changed();
+    if edited {
+        editor.prompt_changed();
+    }
+}
+
+fn direction(backwards: bool) -> Direction {
+    match backwards {
+        true => Direction::Backward,
+        false => Direction::Forward,
+    }
 }
 
 /// Temporary bindings: these become commands once the keymap exists.

@@ -15,6 +15,9 @@ pub struct Editor {
     pub clipboard: Clipboard,
     pub prompt: Option<Prompt>,
     pub message: Option<String>,
+    /// Every hit of the open query. Lives only while the prompt does, so
+    /// nothing has to remember to invalidate it.
+    pub matches: Vec<Range<usize>>,
     last_search: Option<String>,
     system: Option<SystemClipboard>,
 }
@@ -27,6 +30,7 @@ impl Editor {
             clipboard: Clipboard::default(),
             prompt: None,
             message: None,
+            matches: Vec::new(),
             last_search: None,
             system: None,
         }
@@ -57,18 +61,16 @@ impl Editor {
         }
     }
 
-    /// `Esc` undoes what an incremental search did to the cursors.
+    /// Closes the strip where the search left off. There is no separate
+    /// "accept", so leaving is how you keep what you found.
     pub fn cancel_prompt(&mut self) {
-        if let Some(prompt) = self.prompt.take()
-            && prompt.purpose == Purpose::Search
-        {
-            self.view.selections = prompt.origin;
-            self.view.scroll_to_cursor(&self.document.text);
-        }
+        self.prompt = None;
+        self.matches.clear();
     }
 
-    /// What `Enter` in the strip does depends on what it was opened for.
-    pub fn accept_prompt(&mut self) {
+    /// `Enter` walks the hits while searching; for anything else it answers
+    /// the question and closes the strip.
+    pub fn submit_prompt(&mut self, backwards: bool) {
         let Some(prompt) = &self.prompt else {
             return;
         };
@@ -76,11 +78,16 @@ impl Editor {
         let first = prompt.contents(0);
 
         match purpose {
+            Purpose::Search => {
+                return self.go_to_match(match backwards {
+                    true => Direction::Backward,
+                    false => Direction::Forward,
+                })
+            }
             Purpose::GotoLine => match parse_line_number(&first) {
                 Some(line) => self.goto_line(line),
                 None => self.message = Some("not a line number".to_owned()),
             },
-            Purpose::Search => self.last_search = Some(first),
             Purpose::Replace => {
                 let replacement = prompt.contents(1);
                 self.replace_all(&first, &replacement);
@@ -88,30 +95,94 @@ impl Editor {
         }
 
         self.prompt = None;
+        self.matches.clear();
     }
 
-    /// Incremental search: every keystroke searches again from where the
-    /// cursor stood when the prompt opened, so the match never drifts forward
-    /// as the query grows.
+    /// Incremental search: every keystroke collects the hits afresh and lands
+    /// on the first one at or after where the cursor stood when the prompt
+    /// opened, so the match never drifts forward as the query grows.
     pub fn prompt_changed(&mut self) {
         let Some(prompt) = &self.prompt else {
             return;
         };
-        if prompt.purpose != Purpose::Search {
+        if !matches!(prompt.purpose, Purpose::Search | Purpose::Replace) {
             return;
         }
 
         let needle = prompt.contents(0);
         let origin = prompt.origin.clone();
-        if needle.is_empty() {
+        self.collect_matches(&needle);
+        self.last_search = (!needle.is_empty()).then_some(needle);
+
+        if self.matches.is_empty() {
             self.view.selections = origin;
             return;
         }
 
-        match self.find(&needle, origin.primary().min(), Direction::Forward) {
-            Some(at) => self.select_match(at, needle.len()),
-            None => self.message = Some("not found".to_owned()),
+        let from = origin.primary().min();
+        let found = self
+            .matches
+            .iter()
+            .find(|found| found.start >= from)
+            .or_else(|| self.matches.first())
+            .cloned();
+        if let Some(found) = found {
+            self.select_match(found.start, found.len());
         }
+    }
+
+    fn collect_matches(&mut self, needle: &str) {
+        self.matches.clear();
+        if needle.is_empty() {
+            return;
+        }
+
+        let mut at = 0;
+        while let Some(found) = self.document.text.find(needle, at) {
+            at = found + needle.len();
+            self.matches.push(found..at);
+        }
+    }
+
+    pub fn go_to_match(&mut self, direction: Direction) {
+        if self.matches.is_empty() {
+            self.message = Some("not found".to_owned());
+            return;
+        }
+
+        let from = self.view.selections.primary().min();
+        let found = match direction {
+            Direction::Forward => self
+                .matches
+                .iter()
+                .find(|found| found.start > from)
+                .or_else(|| self.matches.first()),
+            Direction::Backward => self
+                .matches
+                .iter()
+                .rev()
+                .find(|found| found.start < from)
+                .or_else(|| self.matches.last()),
+        }
+        .cloned();
+
+        if let Some(found) = found {
+            self.select_match(found.start, found.len());
+        }
+    }
+
+    /// `3/17`, or nothing when no search is running.
+    pub fn search_status(&self) -> Option<String> {
+        if self.matches.is_empty() {
+            return self.prompt.as_ref().map(|_| "0/0".to_owned());
+        }
+        let at = self.view.selections.primary().min();
+        let current = self
+            .matches
+            .iter()
+            .position(|found| found.start == at)
+            .map_or(0, |index| index + 1);
+        Some(format!("{current}/{}", self.matches.len()))
     }
 
     pub fn search_next(&mut self, direction: Direction) {
@@ -792,7 +863,7 @@ mod tests {
         let mut editor = editor("one\ntwo\nthree\n", 0);
         editor.open_prompt(Purpose::GotoLine);
         type_into_prompt(&mut editor, "3");
-        editor.accept_prompt();
+        editor.submit_prompt(false);
 
         assert_eq!(editor.view.selections.primary().head, 8);
         assert!(editor.prompt.is_none());
@@ -803,7 +874,7 @@ mod tests {
         let mut editor = editor("one\ntwo\n", 0);
         editor.open_prompt(Purpose::GotoLine);
         type_into_prompt(&mut editor, "later");
-        editor.accept_prompt();
+        editor.submit_prompt(false);
 
         assert_eq!(editor.view.selections.primary().head, 0);
         assert!(editor.message.is_some());
@@ -893,34 +964,70 @@ mod tests {
     }
 
     #[test]
-    fn escape_puts_the_cursor_back() {
+    fn escape_closes_the_search_where_it_left_off() {
         let mut editor = editor("alpha beta", 2);
         editor.open_prompt(Purpose::Search);
         type_into_prompt(&mut editor, "beta");
-        assert_eq!(editor.view.selections.primary().range(), 6..10);
-
         editor.cancel_prompt();
-        assert_eq!(editor.view.selections.primary().head, 2);
+
+        assert_eq!(editor.view.selections.primary().range(), 6..10);
+        assert!(editor.prompt.is_none());
+        assert!(editor.matches.is_empty());
     }
 
     #[test]
-    fn repeating_a_search_walks_the_matches_and_wraps() {
+    fn enter_walks_the_matches_and_wraps() {
         let mut editor = editor("x . x . x", 0);
         editor.open_prompt(Purpose::Search);
         type_into_prompt(&mut editor, "x");
-        editor.accept_prompt();
+        assert_eq!(editor.view.selections.primary().range(), 0..1);
+
+        editor.submit_prompt(false);
+        assert_eq!(editor.view.selections.primary().range(), 4..5);
+        editor.submit_prompt(false);
+        assert_eq!(editor.view.selections.primary().range(), 8..9);
+        editor.submit_prompt(false);
+        assert_eq!(editor.view.selections.primary().range(), 0..1);
+
+        editor.submit_prompt(true);
+        assert_eq!(editor.view.selections.primary().range(), 8..9);
+
+        // Walking the hits keeps the strip open.
+        assert!(editor.prompt.is_some());
+    }
+
+    #[test]
+    fn every_hit_is_collected_and_counted() {
+        let mut editor = editor("x . x . x", 0);
+        editor.open_prompt(Purpose::Search);
+        type_into_prompt(&mut editor, "x");
+
+        assert_eq!(editor.matches, [0..1, 4..5, 8..9]);
+        assert_eq!(editor.search_status().as_deref(), Some("1/3"));
+
+        editor.submit_prompt(false);
+        assert_eq!(editor.search_status().as_deref(), Some("2/3"));
+    }
+
+    #[test]
+    fn a_query_with_no_hits_counts_zero() {
+        let mut editor = editor("nothing here", 0);
+        editor.open_prompt(Purpose::Search);
+        type_into_prompt(&mut editor, "zzz");
+
+        assert!(editor.matches.is_empty());
+        assert_eq!(editor.search_status().as_deref(), Some("0/0"));
+    }
+
+    #[test]
+    fn f3_still_works_once_the_strip_is_closed() {
+        let mut editor = editor("x . x", 0);
+        editor.open_prompt(Purpose::Search);
+        type_into_prompt(&mut editor, "x");
+        editor.cancel_prompt();
 
         editor.search_next(Direction::Forward);
         assert_eq!(editor.view.selections.primary().range(), 4..5);
-
-        editor.search_next(Direction::Forward);
-        assert_eq!(editor.view.selections.primary().range(), 8..9);
-
-        editor.search_next(Direction::Forward);
-        assert_eq!(editor.view.selections.primary().range(), 0..1);
-
-        editor.search_next(Direction::Backward);
-        assert_eq!(editor.view.selections.primary().range(), 8..9);
     }
 
     #[test]
@@ -930,7 +1037,7 @@ mod tests {
         type_into_prompt(&mut editor, "one");
         editor.prompt.as_mut().unwrap().focus_next_field();
         type_into_prompt(&mut editor, "1");
-        editor.accept_prompt();
+        editor.submit_prompt(false);
 
         assert_eq!(content(&editor), "1 two 1");
 

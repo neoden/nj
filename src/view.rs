@@ -13,13 +13,16 @@ const SCROLL_MARGIN: usize = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellStyle {
     Normal,
+    Matched,
     Selected,
     Cursor,
 }
 
-/// Where selections and carets fall on one line, in display columns.
+/// Where selections, carets and search hits fall on one line, in display
+/// columns. A cell under several of them takes the topmost.
 #[derive(Debug, Default)]
 pub struct LineHighlight {
+    matched: Vec<Range<usize>>,
     selected: Vec<Range<usize>>,
     carets: Vec<usize>,
 }
@@ -30,6 +33,8 @@ impl LineHighlight {
             CellStyle::Cursor
         } else if self.selected.iter().any(|range| range.contains(&column)) {
             CellStyle::Selected
+        } else if self.matched.iter().any(|range| range.contains(&column)) {
+            CellStyle::Matched
         } else {
             CellStyle::Normal
         }
@@ -284,7 +289,12 @@ impl View {
     /// Selections and carets crossing `line`, in display columns. A selection
     /// running past the end of a line highlights one extra column, to show
     /// that the line break itself is selected.
-    pub fn highlight_line(&self, text: &Text, line: usize) -> LineHighlight {
+    pub fn highlight_line(
+        &self,
+        text: &Text,
+        line: usize,
+        matches: &[Range<usize>],
+    ) -> LineHighlight {
         let start = text.line_start(line);
         let content = text.line_str(line);
         let end = start + content.len();
@@ -293,6 +303,15 @@ impl View {
             |offset: usize| layout::column_of_byte(&content, offset - start, self.tab_width);
 
         let mut highlight = LineHighlight::default();
+        for found in matches
+            .iter()
+            .filter(|found| found.start <= end && found.end >= start)
+        {
+            let from = column_of(found.start.max(start));
+            let to = column_of(found.end.min(end));
+            highlight.matched.push(from..to);
+        }
+
         for selection in self.selections.iter() {
             let range = selection.range();
             if !selection.is_empty() && range.start <= end && range.end >= start {
@@ -682,7 +701,7 @@ mod tests {
             ..selection
         });
 
-        let highlight = view.highlight_line(&text, 0);
+        let highlight = view.highlight_line(&text, 0, &[]);
         let runs = view.visible_runs("hello", 0, &highlight);
         assert_eq!(
             runs,

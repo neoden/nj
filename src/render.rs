@@ -20,7 +20,7 @@ pub fn draw(out: &mut impl Write, editor: &Editor, status: &str) -> Result<()> {
 
     for row in view.rows(&document.text) {
         let text = document.text.line_str(row.line);
-        let highlight = view.highlight_line(&document.text, row.line);
+        let highlight = view.highlight_line(&document.text, row.line, &editor.matches);
         // Wrapped continuations leave the gutter empty: the number belongs to
         // the logical line, not to every row it spans.
         let number = match row.index {
@@ -44,6 +44,14 @@ pub fn draw(out: &mut impl Write, editor: &Editor, status: &str) -> Result<()> {
                     Print(text),
                     ResetColor
                 )?,
+                // Underlined rather than coloured, so that a hit reads the
+                // same whatever the terminal's palette looks like.
+                CellStyle::Matched => queue!(
+                    out,
+                    SetAttribute(Attribute::Underlined),
+                    Print(text),
+                    SetAttribute(Attribute::NoUnderline)
+                )?,
                 CellStyle::Cursor => queue!(
                     out,
                     SetAttribute(Attribute::Reverse),
@@ -62,7 +70,13 @@ pub fn draw(out: &mut impl Write, editor: &Editor, status: &str) -> Result<()> {
 
     let width = view.gutter + view.width;
     match &editor.prompt {
-        Some(prompt) => draw_prompt(out, prompt, view.height, width)?,
+        Some(prompt) => draw_prompt(
+            out,
+            prompt,
+            &editor.search_status().unwrap_or_default(),
+            view.height,
+            width,
+        )?,
         None => queue!(
             out,
             cursor::MoveTo(0, view.height as u16),
@@ -81,6 +95,7 @@ pub fn draw(out: &mut impl Write, editor: &Editor, status: &str) -> Result<()> {
 fn draw_prompt(
     out: &mut impl Write,
     prompt: &Prompt,
+    counter: &str,
     top: usize,
     width: usize,
 ) -> Result<()> {
@@ -88,6 +103,11 @@ fn draw_prompt(
         let contents = field.contents();
         let label = format!(" {} ", field.label);
         let offset = label.chars().count();
+        // The counter belongs to the query, so it sits on the first line.
+        let tail = match index {
+            0 => format!("{counter} "),
+            _ => String::new(),
+        };
         let column_of =
             |byte| offset + layout::column_of_byte(&contents, byte, DEFAULT_TAB_WIDTH);
 
@@ -96,8 +116,10 @@ fn draw_prompt(
         let selection = field.selection();
         let selected = column_of(selection.start)..column_of(selection.end);
 
+        let line = pad(&format!("{label}{contents}"), width - tail.chars().count()) + &tail;
+
         queue!(out, cursor::MoveTo(0, (top + index) as u16))?;
-        for (column, glyph) in pad(&format!("{label}{contents}"), width).chars().enumerate() {
+        for (column, glyph) in line.chars().enumerate() {
             if caret == Some(column) {
                 queue!(
                     out,
