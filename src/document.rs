@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::language::{self, Language};
+use crate::indent;
+use crate::language::{self, Indent, Language};
 use crate::movement::{Class, Direction};
 use crate::selection::SelectionSet;
 use crate::text::Text;
@@ -37,6 +38,7 @@ pub struct Document {
     pub line_ending: LineEnding,
     pub has_bom: bool,
     pub language: &'static Language,
+    pub indent: Indent,
     pub modified: bool,
     undo_stack: Vec<Vec<Transaction>>,
     redo_stack: Vec<Vec<Transaction>>,
@@ -60,6 +62,7 @@ impl Default for Document {
             line_ending: LineEnding::default(),
             has_bom: false,
             language: &language::PLAIN,
+            indent: language::PLAIN.indent,
             modified: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -82,11 +85,13 @@ impl Document {
         let bytes = match fs::read(path) {
             Ok(bytes) => bytes,
             Err(err) if err.kind() == ErrorKind::NotFound => {
+                let language = language::detect(path);
                 return Ok(Self {
                     path: Some(path.to_path_buf()),
-                    language: language::detect(path),
+                    language,
+                    indent: language.indent,
                     ..Self::default()
-                })
+                });
             }
             Err(err) => return Err(err).with_context(|| format!("cannot read {}", path.display())),
         };
@@ -94,11 +99,13 @@ impl Document {
         let content = String::from_utf8(bytes)
             .with_context(|| format!("{} is not valid UTF-8", path.display()))?;
 
-        Ok(Self {
+        let mut document = Self {
             path: Some(path.to_path_buf()),
             language: language::detect(path),
             ..Self::parse(&content)
-        })
+        };
+        document.indent = indent::detect(&document.text, document.language.indent);
+        Ok(document)
     }
 
     fn parse(content: &str) -> Self {

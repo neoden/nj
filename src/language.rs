@@ -6,6 +6,16 @@ pub enum Indent {
     Spaces(usize),
 }
 
+impl Indent {
+    /// What one level looks like in the text.
+    pub fn unit(self) -> String {
+        match self {
+            Indent::Tabs => "\t".to_owned(),
+            Indent::Spaces(width) => " ".repeat(width),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Language {
     pub name: &'static str,

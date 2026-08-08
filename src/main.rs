@@ -5,6 +5,7 @@ mod key;
 mod language;
 mod layout;
 mod fuzzy;
+mod indent;
 mod movement;
 mod panel;
 mod picker;
@@ -314,7 +315,8 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Backspace => editor.delete(Motion::Grapheme(Backward)),
         KeyCode::Delete => editor.delete(Motion::Grapheme(Forward)),
         KeyCode::Enter => editor.insert("\n"),
-        KeyCode::Tab => editor.insert("\t"),
+        KeyCode::Tab if extend => editor.outdent(),
+        KeyCode::Tab => editor.indent(),
 
         KeyCode::Char('z') if ctrl && extend => editor.redo(),
         KeyCode::Char('y') if ctrl => editor.redo(),

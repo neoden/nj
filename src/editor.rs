@@ -3,14 +3,16 @@ use std::ops::Range;
 use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::document::{Document, EditKind};
 use crate::key;
-use crate::language::{self, Language};
+use crate::indent;
+use crate::language::{self, Indent, Language};
+use crate::layout;
 use crate::picker::{Pick, Picker};
 use crate::movement::{self, Class, Direction, Motion};
 use crate::panel::{Confirm, Panel, Question};
 use crate::prompt::{Prompt, Purpose};
 use crate::selection::{Selection, SelectionSet};
 use crate::text::Text;
-use crate::transaction::{CursorAfter, Transaction};
+use crate::transaction::{self, Change, CursorAfter, Transaction};
 use crate::view::View;
 
 pub struct Editor {
@@ -395,6 +397,7 @@ impl Editor {
 
     pub fn set_language(&mut self, language: &'static Language) {
         self.document.language = language;
+        self.document.indent = indent::detect(&self.document.text, language.indent);
         self.view.tab_width = language.tab_width;
     }
 
@@ -500,6 +503,142 @@ impl Editor {
         if text != self.clipboard.text() {
             self.clipboard.set(vec![text], false);
         }
+    }
+
+    /// `Tab` indents whole lines when a selection crosses one, and otherwise
+    /// moves to the next tab stop, which is not the same as inserting a whole
+    /// level when the cursor sits mid-line.
+    pub fn indent(&mut self) {
+        let selecting = self
+            .view
+            .selections
+            .iter()
+            .any(|selection| !selection.is_empty());
+
+        match selecting {
+            true => self.indent_lines(),
+            false => {
+                let inserted = match self.document.indent {
+                    Indent::Tabs => "\t".to_owned(),
+                    Indent::Spaces(width) => " ".repeat(width - self.cursor_column() % width),
+                };
+                self.insert(&inserted);
+            }
+        }
+    }
+
+    pub fn outdent(&mut self) {
+        let text = &self.document.text;
+        let unit = self.document.indent;
+        let changes = self
+            .touched_lines()
+            .into_iter()
+            .filter_map(|line| {
+                let start = text.line_start(line);
+                let content = text.line_str(line);
+                let removed = match unit {
+                    Indent::Tabs => content.starts_with('\t').then_some(1),
+                    Indent::Spaces(width) => match content.starts_with('\t') {
+                        true => Some(1),
+                        false => match content.chars().take_while(|&c| c == ' ').count() {
+                            0 => None,
+                            spaces => Some(spaces.min(width)),
+                        },
+                    },
+                }?;
+                Some(Change {
+                    range: start..start + removed,
+                    text: String::new(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        if !changes.is_empty() {
+            self.apply_to_lines(changes);
+        }
+    }
+
+    fn indent_lines(&mut self) {
+        let text = &self.document.text;
+        let unit = self.document.indent.unit();
+        let changes = self
+            .touched_lines()
+            .into_iter()
+            .map(|line| {
+                let start = text.line_start(line);
+                Change {
+                    range: start..start,
+                    text: unit.clone(),
+                }
+            })
+            .collect();
+
+        self.apply_to_lines(changes);
+    }
+
+    /// A selection that took part in a line edit ends up covering those lines
+    /// whole, so the indentation it just gained is inside it rather than
+    /// hanging off its left edge.
+    fn apply_to_lines(&mut self, changes: Vec<Change>) {
+        let text = &self.document.text;
+        let after = self.view.selections.mapped(|selection| {
+            if selection.is_empty() {
+                let head = transaction::displace(selection.head, &changes);
+                return Selection::cursor(head);
+            }
+
+            let start = text.line_start(text.line_of(selection.min()));
+            let end = transaction::displace(selection.max(), &changes);
+            match selection.is_reversed() {
+                true => Selection {
+                    anchor: end,
+                    head: start,
+                    goal_column: None,
+                },
+                false => Selection {
+                    anchor: start,
+                    head: end,
+                    goal_column: None,
+                },
+            }
+        });
+
+        let transaction = Transaction::over_lines(&self.view.selections, changes, after);
+        self.apply(transaction, EditKind::Other);
+    }
+
+    /// Lines under any cursor, each named once however many cursors sit on it.
+    /// A selection ending exactly on a line start does not reach that line —
+    /// it only swallowed the break before it.
+    fn touched_lines(&self) -> Vec<usize> {
+        let text = &self.document.text;
+        let mut lines: Vec<usize> = self
+            .view
+            .selections
+            .iter()
+            .flat_map(|selection| {
+                let first = text.line_of(selection.min());
+                let mut last = text.line_of(selection.max());
+                if last > first && text.line_start(last) == selection.max() {
+                    last -= 1;
+                }
+                first..=last
+            })
+            .collect();
+        lines.sort_unstable();
+        lines.dedup();
+        lines
+    }
+
+    fn cursor_column(&self) -> usize {
+        let text = &self.document.text;
+        let head = self.view.selections.primary().head;
+        let line = text.line_of(head);
+        layout::column_of_byte(
+            &text.line_str(line),
+            head - text.line_start(line),
+            self.view.tab_width,
+        )
     }
 
     /// A cursor with nothing selected eats the neighbouring text instead.
@@ -998,6 +1137,141 @@ mod tests {
             prompt_mut(editor).insert(&character.to_string());
             editor.prompt_changed();
         }
+    }
+
+    fn indented(content: &str, indent: Indent, offset: usize) -> Editor {
+        let mut editor = editor(content, offset);
+        editor.document.indent = indent;
+        editor
+    }
+
+    #[test]
+    fn tab_moves_to_the_next_stop_rather_than_a_whole_level() {
+        let mut editor = indented("ab", Indent::Spaces(4), 2);
+        editor.indent();
+        assert_eq!(content(&editor), "ab  ");
+
+        editor.indent();
+        assert_eq!(content(&editor), "ab      ");
+    }
+
+    #[test]
+    fn tab_inserts_a_tab_when_the_file_uses_them() {
+        let mut editor = indented("ab", Indent::Tabs, 2);
+        editor.indent();
+        assert_eq!(content(&editor), "ab\t");
+    }
+
+    #[test]
+    fn a_selection_across_lines_indents_them_all() {
+        let mut editor = indented("one\ntwo\nthree\n", Indent::Spaces(2), 0);
+        editor.view.selections = Selection {
+            anchor: 1,
+            head: 9,
+            goal_column: None,
+        }
+        .into();
+        editor.indent();
+
+        assert_eq!(content(&editor), "  one\n  two\n  three\n");
+        // Snapped to the line start, so the new indentation is inside the
+        // selection rather than hanging off its left edge.
+        assert_eq!(editor.view.selections.primary().range(), 0..15);
+    }
+
+    #[test]
+    fn a_line_under_two_cursors_is_indented_once() {
+        let mut editor = indented("one\ntwo\n", Indent::Spaces(2), 0);
+        editor.view.selections = Selection {
+            anchor: 0,
+            head: 5,
+            goal_column: None,
+        }
+        .into();
+        // A second cursor on a line the selection already covers.
+        editor.view.selections.push(Selection::cursor(6));
+        editor.indent();
+
+        assert_eq!(content(&editor), "  one\n  two\n");
+    }
+
+    #[test]
+    fn a_selection_ending_on_a_line_start_leaves_that_line_alone() {
+        let mut editor = indented("one\ntwo\n", Indent::Spaces(2), 0);
+        // What Ctrl+L produces: the line and the break after it.
+        editor.view.selections = Selection {
+            anchor: 0,
+            head: 4,
+            goal_column: None,
+        }
+        .into();
+        editor.indent();
+
+        assert_eq!(content(&editor), "  one\ntwo\n");
+    }
+
+    #[test]
+    fn any_selection_at_all_means_indent_the_line() {
+        let mut editor = indented("one two\n", Indent::Spaces(2), 0);
+        editor.view.selections = Selection {
+            anchor: 4,
+            head: 7,
+            goal_column: None,
+        }
+        .into();
+        editor.indent();
+
+        // The selected word is indented with its line, not replaced by a tab.
+        assert_eq!(content(&editor), "  one two\n");
+    }
+
+    #[test]
+    fn bare_cursors_get_a_tab_stop_each() {
+        let mut editor = indented("one\ntwo\n", Indent::Spaces(2), 0);
+        editor.view.selections.push(Selection::cursor(4));
+        editor.indent();
+
+        assert_eq!(content(&editor), "  one\n  two\n");
+    }
+
+    #[test]
+    fn outdent_removes_one_level_and_no_more() {
+        let mut editor = indented("      deep\n", Indent::Spaces(2), 8);
+        editor.outdent();
+        assert_eq!(content(&editor), "    deep\n");
+
+        editor.outdent();
+        assert_eq!(content(&editor), "  deep\n");
+    }
+
+    #[test]
+    fn outdent_stops_at_the_left_margin() {
+        let mut editor = indented(" x\n", Indent::Spaces(4), 2);
+        editor.outdent();
+        assert_eq!(content(&editor), "x\n");
+
+        // Nothing left to remove, so nothing is recorded: one undo is enough.
+        editor.outdent();
+        assert_eq!(content(&editor), "x\n");
+
+        editor.undo();
+        assert_eq!(content(&editor), " x\n");
+    }
+
+    #[test]
+    fn indenting_is_one_undo_step() {
+        let mut editor = indented("one\ntwo\n", Indent::Spaces(2), 0);
+        editor.view.selections = Selection {
+            anchor: 0,
+            head: 7,
+            goal_column: None,
+        }
+        .into();
+        editor.indent();
+        assert_eq!(content(&editor), "  one\n  two\n");
+
+        editor.undo();
+        assert_eq!(content(&editor), "one\ntwo\n");
     }
 
     #[test]

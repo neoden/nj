@@ -59,6 +59,17 @@ impl Transaction {
         }
     }
 
+    /// For edits that are about lines rather than cursors, such as indenting
+    /// a selection. Where the cursors end up is the caller's decision, since
+    /// only it knows what the lines were supposed to become.
+    pub fn over_lines(before: &SelectionSet, changes: Vec<Change>, after: SelectionSet) -> Self {
+        Self {
+            changes,
+            before: before.clone(),
+            after,
+        }
+    }
+
     pub fn selections_before(&self) -> &SelectionSet {
         &self.before
     }
@@ -105,6 +116,23 @@ impl Transaction {
             after: self.before,
         }
     }
+}
+
+/// Where a position ends up once the changes before it have been applied.
+/// A position inside something that was removed collapses to its start.
+pub fn displace(position: usize, changes: &[Change]) -> usize {
+    let mut delta = 0isize;
+    for change in changes {
+        if change.range.start > position {
+            break;
+        }
+        if change.range.end <= position {
+            delta += change.text.len() as isize - change.range.len() as isize;
+        } else {
+            return change.range.start.saturating_add_signed(delta);
+        }
+    }
+    position.saturating_add_signed(delta)
 }
 
 #[cfg(test)]
