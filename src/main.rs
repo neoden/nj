@@ -314,7 +314,7 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Delete if ctrl => editor.delete(Motion::Word(Forward)),
         KeyCode::Backspace => editor.delete(Motion::Grapheme(Backward)),
         KeyCode::Delete => editor.delete(Motion::Grapheme(Forward)),
-        KeyCode::Enter => editor.insert("\n"),
+        KeyCode::Enter => editor.insert_newline(),
         KeyCode::Tab if extend => editor.outdent(),
         KeyCode::Tab => editor.indent(),
 

@@ -505,6 +505,62 @@ impl Editor {
         }
     }
 
+    /// A new line starts where the current one starts. Nothing language-aware
+    /// happens here: opening a block deepens the indent only once there is a
+    /// parser to say so.
+    pub fn insert_newline(&mut self) {
+        let text = &self.document.text;
+        let mut leading = self.first_on_each_line().into_iter();
+
+        let transaction = Transaction::edit(
+            &self.view.selections,
+            CursorAfter::EndOfChange,
+            |selection| {
+                let line = text.line_of(selection.min());
+                let start = text.line_start(line);
+                let content = text.line_str(line);
+                let local = selection.min() - start;
+
+                let indent: String = content[..local]
+                    .chars()
+                    .take_while(|character| character.is_whitespace())
+                    .collect();
+
+                // A line holding nothing but this indent is left behind empty
+                // rather than as a row of spaces.
+                let abandoned = indent.len() == local
+                    && content[local..].is_empty()
+                    && selection.is_empty()
+                    && leading.next().unwrap_or(false);
+
+                let range = match abandoned {
+                    true => start..selection.max(),
+                    false => selection.range(),
+                };
+                (range, format!("\n{indent}"))
+            },
+        );
+
+        self.apply(transaction, EditKind::Other);
+    }
+
+    /// Whether each selection is the first one on its line, so that only one
+    /// of them may reach back to the line start.
+    fn first_on_each_line(&self) -> Vec<bool> {
+        let text = &self.document.text;
+        let mut previous = None;
+        self.view
+            .selections
+            .iter()
+            .map(|selection| {
+                let line = text.line_of(selection.min());
+                let first = previous != Some(line);
+                previous = Some(line);
+                first
+            })
+            .collect()
+    }
+
     /// `Tab` indents whole lines when a selection crosses one, and otherwise
     /// moves to the next tab stop, which is not the same as inserting a whole
     /// level when the cursor sits mid-line.
@@ -644,27 +700,24 @@ impl Editor {
     /// A cursor with nothing selected eats the neighbouring text instead.
     pub fn delete(&mut self, motion: Motion) {
         let text = &self.document.text;
+        let indent = self.document.indent;
         let transaction = Transaction::edit(
             &self.view.selections,
             CursorAfter::EndOfChange,
             |selection| {
-                let range = match selection.is_empty() {
-                    false => selection.range(),
-                    true => {
-                        let target = match motion {
-                            Motion::Word(direction) => {
-                                movement::word(text, selection.head, direction)
-                            }
-                            Motion::LineEdge(direction) => {
-                                movement::line_edge(text, selection.head, direction)
-                            }
-                            Motion::Grapheme(direction) => {
-                                movement::grapheme(text, selection.head, direction)
-                            }
-                            _ => selection.head,
-                        };
-                        selection.head.min(target)..selection.head.max(target)
-                    }
+                let head = selection.head;
+                let range = if !selection.is_empty() {
+                    selection.range()
+                } else if let Some(range) = indent_deletion(text, indent, motion, head) {
+                    range
+                } else {
+                    let target = match motion {
+                        Motion::Word(direction) => movement::word(text, head, direction),
+                        Motion::LineEdge(direction) => movement::line_edge(text, head, direction),
+                        Motion::Grapheme(direction) => movement::grapheme(text, head, direction),
+                        _ => head,
+                    };
+                    head.min(target)..head.max(target)
                 };
                 (range, String::new())
             },
@@ -831,6 +884,35 @@ fn last_match_before(text: &Text, needle: &str, limit: usize) -> Option<usize> {
         found = Some(next);
     }
     found
+}
+
+/// Backspace inside a run of leading spaces removes back to the previous tab
+/// stop, mirroring what Tab does forwards. Anywhere else it is an ordinary
+/// deletion, or alignment inside a line would be eaten a level at a time.
+fn indent_deletion(
+    text: &Text,
+    indent: Indent,
+    motion: Motion,
+    head: usize,
+) -> Option<Range<usize>> {
+    let Indent::Spaces(width) = indent else {
+        return None;
+    };
+    if motion != Motion::Grapheme(Direction::Backward) {
+        return None;
+    }
+
+    let line = text.line_of(head);
+    let start = text.line_start(line);
+    let local = head - start;
+    let content = text.line_str(line);
+    let prefix = content.get(..local)?;
+    if prefix.is_empty() || !prefix.chars().all(|character| character == ' ') {
+        return None;
+    }
+
+    let stop = (local - 1) / width * width;
+    Some(start + stop..head)
 }
 
 /// Line numbers are what people count from one.
@@ -1146,6 +1228,55 @@ mod tests {
     }
 
     #[test]
+    fn a_new_line_keeps_the_indentation() {
+        let mut editor = editor("    deep\n", 8);
+        editor.insert_newline();
+
+        assert_eq!(content(&editor), "    deep\n    \n");
+        assert_eq!(editor.view.selections.primary().head, 13);
+    }
+
+    #[test]
+    fn only_the_indentation_before_the_cursor_is_copied() {
+        let mut editor = editor("      deep\n", 3);
+        editor.insert_newline();
+
+        // Three spaces were copied; the other three stayed with the text.
+        assert_eq!(content(&editor), "   \n      deep\n");
+    }
+
+    #[test]
+    fn a_line_left_holding_only_indentation_is_emptied() {
+        let mut editor = editor("    \n", 4);
+        editor.insert_newline();
+
+        assert_eq!(content(&editor), "\n    \n");
+    }
+
+    #[test]
+    fn every_cursor_keeps_its_own_indentation() {
+        let mut editor = editor("  one\n    two\n", 5);
+        editor.view.selections.push(Selection::cursor(13));
+        editor.insert_newline();
+
+        assert_eq!(content(&editor), "  one\n  \n    two\n    \n");
+    }
+
+    #[test]
+    fn a_new_line_replaces_what_was_selected() {
+        let mut editor = editor("    keep drop\n", 0);
+        editor.view.selections = Selection {
+            anchor: 9,
+            head: 13,
+            goal_column: None,
+        }
+        .into();
+        editor.insert_newline();
+
+        assert_eq!(content(&editor), "    keep \n    \n");
+    }
+
+    #[test]
     fn tab_moves_to_the_next_stop_rather_than_a_whole_level() {
         let mut editor = indented("ab", Indent::Spaces(4), 2);
         editor.indent();
@@ -1232,6 +1363,38 @@ mod tests {
         editor.indent();
 
         assert_eq!(content(&editor), "  one\n  two\n");
+    }
+
+    #[test]
+    fn backspace_in_the_indentation_removes_a_whole_level() {
+        let mut editor = indented("        code\n", Indent::Spaces(4), 8);
+        editor.delete(Motion::Grapheme(Direction::Backward));
+
+        assert_eq!(content(&editor), "    code\n");
+    }
+
+    #[test]
+    fn backspace_lands_on_the_previous_stop_not_a_fixed_step() {
+        let mut editor = indented("      code\n", Indent::Spaces(4), 6);
+        editor.delete(Motion::Grapheme(Direction::Backward));
+
+        assert_eq!(content(&editor), "    code\n");
+    }
+
+    #[test]
+    fn backspace_after_text_removes_one_character() {
+        let mut editor = indented("    a    b", Indent::Spaces(4), 9);
+        editor.delete(Motion::Grapheme(Direction::Backward));
+
+        assert_eq!(content(&editor), "    a   b");
+    }
+
+    #[test]
+    fn backspace_with_tabs_is_left_alone() {
+        let mut editor = indented("\t\tcode\n", Indent::Tabs, 2);
+        editor.delete(Motion::Grapheme(Direction::Backward));
+
+        assert_eq!(content(&editor), "\tcode\n");
     }
 
     #[test]
