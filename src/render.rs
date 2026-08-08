@@ -8,12 +8,13 @@ use crossterm::{cursor, queue};
 
 use crate::editor::Editor;
 use crate::layout::{self, Glyph, DEFAULT_TAB_WIDTH};
+use crate::panel::Panel;
 use crate::prompt::Prompt;
 use crate::view::CellStyle;
 
 /// Draws a whole frame. Every cell is rewritten, so the screen is never
 /// cleared first: clearing is what makes a terminal flicker.
-pub fn draw(out: &mut impl Write, editor: &Editor, status: &str) -> Result<()> {
+pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> Result<()> {
     let document = &editor.document;
     let view = &editor.view;
     let mut drawn = 0;
@@ -69,45 +70,59 @@ pub fn draw(out: &mut impl Write, editor: &Editor, status: &str) -> Result<()> {
     }
 
     let width = view.gutter + view.width;
-    match &editor.prompt {
-        Some(prompt) => draw_prompt(
-            out,
-            prompt,
-            &editor.search_status().unwrap_or_default(),
-            view.height,
-            width,
-        )?,
-        None => queue!(
-            out,
-            cursor::MoveTo(0, view.height as u16),
-            SetAttribute(Attribute::Reverse),
-            Print(pad(status, width)),
-            SetAttribute(Attribute::Reset),
-        )?,
+    if let Some(panel) = &editor.panel {
+        rule(out, view.height, width)?;
+        match panel {
+            Panel::Prompt(prompt) => draw_prompt(out, prompt, view.height + 1, width)?,
+        }
+        rule(out, view.height + panel.height() - 1, width)?;
     }
+
+    // The status bar is nailed to the last row so that it never moves when a
+    // panel opens or changes height.
+    queue!(
+        out,
+        cursor::MoveTo(0, (view.height + editor.panel_height()) as u16),
+        SetAttribute(Attribute::Reverse),
+        Print(status_line(left, right, width)),
+        SetAttribute(Attribute::Reset),
+    )?;
 
     out.flush()?;
     Ok(())
 }
 
+fn rule(out: &mut impl Write, row: usize, width: usize) -> Result<()> {
+    queue!(
+        out,
+        cursor::MoveTo(0, row as u16),
+        SetForegroundColor(Color::DarkGrey),
+        Print("─".repeat(width)),
+        ResetColor,
+    )?;
+    Ok(())
+}
+
+/// The left half belongs to the document, the right half to whatever panel is
+/// open. The left is what gives way when there is not enough room, and the
+/// right keeps a space so it never touches the edge of the screen.
+fn status_line(left: &str, right: &str, width: usize) -> String {
+    let right = match right.is_empty() {
+        true => String::new(),
+        false => format!("{right} "),
+    };
+    let right = pad(&right, layout::line_width(&right, 1).min(width));
+    let left = pad(left, width.saturating_sub(right.chars().count()));
+    format!("{left}{right}")
+}
+
 /// Each field is a labelled line with the caret drawn on it, since the real
 /// terminal cursor stays hidden and we paint our own everywhere else.
-fn draw_prompt(
-    out: &mut impl Write,
-    prompt: &Prompt,
-    counter: &str,
-    top: usize,
-    width: usize,
-) -> Result<()> {
+fn draw_prompt(out: &mut impl Write, prompt: &Prompt, top: usize, width: usize) -> Result<()> {
     for (index, field) in prompt.fields.iter().enumerate() {
         let contents = field.contents();
         let label = format!(" {} ", field.label);
         let offset = label.chars().count();
-        // The counter belongs to the query, so it sits on the first line.
-        let tail = match index {
-            0 => format!("{counter} "),
-            _ => String::new(),
-        };
         let column_of =
             |byte| offset + layout::column_of_byte(&contents, byte, DEFAULT_TAB_WIDTH);
 
@@ -116,7 +131,7 @@ fn draw_prompt(
         let selection = field.selection();
         let selected = column_of(selection.start)..column_of(selection.end);
 
-        let line = pad(&format!("{label}{contents}"), width - tail.chars().count()) + &tail;
+        let line = pad(&format!("{label}{contents}"), width);
 
         queue!(out, cursor::MoveTo(0, (top + index) as u16))?;
         for (column, glyph) in line.chars().enumerate() {

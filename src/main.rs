@@ -4,6 +4,7 @@ mod editor;
 mod key;
 mod layout;
 mod movement;
+mod panel;
 mod prompt;
 mod render;
 mod selection;
@@ -24,7 +25,8 @@ use crate::document::Document;
 use crate::editor::Editor;
 use crate::key::{Key, KeyCode, Mods};
 use crate::movement::{Direction, Motion};
-use crate::prompt::{Prompt, Purpose};
+use crate::panel::Panel;
+use crate::prompt::Purpose;
 use crate::selection::{Selection, SelectionSet};
 use crate::terminal::Terminal;
 
@@ -49,19 +51,18 @@ fn run(term: &Terminal, editor: &mut Editor) -> Result<()> {
 
     loop {
         let (width, height) = crossterm::terminal::size()?;
-        let strip = editor.prompt.as_ref().map_or(1, Prompt::height);
         editor.view.fit(
             width as usize,
             height as usize,
             editor.document.text.line_count(),
-            strip,
+            editor.panel_height() + 1,
         );
 
-        let status = match &editor.message {
+        let left = match &editor.message {
             Some(message) => format!(" {message}"),
             None => status(term, editor),
         };
-        render::draw(&mut out, editor, &status)?;
+        render::draw(&mut out, editor, &left, &editor.panel_status())?;
 
         if !handle(event::read()?, editor) {
             return Ok(());
@@ -83,8 +84,8 @@ fn handle(event: Event, editor: &mut Editor) -> bool {
             Some(key) if is_quit(key) => return false,
             Some(key) => {
                 editor.message = None;
-                match editor.prompt.is_some() {
-                    true => handle_prompt_key(key, &event, editor),
+                match editor.panel.is_some() {
+                    true => handle_panel_key(key, &event, editor),
                     false => handle_key(key, &event, editor),
                 }
             }
@@ -103,21 +104,21 @@ fn is_quit(key: Key) -> bool {
     key.code == KeyCode::Char('q') && key.mods == Mods::CTRL
 }
 
-/// While the strip is open it takes the keyboard: this is the `in_prompt`
-/// context of ADR 8, written by hand until the keymap exists.
-fn handle_prompt_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
+/// An open panel owns the keyboard: this is the context of ADR 8, written by
+/// hand until the keymap exists.
+fn handle_panel_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
     use Direction::{Backward, Forward};
 
     let ctrl = key.mods.contains(Mods::CTRL);
     let extend = key.mods.contains(Mods::SHIFT);
-    let Some(prompt) = &mut editor.prompt else {
+    let Some(prompt) = editor.panel.as_mut().and_then(Panel::as_prompt_mut) else {
         return;
     };
 
     // Only an edited query needs the search run again; anything else would
     // drag the cursor back to the first hit.
     let edited = match key.code {
-        KeyCode::Esc => return editor.cancel_prompt(),
+        KeyCode::Esc => return editor.close_panel(),
         KeyCode::Enter => return editor.submit_prompt(extend),
         KeyCode::F(3) => return editor.go_to_match(direction(extend)),
         KeyCode::Tab => {

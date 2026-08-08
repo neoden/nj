@@ -3,6 +3,7 @@ use std::ops::Range;
 use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::document::{Document, EditKind};
 use crate::movement::{self, Class, Direction, Motion};
+use crate::panel::Panel;
 use crate::prompt::{Prompt, Purpose};
 use crate::selection::{Selection, SelectionSet};
 use crate::text::Text;
@@ -13,7 +14,7 @@ pub struct Editor {
     pub document: Document,
     pub view: View,
     pub clipboard: Clipboard,
-    pub prompt: Option<Prompt>,
+    pub panel: Option<Panel>,
     pub message: Option<String>,
     /// Every hit of the open query. Lives only while the prompt does, so
     /// nothing has to remember to invalidate it.
@@ -28,7 +29,7 @@ impl Editor {
             document,
             view: View::default(),
             clipboard: Clipboard::default(),
-            prompt: None,
+            panel: None,
             message: None,
             matches: Vec::new(),
             last_search: None,
@@ -49,8 +50,24 @@ impl Editor {
             prompt.select_all();
         }
 
-        self.prompt = Some(prompt);
+        self.panel = Some(Panel::Prompt(prompt));
         self.prompt_changed();
+    }
+
+    pub fn prompt(&self) -> Option<&Prompt> {
+        self.panel.as_ref()?.as_prompt()
+    }
+
+    pub fn panel_height(&self) -> usize {
+        self.panel.as_ref().map_or(0, Panel::height)
+    }
+
+    /// The right-hand side of the status bar belongs to whatever is open.
+    pub fn panel_status(&self) -> String {
+        match self.prompt().map(|prompt| prompt.purpose) {
+            Some(Purpose::Search | Purpose::Replace) => self.search_status(),
+            _ => String::new(),
+        }
     }
 
     fn selected_text(&self) -> Option<String> {
@@ -61,17 +78,17 @@ impl Editor {
         }
     }
 
-    /// Closes the strip where the search left off. There is no separate
+    /// Closes the panel where the search left off. There is no separate
     /// "accept", so leaving is how you keep what you found.
-    pub fn cancel_prompt(&mut self) {
-        self.prompt = None;
+    pub fn close_panel(&mut self) {
+        self.panel = None;
         self.matches.clear();
     }
 
     /// `Enter` walks the hits while searching; for anything else it answers
     /// the question and closes the strip.
     pub fn submit_prompt(&mut self, backwards: bool) {
-        let Some(prompt) = &self.prompt else {
+        let Some(prompt) = self.prompt() else {
             return;
         };
         let purpose = prompt.purpose;
@@ -94,15 +111,14 @@ impl Editor {
             }
         }
 
-        self.prompt = None;
-        self.matches.clear();
+        self.close_panel();
     }
 
     /// Incremental search: every keystroke collects the hits afresh and lands
     /// on the first one at or after where the cursor stood when the prompt
     /// opened, so the match never drifts forward as the query grows.
     pub fn prompt_changed(&mut self) {
-        let Some(prompt) = &self.prompt else {
+        let Some(prompt) = self.prompt() else {
             return;
         };
         if !matches!(prompt.purpose, Purpose::Search | Purpose::Replace) {
@@ -171,10 +187,10 @@ impl Editor {
         }
     }
 
-    /// `3/17`, or nothing when no search is running.
-    pub fn search_status(&self) -> Option<String> {
+    /// `found: 3/17`.
+    fn search_status(&self) -> String {
         if self.matches.is_empty() {
-            return self.prompt.as_ref().map(|_| "0/0".to_owned());
+            return "found: none".to_owned();
         }
         let at = self.view.selections.primary().min();
         let current = self
@@ -182,7 +198,7 @@ impl Editor {
             .iter()
             .position(|found| found.start == at)
             .map_or(0, |index| index + 1);
-        Some(format!("{current}/{}", self.matches.len()))
+        format!("found: {current}/{}", self.matches.len())
     }
 
     pub fn search_next(&mut self, direction: Direction) {
@@ -847,13 +863,17 @@ mod tests {
         assert_eq!(ranges(&editor), [3..3, 6..6, 10..10]);
     }
 
+    fn prompt_mut(editor: &mut Editor) -> &mut Prompt {
+        editor
+            .panel
+            .as_mut()
+            .and_then(Panel::as_prompt_mut)
+            .expect("panel holds a prompt")
+    }
+
     fn type_into_prompt(editor: &mut Editor, typed: &str) {
         for character in typed.chars() {
-            editor
-                .prompt
-                .as_mut()
-                .expect("prompt is open")
-                .insert(&character.to_string());
+            prompt_mut(editor).insert(&character.to_string());
             editor.prompt_changed();
         }
     }
@@ -866,7 +886,7 @@ mod tests {
         editor.submit_prompt(false);
 
         assert_eq!(editor.view.selections.primary().head, 8);
-        assert!(editor.prompt.is_none());
+        assert!(editor.panel.is_none());
     }
 
     #[test]
@@ -919,7 +939,7 @@ mod tests {
         .into();
         editor.open_prompt(Purpose::Search);
 
-        let prompt = editor.prompt.as_ref().unwrap();
+        let prompt = editor.prompt().unwrap();
         assert_eq!(prompt.contents(0), "beta");
         // Seeded and selected, so the next keystroke replaces it.
         assert_eq!(prompt.fields[0].selection(), 0..4);
@@ -938,7 +958,7 @@ mod tests {
         .into();
         editor.open_prompt(Purpose::Search);
 
-        assert_eq!(editor.prompt.as_ref().unwrap().contents(0), "");
+        assert_eq!(editor.prompt().unwrap().contents(0), "");
     }
 
     #[test]
@@ -968,10 +988,10 @@ mod tests {
         let mut editor = editor("alpha beta", 2);
         editor.open_prompt(Purpose::Search);
         type_into_prompt(&mut editor, "beta");
-        editor.cancel_prompt();
+        editor.close_panel();
 
         assert_eq!(editor.view.selections.primary().range(), 6..10);
-        assert!(editor.prompt.is_none());
+        assert!(editor.panel.is_none());
         assert!(editor.matches.is_empty());
     }
 
@@ -992,8 +1012,8 @@ mod tests {
         editor.submit_prompt(true);
         assert_eq!(editor.view.selections.primary().range(), 8..9);
 
-        // Walking the hits keeps the strip open.
-        assert!(editor.prompt.is_some());
+        // Walking the hits keeps the panel open.
+        assert!(editor.panel.is_some());
     }
 
     #[test]
@@ -1003,10 +1023,10 @@ mod tests {
         type_into_prompt(&mut editor, "x");
 
         assert_eq!(editor.matches, [0..1, 4..5, 8..9]);
-        assert_eq!(editor.search_status().as_deref(), Some("1/3"));
+        assert_eq!(editor.panel_status(), "found: 1/3");
 
         editor.submit_prompt(false);
-        assert_eq!(editor.search_status().as_deref(), Some("2/3"));
+        assert_eq!(editor.panel_status(), "found: 2/3");
     }
 
     #[test]
@@ -1016,7 +1036,7 @@ mod tests {
         type_into_prompt(&mut editor, "zzz");
 
         assert!(editor.matches.is_empty());
-        assert_eq!(editor.search_status().as_deref(), Some("0/0"));
+        assert_eq!(editor.panel_status(), "found: none");
     }
 
     #[test]
@@ -1024,7 +1044,7 @@ mod tests {
         let mut editor = editor("x . x", 0);
         editor.open_prompt(Purpose::Search);
         type_into_prompt(&mut editor, "x");
-        editor.cancel_prompt();
+        editor.close_panel();
 
         editor.search_next(Direction::Forward);
         assert_eq!(editor.view.selections.primary().range(), 4..5);
@@ -1035,7 +1055,7 @@ mod tests {
         let mut editor = editor("one two one", 0);
         editor.open_prompt(Purpose::Replace);
         type_into_prompt(&mut editor, "one");
-        editor.prompt.as_mut().unwrap().focus_next_field();
+        prompt_mut(&mut editor).focus_next_field();
         type_into_prompt(&mut editor, "1");
         editor.submit_prompt(false);
 
