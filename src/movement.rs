@@ -1,7 +1,5 @@
 use std::ops::Range;
 
-use unicode_segmentation::UnicodeSegmentation;
-
 use crate::text::Text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,6 +13,7 @@ pub enum Motion {
     Grapheme(Direction),
     Word(Direction),
     Row(Direction),
+    Page(Direction),
     LineEdge(Direction),
     Document(Direction),
 }
@@ -45,22 +44,9 @@ impl Class {
 }
 
 pub fn grapheme(text: &Text, offset: usize, direction: Direction) -> usize {
-    let line = text.line_of(offset);
-    let start = text.line_start(line);
-    let content = text.line_str(line);
-    let local = offset - start;
-
     match direction {
-        Direction::Forward => match next_boundary(&content, local) {
-            Some(boundary) => start + boundary,
-            None if line + 1 < text.line_count() => text.line_start(line + 1),
-            None => offset,
-        },
-        Direction::Backward => match previous_boundary(&content, local) {
-            Some(boundary) => start + boundary,
-            None if line > 0 => line_end(text, line - 1),
-            None => offset,
-        },
+        Direction::Forward => text.next_grapheme(offset),
+        Direction::Backward => text.previous_grapheme(offset),
     }
 }
 
@@ -160,21 +146,7 @@ pub fn document_edge(text: &Text, direction: Direction) -> usize {
 }
 
 fn line_end(text: &Text, line: usize) -> usize {
-    text.line_start(line) + text.line_str(line).len()
-}
-
-fn next_boundary(text: &str, offset: usize) -> Option<usize> {
-    text.grapheme_indices(true)
-        .map(|(index, _)| index)
-        .find(|&index| index > offset)
-        .or_else(|| (offset < text.len()).then_some(text.len()))
-}
-
-fn previous_boundary(text: &str, offset: usize) -> Option<usize> {
-    text.grapheme_indices(true)
-        .map(|(index, _)| index)
-        .take_while(|&index| index < offset)
-        .last()
+    text.line_start(line) + text.line(line).len()
 }
 
 #[cfg(test)]

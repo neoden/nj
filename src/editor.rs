@@ -1031,7 +1031,7 @@ fn parse_line_number(input: &str) -> Option<usize> {
 /// nothing is selected.
 fn line_range(text: &Text, line: usize) -> Range<usize> {
     let start = text.line_start(line);
-    start..(start + text.line_str(line).len() + 1).min(text.len())
+    start..(start + text.line(line).len() + 1).min(text.len())
 }
 
 struct Search {

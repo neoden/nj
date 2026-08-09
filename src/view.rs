@@ -194,7 +194,11 @@ impl View {
         extend: bool,
     ) -> Selection {
         let (head, goal_column) = match motion {
-            Motion::Row(direction) => self.move_by_row(text, &selection, direction),
+            Motion::Row(direction) => self.move_by_rows(text, &selection, direction, 1),
+            Motion::Page(direction) => {
+                let rows = self.height.saturating_sub(1).max(1);
+                self.move_by_rows(text, &selection, direction, rows)
+            }
             Motion::Grapheme(direction) => (movement::grapheme(text, selection.head, direction), None),
             Motion::Word(direction) => (movement::word(text, selection.head, direction), None),
             Motion::LineEdge(direction) => (movement::line_edge(text, selection.head, direction), None),
@@ -208,11 +212,12 @@ impl View {
         }
     }
 
-    fn move_by_row(
+    fn move_by_rows(
         &self,
         text: &Text,
         selection: &Selection,
         direction: Direction,
+        rows: usize,
     ) -> (usize, Option<usize>) {
         let row = self.row_of(text, selection.head);
         let content = text.line_str(row.line);
@@ -225,20 +230,21 @@ impl View {
             .goal_column
             .unwrap_or(column - row.start_column);
 
-        let target = match direction {
-            Direction::Backward => self.previous_row(text, row),
-            Direction::Forward => self.next_row(text, row),
-        };
-
-        let head = match target {
-            Some(target) => {
-                let content = text.line_str(target.line);
-                let column = target.start_column + goal;
-                text.line_start(target.line)
-                    + layout::byte_at_column(&content, column, self.tab_width)
+        let mut target = row;
+        for _ in 0..rows {
+            let next = match direction {
+                Direction::Backward => self.previous_row(text, target),
+                Direction::Forward => self.next_row(text, target),
+            };
+            match next {
+                Some(next) => target = next,
+                None => return (movement::document_edge(text, direction), Some(goal)),
             }
-            None => movement::document_edge(text, direction),
-        };
+        }
+
+        let content = text.line_str(target.line);
+        let head = text.line_start(target.line)
+            + layout::byte_at_column(&content, target.start_column + goal, self.tab_width);
         (head, Some(goal))
     }
 
@@ -320,18 +326,20 @@ impl View {
             |offset: usize| layout::column_of_byte(&content, offset - start, self.tab_width);
 
         let mut highlight = LineHighlight::default();
-        for found in matches
+        // Sorted and disjoint, so the hits on this line are a run.
+        let first = matches.partition_point(|found| found.end < start);
+        for found in matches[first..]
             .iter()
-            .filter(|found| found.start <= end && found.end >= start)
+            .take_while(|found| found.start <= end)
         {
             let from = column_of(found.start.max(start));
             let to = column_of(found.end.min(end));
             highlight.matched.push(from..to);
         }
 
-        for selection in self.selections.iter() {
+        for selection in self.selections.touching(start..end) {
             let range = selection.range();
-            if !selection.is_empty() && range.start <= end && range.end >= start {
+            if !selection.is_empty() {
                 let from = column_of(range.start.max(start));
                 let to = match range.end > end {
                     true => layout::line_width(&content, self.tab_width) + 1,
@@ -696,6 +704,19 @@ mod tests {
 
         view.move_selections(&text, Motion::Row(Direction::Backward), false);
         assert_eq!(view.selections.primary().head, 2);
+    }
+
+    #[test]
+    fn a_page_moves_a_screenful_of_rows_at_once() {
+        let text = Text::from_str(&"line\n".repeat(100));
+        let mut view = view_of(&text, 0);
+        view.fit(80, 11, text.line_count(), 0);
+
+        view.move_selections(&text, Motion::Page(Direction::Forward), false);
+        assert_eq!(text.line_of(view.selections.primary().head), view.height - 1);
+
+        view.move_selections(&text, Motion::Page(Direction::Backward), false);
+        assert_eq!(view.selections.primary().head, 0);
     }
 
     #[test]

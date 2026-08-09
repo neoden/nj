@@ -1,7 +1,12 @@
 use std::env;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
+
+const READ_TIMEOUT: Duration = Duration::from_millis(250);
 
 use crossterm::clipboard::CopyToClipboard;
 use crossterm::execute;
@@ -50,16 +55,31 @@ impl SystemClipboard {
 
     pub fn read(&mut self) -> Option<String> {
         let tool = self.tool?;
-        let output = Command::new(tool.paste[0])
+        let mut child = Command::new(tool.paste[0])
             .args(&tool.paste[1..])
             .stdin(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .output()
+            .spawn()
             .ok()?;
 
-        match output.status.success() {
-            true => String::from_utf8(output.stdout).ok(),
-            false => None,
+        // `output()` would wait on the helper however long it took.
+        let mut stdout = child.stdout.take()?;
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = sender.send(stdout.read_to_end(&mut bytes).map(|_| bytes));
+        });
+
+        let Ok(Ok(bytes)) = receiver.recv_timeout(READ_TIMEOUT) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        };
+
+        match child.wait() {
+            Ok(status) if status.success() => String::from_utf8(bytes).ok(),
+            _ => None,
         }
     }
 

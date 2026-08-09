@@ -96,6 +96,17 @@ impl SelectionSet {
         self.selections.iter()
     }
 
+    /// The selections touching a byte range, found rather than scanned for:
+    /// the renderer asks once per drawn line.
+    pub fn touching(&self, range: Range<usize>) -> &[Selection] {
+        let first = self
+            .selections
+            .partition_point(|selection| selection.max() < range.start);
+        let rest = &self.selections[first..];
+        let len = rest.partition_point(|selection| selection.min() <= range.end);
+        &rest[..len]
+    }
+
     pub fn push(&mut self, selection: Selection) {
         self.selections.push(selection);
         self.primary = self.selections.len() - 1;

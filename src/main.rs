@@ -313,7 +313,6 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
     let extend = key.mods.contains(Mods::SHIFT);
     let ctrl = key.mods.contains(Mods::CTRL);
     let alt = key.mods.contains(Mods::ALT);
-    let page = editor.view.height.saturating_sub(1);
 
     match key.code {
         KeyCode::Backspace if ctrl => editor.delete(Motion::Word(Backward)),
@@ -361,16 +360,8 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::End if ctrl => editor.move_selections(Motion::Document(Forward), extend),
         KeyCode::Home => editor.move_selections(Motion::LineEdge(Backward), extend),
         KeyCode::End => editor.move_selections(Motion::LineEdge(Forward), extend),
-        KeyCode::PageUp => {
-            for _ in 0..page {
-                editor.move_selections(Motion::Row(Backward), extend);
-            }
-        }
-        KeyCode::PageDown => {
-            for _ in 0..page {
-                editor.move_selections(Motion::Row(Forward), extend);
-            }
-        }
+        KeyCode::PageUp => editor.move_selections(Motion::Page(Backward), extend),
+        KeyCode::PageDown => editor.move_selections(Motion::Page(Forward), extend),
 
         KeyCode::Esc if editor.view.selections.len() > 1 => editor.remove_secondary_cursors(),
         KeyCode::Esc => editor.cancel_selection(),

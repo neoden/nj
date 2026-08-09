@@ -81,7 +81,7 @@ impl Field {
                 movement::line_edge(&self.text, self.cursor, direction)
             }
             Motion::Grapheme(direction) => movement::grapheme(&self.text, self.cursor, direction),
-            Motion::Row(_) => self.cursor,
+            Motion::Row(_) | Motion::Page(_) => self.cursor,
         }
     }
 }

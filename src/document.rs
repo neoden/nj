@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{ErrorKind, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -8,10 +8,13 @@ use crate::indent;
 use crate::language::{self, Indent, Language};
 use crate::movement::{Class, Direction};
 use crate::selection::SelectionSet;
-use crate::text::Text;
+use crate::text::{Text, TextBuilder};
 use crate::transaction::Transaction;
 
 const BOM: &str = "\u{feff}";
+
+/// Every step holds the text it removed, so the history is bounded.
+const UNDO_LIMIT: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LineEnding {
@@ -97,8 +100,8 @@ impl Document {
     /// A missing file opens as an empty buffer, so `ned newfile` works.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let bytes = match fs::read(path) {
-            Ok(bytes) => bytes,
+        let file = match fs::File::open(path) {
+            Ok(file) => file,
             Err(err) if err.kind() == ErrorKind::NotFound => {
                 let language = language::detect(path);
                 return Ok(Self {
@@ -111,38 +114,27 @@ impl Document {
             Err(err) => return Err(err).with_context(|| format!("cannot read {}", path.display())),
         };
 
-        let content = String::from_utf8(bytes)
-            .with_context(|| format!("{} is not valid UTF-8", path.display()))?;
-
         let mut document = Self {
             path: Some(path.to_path_buf()),
             language: language::detect(path),
-            ..Self::parse(&content)
+            ..Self::read(file).with_context(|| format!("cannot read {}", path.display()))?
         };
         document.indent = indent::detect(&document.text, document.language.indent);
         Ok(document)
     }
 
-    fn parse(content: &str) -> Self {
-        let (content, has_bom) = match content.strip_prefix(BOM) {
-            Some(rest) => (rest, true),
-            None => (content, false),
-        };
-
-        let line_ending = LineEnding::detect(content);
-        // Every CRLF goes, not just those of the ending that was detected: a
-        // file whose first break happens to be bare would otherwise keep the
-        // carriage returns of all the others.
-        let text = match content.contains('\r') {
-            true => Text::from_str(&content.replace("\r\n", "\n")),
-            false => Text::from_str(content),
-        };
-
-        Self {
+    fn read(reader: impl Read) -> io::Result<Self> {
+        let (text, line_ending, has_bom) = read_text(reader)?;
+        Ok(Self {
             line_ending,
             has_bom,
             ..Self::from_text(text)
-        }
+        })
+    }
+
+    #[cfg(test)]
+    fn parse(content: &str) -> Self {
+        Self::read(content.as_bytes()).expect("reading from memory cannot fail")
     }
 
     /// True while the buffer holds something other than what is on disk.
@@ -168,6 +160,9 @@ impl Document {
                     revision: self.next_revision,
                     transactions: vec![inverse],
                 });
+                if self.undo_stack.len() > UNDO_LIMIT {
+                    self.undo_stack.remove(0);
+                }
             }
         }
 
@@ -242,6 +237,73 @@ impl Document {
         match self.has_bom {
             true => format!("{BOM}{body}"),
             false => body,
+        }
+    }
+}
+
+/// Builds the buffer as the file arrives, normalizing on the way, so the text
+/// never exists twice over. Returns what the file has to be written back with.
+///
+/// Every CRLF goes, not just those of the ending that was detected: a file
+/// whose first break happens to be bare would otherwise keep the carriage
+/// returns of all the others. A lone CR stays, being data.
+fn read_text(mut reader: impl Read) -> io::Result<(Text, LineEnding, bool)> {
+    const BUFFER: usize = 64 * 1024;
+    let invalid = || io::Error::new(ErrorKind::InvalidData, "not valid UTF-8");
+
+    let mut builder = TextBuilder::default();
+    let mut buffer = vec![0u8; BUFFER];
+    let mut filled = 0;
+    let mut line_ending = None;
+    let mut has_bom = false;
+    let mut first = true;
+
+    loop {
+        let read = reader.read(&mut buffer[filled..])?;
+        filled += read;
+
+        let mut valid = match std::str::from_utf8(&buffer[..filled]) {
+            Ok(_) => filled,
+            Err(error) => error.valid_up_to(),
+        };
+        if read > 0 {
+            // A trailing CR may be half of a CRLF whose LF has not arrived.
+            if valid > 0 && buffer[valid - 1] == b'\r' {
+                valid -= 1;
+            }
+            if first && valid < BOM.len() {
+                continue;
+            }
+        }
+
+        if valid > 0 {
+            let mut chunk = std::str::from_utf8(&buffer[..valid]).map_err(|_| invalid())?;
+            if first {
+                if let Some(rest) = chunk.strip_prefix(BOM) {
+                    has_bom = true;
+                    chunk = rest;
+                }
+                first = false;
+            }
+            if line_ending.is_none() && chunk.contains('\n') {
+                line_ending = Some(LineEnding::detect(chunk));
+            }
+            match chunk.contains('\r') {
+                true => builder.append(&chunk.replace("\r\n", "\n")),
+                false => builder.append(chunk),
+            }
+        }
+
+        if valid < filled {
+            buffer.copy_within(valid..filled, 0);
+        }
+        filled -= valid;
+
+        if read == 0 {
+            return match filled {
+                0 => Ok((builder.finish(), line_ending.unwrap_or_default(), has_bom)),
+                _ => Err(invalid()),
+            };
         }
     }
 }
@@ -327,6 +389,48 @@ mod tests {
         for content in ["a\nb\n", "a\r\nb\r\n", "\u{feff}a\r\nb", "", "no breaks"] {
             assert_eq!(Document::parse(content).encode(), content);
         }
+    }
+
+    /// Hands out one byte per call, so every boundary the reader has to cope
+    /// with — a split codepoint, a CRLF, a BOM — lands between two reads.
+    struct Trickle<'a>(&'a [u8]);
+
+    impl Read for Trickle<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.0.is_empty() || buffer.is_empty() {
+                return Ok(0);
+            }
+            buffer[0] = self.0[0];
+            self.0 = &self.0[1..];
+            Ok(1)
+        }
+    }
+
+    #[test]
+    fn a_dribbling_reader_produces_the_same_document() {
+        for content in [
+            "a\r\nb\r\n",
+            "\u{feff}a\r\nb",
+            "a\nb\r\nc",
+            "a\rb\n",
+            "привет\r\nмир",
+            "\u{feff}",
+            "ab",
+            "",
+        ] {
+            let whole = Document::parse(content);
+            let dribbled = Document::read(Trickle(content.as_bytes())).unwrap();
+
+            assert_eq!(dribbled.text.to_string(), whole.text.to_string(), "{content:?}");
+            assert_eq!(dribbled.line_ending, whole.line_ending, "{content:?}");
+            assert_eq!(dribbled.has_bom, whole.has_bom, "{content:?}");
+        }
+    }
+
+    #[test]
+    fn invalid_utf8_is_refused() {
+        assert!(Document::read(&[0xff, 0xfe][..]).is_err());
+        assert!(Document::read(Trickle(&[b'a', 0xc3])).is_err());
     }
 
     fn scratch(name: &str) -> PathBuf {
