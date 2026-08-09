@@ -807,7 +807,7 @@ impl Editor {
         lines
     }
 
-    fn cursor_column(&self) -> usize {
+    pub fn cursor_column(&self) -> usize {
         let text = &self.document.text;
         let head = self.view.selections.primary().head;
         let line = text.line_of(head);
@@ -1491,6 +1491,14 @@ mod tests {
         editor.insert_newline();
 
         assert_eq!(content(&editor), "    keep \n    \n");
+    }
+
+    #[test]
+    fn the_cursor_column_is_a_display_column() {
+        // Three Cyrillic letters are six bytes but three columns.
+        assert_eq!(editor("привет", 6).cursor_column(), 3);
+        // A tab is one byte and a jump to the next stop.
+        assert_eq!(editor("\tx", 2).cursor_column(), 5);
     }
 
     #[test]

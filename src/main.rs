@@ -412,9 +412,8 @@ fn handle_mouse(mouse: MouseEvent, editor: &mut Editor) {
 /// is happening.
 fn status(editor: &Editor) -> (String, String) {
     let document = &editor.document;
-    let head = editor.view.selections.primary().head;
-    let line = document.text.line_of(head);
-    let column = head - document.text.line_start(line);
+    let line = document.text.line_of(editor.view.selections.primary().head);
+    let column = editor.cursor_column();
 
     let path = document
         .path
