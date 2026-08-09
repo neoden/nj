@@ -58,20 +58,49 @@ impl Text {
         (byte < self.len()).then(|| self.rope.char(byte))
     }
 
+    /// Searched chunk by chunk, keeping enough of each one to catch a match
+    /// lying across the seam. UTF-8 is self-synchronizing, so a match found
+    /// this way can never start or end inside a character.
     pub fn find(&self, needle: &str, from: usize) -> Option<usize> {
-        let first = needle.chars().next()?;
-        self.rope
-            .char_indices_at(self.rope.ceil_char_boundary(from))
-            .find(|&(index, character)| {
-                let end = index + needle.len();
-                // The needle's length may land inside a character of the
-                // document, which is not a match and not a valid slice.
-                character == first
-                    && end <= self.len()
-                    && self.rope.is_char_boundary(end)
-                    && self.rope.slice(index..end) == *needle
-            })
-            .map(|(index, _)| index)
+        if needle.is_empty() {
+            return None;
+        }
+
+        let from = self.rope.ceil_char_boundary(from);
+        let (mut chunks, chunk_start) = self.rope.chunks_at(from);
+        let mut window = chunks.next()?[from - chunk_start..].to_owned();
+        let mut window_start = from;
+
+        loop {
+            if let Some(at) = window.find(needle) {
+                return Some(window_start + at);
+            }
+            let chunk = chunks.next()?;
+
+            let mut cut = window.len().saturating_sub(needle.len() - 1);
+            while !window.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            window.drain(..cut);
+            window_start += cut;
+            window.push_str(chunk);
+        }
+    }
+
+    /// Whether `needle` sits at `at`. The boundary check is what keeps the
+    /// slice from splitting a character in half.
+    pub fn matches_at(&self, at: usize, needle: &str) -> bool {
+        let end = at + needle.len();
+        end <= self.len() && self.rope.is_char_boundary(end) && self.rope.slice(at..end) == *needle
+    }
+
+    /// Every hit, left to right.
+    pub fn matches<'a>(&'a self, needle: &'a str) -> Matches<'a> {
+        Matches {
+            text: self,
+            needle,
+            at: 0,
+        }
     }
 
     /// The grapheme boundary after `byte`, or the end of the text. Walked over
@@ -142,6 +171,24 @@ impl Text {
 
     pub fn remove(&mut self, range: Range<usize>) {
         self.rope.remove(range);
+    }
+}
+
+/// The one place that walks from hit to hit. A pattern able to match nothing
+/// would need `at` to advance by a grapheme instead; a literal cannot.
+pub struct Matches<'a> {
+    text: &'a Text,
+    needle: &'a str,
+    at: usize,
+}
+
+impl Iterator for Matches<'_> {
+    type Item = Range<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let found = self.text.find(self.needle, self.at)?;
+        self.at = found + self.needle.len();
+        Some(found..self.at)
     }
 }
 
@@ -239,6 +286,52 @@ mod tests {
         let text = Text::from_str("= '·'");
         assert_eq!(text.find("''", 0), None);
         assert_eq!(text.find("'·'", 0), Some(2));
+    }
+
+    #[test]
+    fn a_match_lying_across_a_seam_is_still_found() {
+        // Chunks run to about a kilobyte, so sliding the needle through this
+        // range puts it on every seam within it.
+        for offset in 900..1_200 {
+            let mut content = "a".repeat(4_000);
+            content.replace_range(offset..offset + 5, "xyzzy");
+            let text = Text::from_str(&content);
+
+            assert_eq!(text.find("xyzzy", 0), Some(offset), "at {offset}");
+            assert_eq!(text.find("xyzzy", offset), Some(offset), "at {offset}");
+            assert_eq!(text.find("xyzzy", offset + 1), None, "at {offset}");
+        }
+    }
+
+    #[test]
+    fn multibyte_matches_survive_the_seams() {
+        for offset in (900..1_200).step_by(2) {
+            let mut content = "д".repeat(2_000);
+            content.replace_range(offset..offset + 6, "мир");
+            let text = Text::from_str(&content);
+
+            assert_eq!(text.find("мир", 0), Some(offset), "at {offset}");
+        }
+    }
+
+    #[test]
+    fn every_hit_is_walked_once() {
+        let text = Text::from_str("x . x . x");
+        assert_eq!(text.matches("x").collect::<Vec<_>>(), [0..1, 4..5, 8..9]);
+
+        // Overlapping candidates are not counted twice.
+        assert_eq!(Text::from_str("aaaa").matches("aa").count(), 2);
+        assert_eq!(Text::from_str("abc").matches("").count(), 0);
+    }
+
+    #[test]
+    fn matching_at_a_position_never_splits_a_character() {
+        let text = Text::from_str("aфb");
+        assert!(text.matches_at(0, "a"));
+        assert!(text.matches_at(1, "ф"));
+        // Two bytes in from the start lands inside `ф`.
+        assert!(!text.matches_at(0, "ab"));
+        assert!(!text.matches_at(0, "aфbc"));
     }
 
     #[test]

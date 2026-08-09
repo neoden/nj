@@ -24,7 +24,11 @@ pub struct Editor {
     /// Every hit of the open query. Lives only while the prompt does, so
     /// nothing has to remember to invalidate it.
     pub matches: Vec<Range<usize>>,
+    /// The query `matches` holds the hits of, so that extending it can narrow
+    /// them rather than start over.
+    collected: String,
     pub quit: bool,
+    occurrences: Option<Occurrences>,
     last_search: Option<String>,
     system: Option<SystemClipboard>,
 }
@@ -42,7 +46,9 @@ impl Editor {
             panel: None,
             message: None,
             matches: Vec::new(),
+            collected: String::new(),
             quit: false,
+            occurrences: None,
             last_search: None,
             system: None,
         }
@@ -145,6 +151,7 @@ impl Editor {
     pub fn close_panel(&mut self) {
         self.panel = None;
         self.matches.clear();
+        self.collected.clear();
     }
 
     /// `Enter` walks the hits while searching; for anything else it answers
@@ -210,16 +217,24 @@ impl Editor {
     }
 
     fn collect_matches(&mut self, needle: &str) {
-        self.matches.clear();
         if needle.is_empty() {
+            self.matches.clear();
+            self.collected.clear();
             return;
         }
 
-        let mut at = 0;
-        while let Some(found) = self.document.text.find(needle, at) {
-            at = found + needle.len();
-            self.matches.push(found..at);
+        let text = &self.document.text;
+        // Hits of a longer query are a subset of the shorter one's, so typing
+        // sifts what is already there instead of reading the document again.
+        match !self.collected.is_empty() && needle.starts_with(&self.collected) {
+            true => self.matches.retain_mut(|found| {
+                let matched = text.matches_at(found.start, needle);
+                found.end = found.start + needle.len();
+                matched
+            }),
+            false => self.matches = text.matches(needle).collect(),
         }
+        self.collected = needle.to_owned();
     }
 
     /// Turns the hits into cursors and hands the keyboard back to the text,
@@ -332,16 +347,16 @@ impl Editor {
             return;
         }
 
-        let mut matches = Vec::new();
-        let mut at = 0;
-        while let Some(found) = self.document.text.find(needle, at) {
-            at = found + needle.len();
-            matches.push(Selection {
-                anchor: found,
-                head: at,
+        let matches: Vec<Selection> = self
+            .document
+            .text
+            .matches(needle)
+            .map(|found| Selection {
+                anchor: found.start,
+                head: found.end,
                 goal_column: None,
-            });
-        }
+            })
+            .collect();
 
         if matches.is_empty() {
             self.message = Some("Not found".to_owned());
@@ -913,6 +928,7 @@ impl Editor {
         }
 
         self.view.selections.push(found);
+        self.remember_occurrences(search.whole_word);
         self.view.scroll_to_cursor(&self.document.text);
     }
 
@@ -930,6 +946,7 @@ impl Editor {
         }
 
         self.view.selections = SelectionSet::from_selections(selections, 0);
+        self.remember_occurrences(search.whole_word);
         self.view.scroll_to_cursor(&self.document.text);
     }
 
@@ -949,14 +966,28 @@ impl Editor {
                     goal_column: None,
                 }
             });
+            self.remember_occurrences(true);
             return None;
         }
 
+        // Anything else moving the cursors means the user chose this text.
+        let whole_word = self
+            .occurrences
+            .as_ref()
+            .is_some_and(|hunt| hunt.whole_word && hunt.selections == self.view.selections);
+
         let range = self.view.selections.primary().range();
         Some(Search {
-            whole_word: movement::word_around(text, range.start) == range,
-            needle: text.slice(range).to_string(),
+            whole_word,
+            needle: self.document.text.slice(range).to_string(),
         })
+    }
+
+    fn remember_occurrences(&mut self, whole_word: bool) {
+        self.occurrences = Some(Occurrences {
+            selections: self.view.selections.clone(),
+            whole_word,
+        });
     }
 
     pub fn undo(&mut self) {
@@ -980,16 +1011,10 @@ impl Editor {
 }
 
 fn last_match_before(text: &Text, needle: &str, limit: usize) -> Option<usize> {
-    let mut found = None;
-    let mut at = 0;
-    while let Some(next) = text.find(needle, at) {
-        if next >= limit {
-            break;
-        }
-        at = next + needle.len();
-        found = Some(next);
-    }
-    found
+    text.matches(needle)
+        .take_while(|found| found.start < limit)
+        .last()
+        .map(|found| found.start)
 }
 
 /// Backspace inside a run of leading spaces removes back to the previous tab
@@ -1034,10 +1059,17 @@ fn line_range(text: &Text, line: usize) -> Range<usize> {
     start..(start + text.line(line).len() + 1).min(text.len())
 }
 
+/// The cursors a run of `Ctrl+D` left behind, so the next press can tell
+/// whether it is the same run.
+struct Occurrences {
+    selections: SelectionSet,
+    whole_word: bool,
+}
+
 struct Search {
     needle: String,
-    /// A selection that covers exactly one word searches for that word, not
-    /// for the letters in it: renaming `i` should not match every `if`.
+    /// Set when the run uncovered the word itself: renaming `i` leaves `if`
+    /// alone.
     whole_word: bool,
 }
 
@@ -1246,6 +1278,20 @@ mod tests {
         editor.select_next_occurrence();
 
         assert_eq!(ranges(&editor), [0..3, 11..14]);
+    }
+
+    #[test]
+    fn a_word_selected_by_hand_is_taken_literally() {
+        let mut editor = editor("foo foobar foo", 0);
+        editor.view.selections = Selection {
+            anchor: 0,
+            head: 3,
+            goal_column: None,
+        }
+        .into();
+        editor.select_next_occurrence();
+
+        assert_eq!(ranges(&editor), [0..3, 4..7]);
     }
 
     #[test]
@@ -1879,6 +1925,38 @@ mod tests {
 
         editor.insert("key");
         assert_eq!(content(&editor), "key, key, key");
+    }
+
+    #[test]
+    fn narrowing_a_query_finds_what_scanning_would() {
+        let mut editor = editor("ab abc abcd", 0);
+        editor.open_prompt(Purpose::Search);
+
+        type_into_prompt(&mut editor, "a");
+        assert_eq!(editor.matches, [0..1, 3..4, 7..8]);
+
+        type_into_prompt(&mut editor, "b");
+        assert_eq!(editor.matches, [0..2, 3..5, 7..9]);
+
+        type_into_prompt(&mut editor, "cd");
+        assert_eq!(editor.matches, vec![7..11]);
+
+        // Backspace cannot narrow, so this one has to read the document again.
+        prompt_mut(&mut editor).delete(Motion::Grapheme(Direction::Backward));
+        editor.prompt_changed();
+        assert_eq!(editor.matches, [3..6, 7..10]);
+    }
+
+    #[test]
+    fn narrowing_does_not_cut_a_character_in_half() {
+        let mut editor = editor("аб абв", 0);
+        editor.open_prompt(Purpose::Search);
+
+        type_into_prompt(&mut editor, "а");
+        assert_eq!(editor.matches, [0..2, 5..7]);
+
+        type_into_prompt(&mut editor, "бв");
+        assert_eq!(editor.matches, vec![5..11]);
     }
 
     #[test]
