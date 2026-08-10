@@ -1,6 +1,10 @@
 use std::ops::Range;
 
-use crate::movement::{self, Motion};
+use crossterm::event::KeyEvent;
+
+use crate::key::{self, Key, KeyCode, Mods};
+use crate::movement::{self, Direction, Motion};
+use crate::panel::Outcome;
 use crate::selection::SelectionSet;
 use crate::text::Text;
 
@@ -74,6 +78,72 @@ impl Field {
         }
     }
 
+    /// The motions and edits every one-line field shares. The picker's query
+    /// and a prompt's fields used to carry a copy each, differing only where
+    /// nobody had decided they should (S3).
+    ///
+    /// `None` means the key was not a field key at all; otherwise the flag says
+    /// whether the contents changed, which is the only thing callers act on.
+    pub fn handle_key(&mut self, key: Key, event: &KeyEvent) -> Option<bool> {
+        use Direction::{Backward, Forward};
+
+        let ctrl = key.mods.contains(Mods::CTRL);
+        let extend = key.mods.contains(Mods::SHIFT);
+
+        let edited = match key.code {
+            KeyCode::Backspace if ctrl => {
+                self.delete(Motion::Word(Backward));
+                true
+            }
+            KeyCode::Delete if ctrl => {
+                self.delete(Motion::Word(Forward));
+                true
+            }
+            KeyCode::Backspace => {
+                self.delete(Motion::Grapheme(Backward));
+                true
+            }
+            KeyCode::Delete => {
+                self.delete(Motion::Grapheme(Forward));
+                true
+            }
+            KeyCode::Char('a') if ctrl => {
+                self.select_all();
+                false
+            }
+            KeyCode::Left if ctrl => {
+                self.move_cursor(Motion::Word(Backward), extend);
+                false
+            }
+            KeyCode::Right if ctrl => {
+                self.move_cursor(Motion::Word(Forward), extend);
+                false
+            }
+            KeyCode::Left => {
+                self.move_cursor(Motion::Grapheme(Backward), extend);
+                false
+            }
+            KeyCode::Right => {
+                self.move_cursor(Motion::Grapheme(Forward), extend);
+                false
+            }
+            KeyCode::Home => {
+                self.move_cursor(Motion::LineEdge(Backward), extend);
+                false
+            }
+            KeyCode::End => {
+                self.move_cursor(Motion::LineEdge(Forward), extend);
+                false
+            }
+            _ => {
+                self.insert(&key::text_char(event)?.to_string());
+                true
+            }
+        };
+
+        Some(edited)
+    }
+
     fn target(&self, motion: Motion) -> usize {
         match motion {
             Motion::Word(direction) => movement::word(&self.text, self.cursor, direction),
@@ -141,6 +211,39 @@ impl Prompt {
 
     pub fn move_cursor(&mut self, motion: Motion, extend: bool) {
         self.fields[self.active].move_cursor(motion, extend);
+    }
+
+    /// What the strip does with a keystroke, and what it wants done about it.
+    /// Everything not listed here belongs to the active field.
+    pub fn handle_key(&mut self, key: Key, event: &KeyEvent) -> Outcome {
+        let ctrl = key.mods.contains(Mods::CTRL);
+        let extend = key.mods.contains(Mods::SHIFT);
+
+        match key.code {
+            KeyCode::Esc => return Outcome::Close,
+            KeyCode::Enter => return Outcome::Submit { backwards: extend },
+            KeyCode::F(3) => return Outcome::GoToMatch(direction(extend)),
+            KeyCode::Char('l') if ctrl && extend => return Outcome::SelectAllMatches,
+            KeyCode::Tab => {
+                self.focus_next_field();
+                return Outcome::Nothing;
+            }
+            _ => {}
+        }
+
+        // Only an edited query needs the search run again; anything else would
+        // drag the cursor back to the first hit.
+        match self.fields[self.active].handle_key(key, event) {
+            Some(true) => Outcome::Changed,
+            _ => Outcome::Nothing,
+        }
+    }
+}
+
+fn direction(backwards: bool) -> Direction {
+    match backwards {
+        true => Direction::Backward,
+        false => Direction::Forward,
     }
 }
 

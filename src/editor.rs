@@ -89,18 +89,13 @@ impl Editor {
         self.panel = Some(Panel::Picker(picker));
     }
 
-    /// True while a picker still has candidates to read, which is what keeps
-    /// the main loop from going back to sleep.
     pub fn is_loading(&self) -> bool {
-        match &self.panel {
-            Some(Panel::Picker(picker)) => picker.is_loading(),
-            _ => false,
-        }
+        self.panel.as_ref().is_some_and(Panel::is_loading)
     }
 
     pub fn load_more(&mut self) {
-        if let Some(Panel::Picker(picker)) = &mut self.panel {
-            picker.pull();
+        if let Some(panel) = &mut self.panel {
+            panel.load_more();
         }
     }
 
@@ -1356,11 +1351,10 @@ mod tests {
     }
 
     fn prompt_mut(editor: &mut Editor) -> &mut Prompt {
-        editor
-            .panel
-            .as_mut()
-            .and_then(Panel::as_prompt_mut)
-            .expect("panel holds a prompt")
+        match &mut editor.panel {
+            Some(Panel::Prompt(prompt)) => prompt,
+            _ => panic!("panel holds a prompt"),
+        }
     }
 
     fn type_into_prompt(editor: &mut Editor, typed: &str) {

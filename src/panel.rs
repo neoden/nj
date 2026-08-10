@@ -1,5 +1,31 @@
+use crossterm::event::KeyEvent;
+
+use crate::key::{Key, KeyCode, Mods};
+use crate::movement::Direction;
 use crate::picker::Picker;
 use crate::prompt::Prompt;
+
+/// What a panel wants done after it has dealt with a keystroke itself.
+///
+/// Each variant answers to exactly one method of the editor, so that deciding
+/// what a key means stays inside the panel and no caller has to ask what kind
+/// of panel it is holding (ADR 12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Dealt with, and nothing outside the panel is concerned.
+    Nothing,
+    Close,
+    /// The query was edited, so whatever it drives has to run again.
+    Changed,
+    /// A picker's choice was taken.
+    Pick,
+    /// A prompt was submitted; backwards for `Shift+Enter`.
+    Submit { backwards: bool },
+    /// A single-key answer to a question.
+    Answer(char),
+    GoToMatch(Direction),
+    SelectAllMatches,
+}
 
 /// A question with single-key answers. `Esc` always means "never mind".
 #[derive(Debug)]
@@ -48,6 +74,18 @@ impl Confirm {
             )
             .collect()
     }
+
+    fn handle_key(&self, key: Key) -> Outcome {
+        match key.code {
+            KeyCode::Esc => Outcome::Close,
+            // Combinations are not answers: Ctrl+Q must not discard the changes
+            // it is asking about just because it carries a `q`.
+            KeyCode::Char(answer) if !key.mods.intersects(Mods::CTRL | Mods::ALT) => {
+                Outcome::Answer(answer)
+            }
+            _ => Outcome::Nothing,
+        }
+    }
 }
 
 /// The strip above the status bar. Whatever is open here owns the keyboard,
@@ -70,21 +108,32 @@ impl Panel {
         }
     }
 
-    pub fn as_picker_mut(&mut self) -> Option<&mut Picker> {
+    /// The only place that asks what kind of panel this is. A new kind adds an
+    /// arm here, an arm in `height`, and its own drawing — and nothing else.
+    pub fn handle_key(&mut self, key: Key, event: &KeyEvent) -> Outcome {
         match self {
-            Panel::Picker(picker) => Some(picker),
-            _ => None,
+            Panel::Prompt(prompt) => prompt.handle_key(key, event),
+            Panel::Picker(picker) => picker.handle_key(key, event),
+            Panel::Confirm(confirm) => confirm.handle_key(key),
+        }
+    }
+
+    /// True while a panel still has candidates to read, which is what keeps the
+    /// main loop from going back to sleep.
+    pub fn is_loading(&self) -> bool {
+        match self {
+            Panel::Picker(picker) => picker.is_loading(),
+            _ => false,
+        }
+    }
+
+    pub fn load_more(&mut self) {
+        if let Panel::Picker(picker) = self {
+            picker.pull();
         }
     }
 
     pub fn as_prompt(&self) -> Option<&Prompt> {
-        match self {
-            Panel::Prompt(prompt) => Some(prompt),
-            _ => None,
-        }
-    }
-
-    pub fn as_prompt_mut(&mut self) -> Option<&mut Prompt> {
         match self {
             Panel::Prompt(prompt) => Some(prompt),
             _ => None,
