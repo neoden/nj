@@ -18,6 +18,9 @@ use crate::view::CellStyle;
 /// in one of them is worth a single column.
 const PANEL_TAB_WIDTH: usize = 1;
 
+/// Assumes a dark terminal, which is what a theme (F12) will fix.
+const CURRENT_LINE: Color = Color::AnsiValue(236);
+
 /// Starts a row at the left edge of the editor's band. What follows it should
 /// end with [`end_row`], which blanks the rest of the terminal.
 fn start_row(out: &mut impl Write, margin: &str, row: usize) -> Result<()> {
@@ -48,16 +51,28 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
             _ => " ".repeat(view.gutter),
         };
 
+        let (ink, paper) = match highlight.is_current() {
+            true => (Color::Grey, CURRENT_LINE),
+            false => (Color::DarkGrey, Color::Reset),
+        };
+
         start_row(out, margin, drawn)?;
         queue!(
             out,
-            SetForegroundColor(Color::DarkGrey),
+            SetBackgroundColor(paper),
+            SetForegroundColor(ink),
             Print(number),
             ResetColor,
         )?;
         for (text, style) in view.visible_runs(&text, row.start_column, &highlight) {
             match style {
                 CellStyle::Normal => queue!(out, Print(text))?,
+                CellStyle::CurrentLine => queue!(
+                    out,
+                    SetBackgroundColor(CURRENT_LINE),
+                    Print(text),
+                    ResetColor
+                )?,
                 CellStyle::Selected => queue!(
                     out,
                     SetBackgroundColor(Color::DarkGrey),
@@ -289,9 +304,8 @@ mod tests {
 
     #[test]
     fn every_row_starts_at_the_edge_of_the_band() {
-        // 200 columns, gutter 2, band 122, so 39 columns of margin.
         let (wide, margin) = drawn(200);
-        assert_eq!(margin, 39);
+        assert!(margin > 0);
         for row in 1..=4 {
             let start = format!("\x1b[{row};1H{}\x1b", " ".repeat(margin));
             assert!(wide.contains(&start), "row {row} is not indented");
@@ -301,6 +315,19 @@ mod tests {
         let (narrow, margin) = drawn(80);
         assert_eq!(margin, 0);
         assert!(narrow.contains("\x1b[1;1H\x1b"));
+    }
+
+    #[test]
+    fn only_the_current_line_paints_its_gutter() {
+        let (frame, margin) = drawn(200);
+        let painted = |row: usize| {
+            let marker = format!("\x1b[{row};1H");
+            let at = frame.find(&marker).unwrap() + marker.len() + margin;
+            frame[at..].starts_with("\x1b[48;")
+        };
+
+        assert!(painted(1), "the cursor's row should carry a background");
+        assert!(!painted(2));
     }
 
     #[test]

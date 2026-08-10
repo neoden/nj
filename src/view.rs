@@ -22,6 +22,7 @@ const MIN_PANEL_ROWS: usize = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellStyle {
     Normal,
+    CurrentLine,
     Matched,
     Selected,
     Cursor,
@@ -34,9 +35,15 @@ pub struct LineHighlight {
     matched: Vec<Range<usize>>,
     selected: Vec<Range<usize>>,
     carets: Vec<usize>,
+    /// The line a lone bare cursor sits on.
+    current: bool,
 }
 
 impl LineHighlight {
+    pub fn is_current(&self) -> bool {
+        self.current
+    }
+
     fn style_at(&self, column: usize) -> CellStyle {
         if self.carets.contains(&column) {
             CellStyle::Cursor
@@ -44,6 +51,8 @@ impl LineHighlight {
             CellStyle::Selected
         } else if self.matched.iter().any(|range| range.contains(&column)) {
             CellStyle::Matched
+        } else if self.current {
+            CellStyle::CurrentLine
         } else {
             CellStyle::Normal
         }
@@ -334,7 +343,13 @@ impl View {
         let column_of =
             |offset: usize| layout::column_of_byte(&content, offset - start, self.tab_width);
 
-        let mut highlight = LineHighlight::default();
+        let cursor = self.selections.primary();
+        let mut highlight = LineHighlight {
+            current: self.selections.len() == 1
+                && cursor.is_empty()
+                && text.line_of(cursor.head) == line,
+            ..LineHighlight::default()
+        };
         // Sorted and disjoint, so the hits on this line are a run.
         let first = matches.partition_point(|found| found.end < start);
         for found in matches[first..]
@@ -796,6 +811,38 @@ mod tests {
                 ("o".to_owned(), CellStyle::Normal),
             ]
         );
+    }
+
+    #[test]
+    fn the_current_line_needs_a_lone_bare_cursor() {
+        let text = Text::from_str("one\ntwo\n");
+        let mut view = view_of(&text, 0);
+
+        assert!(view.highlight_line(&text, 0, &[]).current);
+        assert!(!view.highlight_line(&text, 1, &[]).current);
+
+        view.selections = Selection {
+            anchor: 0,
+            head: 2,
+            goal_column: None,
+        }
+        .into();
+        assert!(!view.highlight_line(&text, 0, &[]).current);
+
+        view.selections = SelectionSet::single(0);
+        view.selections.push(Selection::cursor(4));
+        assert!(!view.highlight_line(&text, 0, &[]).current);
+    }
+
+    #[test]
+    fn the_current_line_runs_to_the_edge_of_the_screen() {
+        let text = Text::from_str("one\ntwo\n");
+        let mut view = view_of(&text, 1);
+        view.width = 6;
+
+        let highlight = view.highlight_line(&text, 0, &[]);
+        let runs = view.visible_runs("one", 0, &highlight);
+        assert!(runs.iter().all(|(_, style)| *style != CellStyle::Normal));
     }
 
     #[test]
