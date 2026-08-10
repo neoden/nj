@@ -20,5 +20,13 @@ Format: context, decision, consequences ([Nygard][nygard]).
 | [10](0010-rows-as-the-unit-of-display.md) | Rows, not lines, as the unit of display | Accepted |
 | [11](0011-clipboard-through-external-helpers.md) | Reach the clipboard through external helpers | Accepted |
 | [12](0012-one-panel-and-a-pinned-status-bar.md) | One panel and a pinned status bar | Accepted |
+| [13](0013-scope-a-full-editor-not-an-ide.md) | Scope: a full editor, not an IDE | Accepted |
+| [14](0014-no-scripting-engine.md) | No scripting engine; commands are the automation surface | Accepted, refines 8 |
+| [15](0015-a-workspace-of-buffers-and-views.md) | A workspace of buffers and views | Accepted, completes 9 |
+| [16](0016-a-command-layer-as-the-only-boundary.md) | A command layer as the editor's only boundary | Accepted, completes 8 |
+| [17](0017-a-view-is-a-sequence-of-blocks.md) | A view is a sequence of blocks | Accepted, amends 10 |
+| [18](0018-anchors-carry-the-version-they-came-from.md) | Anchors: a position and the version it came from | Accepted |
+| [19](0019-provenance-is-a-diff-against-a-named-baseline.md) | Provenance is a diff against a named baseline | Accepted |
+| [20](0020-an-external-change-is-an-ordinary-transaction.md) | An external change is an ordinary transaction | Accepted |
 
 [nygard]: https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions
