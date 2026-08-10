@@ -381,7 +381,7 @@ fn insert_char(editor: &mut Editor, character: char) {
 fn handle_mouse(mouse: MouseEvent, editor: &mut Editor) {
     let view = &mut editor.view;
     let text = &editor.document.text;
-    let column = (mouse.column as usize).saturating_sub(view.gutter);
+    let column = (mouse.column as usize).saturating_sub(view.margin + view.gutter);
     let row = mouse.row as usize;
 
     match mouse.kind {

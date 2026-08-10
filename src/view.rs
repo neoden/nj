@@ -10,6 +10,9 @@ pub const CONTROL_PLACEHOLDER: char = '·';
 /// Rows kept between the cursor and the edge of the screen while scrolling.
 const SCROLL_MARGIN: usize = 2;
 
+/// Capped and centred, so a wide terminal does not leave the editor at one edge.
+const MAX_TEXT_WIDTH: usize = 100;
+
 const STATUS_ROWS: usize = 1;
 /// Rows of text the panel may never take.
 const MIN_TEXT_ROWS: usize = 1;
@@ -70,6 +73,8 @@ pub struct View {
     pub left_column: usize,
     /// Width of the text area, excluding the gutter.
     pub width: usize,
+    /// Screen column the editor starts at; the rest of the terminal is blank.
+    pub margin: usize,
     /// Rows of text, excluding the status line.
     pub height: usize,
     /// Rows the panel got, which is not always what it asked for.
@@ -85,6 +90,7 @@ impl Default for View {
             top_line: 0,
             left_column: 0,
             width: 0,
+            margin: 0,
             height: 0,
             panel_height: 0,
             gutter: 0,
@@ -97,10 +103,13 @@ impl View {
     /// Divides the terminal into a gutter, a text area, the rows a panel asked
     /// for and the status bar on the last one. A panel is cut down to what is
     /// left rather than pushing the status bar off the screen, and a screen too
-    /// short to draw one in gets none at all.
+    /// short to draw one in gets none at all. A terminal wider than the cap
+    /// gets a band of that width, centred.
     pub fn fit(&mut self, term_width: usize, term_height: usize, line_count: usize, panel: usize) {
         self.gutter = digits(line_count) + 1;
-        self.width = term_width.saturating_sub(self.gutter);
+        let band = term_width.min(self.gutter + MAX_TEXT_WIDTH);
+        self.margin = (term_width - band) / 2;
+        self.width = band.saturating_sub(self.gutter);
 
         let spare = term_height.saturating_sub(STATUS_ROWS + MIN_TEXT_ROWS);
         self.panel_height = match panel.min(spare) {
@@ -469,6 +478,23 @@ mod tests {
         view.fit(80, 24, 1000, 0);
         assert_eq!(view.gutter, 5);
         assert_eq!(view.width, 75);
+    }
+
+    #[test]
+    fn a_wide_terminal_gets_a_centred_band() {
+        let mut view = View::default();
+
+        view.fit(400, 24, 1, 0);
+        assert_eq!(view.width, MAX_TEXT_WIDTH);
+        let band = view.gutter + view.width;
+        assert_eq!(view.margin, (400 - band) / 2);
+        // Nothing of the terminal is unaccounted for.
+        assert!(view.margin * 2 + band >= 399);
+
+        // A terminal no wider than the cap is used whole.
+        view.fit(80, 24, 1, 0);
+        assert_eq!(view.margin, 0);
+        assert_eq!(view.width, 80 - view.gutter);
     }
 
     #[test]

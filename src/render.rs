@@ -4,6 +4,7 @@ use anyhow::Result;
 use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
+use crossterm::terminal::{Clear, ClearType};
 use crossterm::{cursor, queue};
 
 use crate::editor::Editor;
@@ -17,11 +18,24 @@ use crate::view::CellStyle;
 /// in one of them is worth a single column.
 const PANEL_TAB_WIDTH: usize = 1;
 
+/// Starts a row at the left edge of the editor's band. What follows it should
+/// end with [`end_row`], which blanks the rest of the terminal.
+fn start_row(out: &mut impl Write, margin: &str, row: usize) -> Result<()> {
+    queue!(out, cursor::MoveTo(0, row as u16), Print(margin))?;
+    Ok(())
+}
+
+fn end_row(out: &mut impl Write) -> Result<()> {
+    queue!(out, SetAttribute(Attribute::Reset), Clear(ClearType::UntilNewLine))?;
+    Ok(())
+}
+
 /// Draws a whole frame. Every cell is rewritten, so the screen is never
 /// cleared first: clearing is what makes a terminal flicker.
 pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> Result<()> {
     let document = &editor.document;
     let view = &editor.view;
+    let margin = &" ".repeat(view.margin);
     let mut drawn = 0;
 
     for row in view.rows(&document.text) {
@@ -34,9 +48,9 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
             _ => " ".repeat(view.gutter),
         };
 
+        start_row(out, margin, drawn)?;
         queue!(
             out,
-            cursor::MoveTo(0, drawn as u16),
             SetForegroundColor(Color::DarkGrey),
             Print(number),
             ResetColor,
@@ -66,12 +80,13 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
                 )?,
             }
         }
+        end_row(out)?;
         drawn += 1;
     }
 
-    let blank = " ".repeat(view.gutter + view.width);
     for row in drawn..view.height {
-        queue!(out, cursor::MoveTo(0, row as u16), Print(&blank))?;
+        start_row(out, margin, row)?;
+        end_row(out)?;
     }
 
     let width = view.gutter + view.width;
@@ -80,32 +95,31 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
     let body = view.panel_height.saturating_sub(2);
     if let Some(panel) = editor.panel.as_ref().filter(|_| body > 0) {
         let top = view.height + 1;
-        rule(out, view.height, width)?;
+        rule(out, margin, view.height, width)?;
         match panel {
-            Panel::Prompt(prompt) => draw_prompt(out, prompt, top, width, body)?,
-            Panel::Picker(picker) => draw_picker(out, picker, top, width, body)?,
+            Panel::Prompt(prompt) => draw_prompt(out, margin, prompt, top, width, body)?,
+            Panel::Picker(picker) => draw_picker(out, margin, picker, top, width, body)?,
             Panel::Confirm(confirm) => {
                 for (row, line) in confirm.rows().iter().take(body).enumerate() {
-                    queue!(
-                        out,
-                        cursor::MoveTo(0, (top + row) as u16),
-                        Print(pad(line, width)),
-                    )?;
+                    start_row(out, margin, top + row)?;
+                    queue!(out, Print(pad(line, width)))?;
+                    end_row(out)?;
                 }
             }
         }
-        rule(out, view.height + view.panel_height - 1, width)?;
+        rule(out, margin, view.height + view.panel_height - 1, width)?;
     }
 
     // The status bar is nailed to the last row so that it never moves when a
     // panel opens or changes height.
+    start_row(out, margin, view.height + view.panel_height)?;
     queue!(
         out,
-        cursor::MoveTo(0, (view.height + view.panel_height) as u16),
         SetAttribute(Attribute::Reverse),
         Print(status_line(left, right, width)),
         SetAttribute(Attribute::Reset),
     )?;
+    end_row(out)?;
 
     out.flush()?;
     Ok(())
@@ -116,6 +130,7 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
 /// moves as the list changes size.
 fn draw_picker(
     out: &mut impl Write,
+    margin: &str,
     picker: &Picker,
     top: usize,
     width: usize,
@@ -130,7 +145,7 @@ fn draw_picker(
         // Indented to line up with the text of the query below.
         let line = pad(&format!("   {candidate}"), width);
 
-        queue!(out, cursor::MoveTo(0, (top + rows - 1 - row) as u16))?;
+        start_row(out, margin, top + rows - 1 - row)?;
         match selected {
             true => queue!(
                 out,
@@ -140,20 +155,21 @@ fn draw_picker(
             )?,
             false => queue!(out, Print(line))?,
         }
+        end_row(out)?;
     }
 
-    draw_field(out, &picker.query, true, top + rows, width)
+    draw_field(out, margin, &picker.query, true, top + rows, width)
 }
 
-fn rule(out: &mut impl Write, row: usize, width: usize) -> Result<()> {
+fn rule(out: &mut impl Write, margin: &str, row: usize, width: usize) -> Result<()> {
+    start_row(out, margin, row)?;
     queue!(
         out,
-        cursor::MoveTo(0, row as u16),
         SetForegroundColor(Color::DarkGrey),
         Print("─".repeat(width)),
         ResetColor,
     )?;
-    Ok(())
+    end_row(out)
 }
 
 /// The left half belongs to the document, the right half to whatever panel is
@@ -174,13 +190,14 @@ fn status_line(left: &str, right: &str, width: usize) -> String {
 /// terminal cursor stays hidden and we paint our own everywhere else.
 fn draw_prompt(
     out: &mut impl Write,
+    margin: &str,
     prompt: &Prompt,
     top: usize,
     width: usize,
     height: usize,
 ) -> Result<()> {
     for (index, field) in prompt.fields.iter().take(height).enumerate() {
-        draw_field(out, field, index == prompt.active, top + index, width)?;
+        draw_field(out, margin, field, index == prompt.active, top + index, width)?;
     }
     Ok(())
 }
@@ -189,6 +206,7 @@ fn draw_prompt(
 /// cursor stays hidden everywhere in this editor.
 fn draw_field(
     out: &mut impl Write,
+    margin: &str,
     field: &Field,
     active: bool,
     row: usize,
@@ -206,7 +224,7 @@ fn draw_field(
     // Walked as cells rather than characters: the caret is placed in display
     // columns, so counting anything else drifts away from it on wide glyphs.
     let line = pad(&format!("{label}{contents}"), width);
-    queue!(out, cursor::MoveTo(0, row as u16))?;
+    start_row(out, margin, row)?;
     for cell in layout::cells(&line, PANEL_TAB_WIDTH) {
         let glyph = match cell.glyph {
             Glyph::Text(text) => text,
@@ -230,7 +248,7 @@ fn draw_field(
             queue!(out, Print(glyph))?;
         }
     }
-    Ok(())
+    end_row(out)
 }
 
 /// Truncates or pads to exactly `width` columns, counting display width rather
@@ -257,6 +275,33 @@ fn pad(text: &str, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::Document;
+    use crate::text::Text;
+
+    fn drawn(term_width: usize) -> (String, usize) {
+        let mut editor = Editor::new(Document::from_text(Text::from_str("hello\n")));
+        editor.view.fit(term_width, 4, 2, 0);
+
+        let mut out = Vec::new();
+        draw(&mut out, &editor, "", "").unwrap();
+        (String::from_utf8(out).unwrap(), editor.view.margin)
+    }
+
+    #[test]
+    fn every_row_starts_at_the_edge_of_the_band() {
+        // 200 columns, gutter 2, band 122, so 39 columns of margin.
+        let (wide, margin) = drawn(200);
+        assert_eq!(margin, 39);
+        for row in 1..=4 {
+            let start = format!("\x1b[{row};1H{}\x1b", " ".repeat(margin));
+            assert!(wide.contains(&start), "row {row} is not indented");
+        }
+
+        // A terminal narrower than the cap keeps the editor at the left edge.
+        let (narrow, margin) = drawn(80);
+        assert_eq!(margin, 0);
+        assert!(narrow.contains("\x1b[1;1H\x1b"));
+    }
 
     #[test]
     fn padding_counts_display_columns() {
