@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use crate::anchor::{self, Bias, Splice};
 use crate::selection::{Selection, SelectionSet};
 use crate::text::Text;
 
@@ -82,6 +83,17 @@ impl Transaction {
         self.changes.iter().all(|change| change.range.is_empty() && change.text.is_empty())
     }
 
+    /// The geometry of the edit, which is what the buffer's journal keeps.
+    pub fn splices(&self) -> Vec<Splice> {
+        self.changes
+            .iter()
+            .map(|change| Splice {
+                range: change.range.clone(),
+                len: change.text.len(),
+            })
+            .collect()
+    }
+
     /// Applies the edit and returns the transaction that undoes it.
     pub fn apply(self, text: &mut Text) -> Self {
         // Back to front, so that offsets ahead of each change stay valid.
@@ -118,21 +130,15 @@ impl Transaction {
     }
 }
 
-/// Where a position ends up once the changes before it have been applied.
-/// A position inside something that was removed collapses to its start.
+/// Where a cursor ends up once these changes have been applied: an insertion
+/// at its position lands before it, and a range replaced around it collapses
+/// it to the end of what took its place.
 pub fn displace(position: usize, changes: &[Change]) -> usize {
-    let mut delta = 0isize;
-    for change in changes {
-        if change.range.start > position {
-            break;
-        }
-        if change.range.end <= position {
-            delta += change.text.len() as isize - change.range.len() as isize;
-        } else {
-            return change.range.start.saturating_add_signed(delta);
-        }
-    }
-    position.saturating_add_signed(delta)
+    let splices = changes.iter().map(|change| Splice {
+        range: change.range.clone(),
+        len: change.text.len(),
+    });
+    anchor::displace(position, splices, Bias::After)
 }
 
 #[cfg(test)]

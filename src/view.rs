@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use crate::anchor::{Anchor, Bias, Version};
 use crate::buffer::Buffer;
 use crate::layout::{self, Glyph};
 use crate::movement::{self, Direction, Motion};
@@ -73,6 +74,10 @@ pub struct Row {
 pub struct View {
     pub buffer: BufferId,
     pub selections: SelectionSet,
+    /// The buffer version the selections are positions in. The view in focus
+    /// is kept current by the editor; any other is brought up to date when it
+    /// is next looked at (ADR 18).
+    seen: Version,
     pub top_line: usize,
     pub left_column: usize,
     /// Assigned from outside; the gutter is carved out of it.
@@ -86,15 +91,45 @@ pub fn gutter_width(line_count: usize) -> usize {
 }
 
 impl View {
-    pub fn new(buffer: BufferId) -> Self {
+    pub fn new(buffer: BufferId, version: Version) -> Self {
         Self {
             buffer,
             selections: SelectionSet::single(0),
+            seen: version,
             top_line: 0,
             left_column: 0,
             area: Area::default(),
             gutter: 0,
         }
+    }
+
+    /// Carries the selections forward through whatever was done to the
+    /// buffer since they were last placed. A view left behind for longer than
+    /// the journal reaches loses its place and starts over at the top.
+    pub fn catch_up(&mut self, buffer: &Buffer) {
+        if self.seen == buffer.version() {
+            return;
+        }
+        let resolve = |offset: usize| {
+            let anchor = Anchor {
+                version: self.seen,
+                offset,
+                bias: Bias::After,
+            };
+            buffer.resolve(anchor).unwrap_or(0)
+        };
+        self.selections = self.selections.mapped(|selection| Selection {
+            anchor: resolve(selection.anchor),
+            head: resolve(selection.head),
+            goal_column: None,
+        });
+        self.seen = buffer.version();
+    }
+
+    /// The selections were just placed in the buffer's current text, by
+    /// whoever changed it; there is nothing to catch up on.
+    pub fn mark_current(&mut self, buffer: &Buffer) {
+        self.seen = buffer.version();
     }
 
     pub fn resize(&mut self, area: Area, line_count: usize) {
@@ -114,7 +149,7 @@ impl View {
 
     /// Rows filling the screen, top to bottom.
     pub fn rows<'a>(&'a self, buffer: &'a Buffer) -> impl Iterator<Item = Row> + 'a {
-        let text = &buffer.text;
+        let text = &buffer.text();
         let first =
             (self.top_line < text.line_count()).then(|| self.row(buffer, self.top_line, 0));
         std::iter::successors(first, move |row| self.next_row(buffer, *row)).take(self.height())
@@ -125,7 +160,7 @@ impl View {
             return Some(self.row(buffer, row.line, row.index + 1));
         }
         let line = row.line + 1;
-        (line < buffer.text.line_count()).then(|| self.row(buffer, line, 0))
+        (line < buffer.text().line_count()).then(|| self.row(buffer, line, 0))
     }
 
     pub fn previous_row(&self, buffer: &Buffer, row: Row) -> Option<Row> {
@@ -138,7 +173,7 @@ impl View {
 
     /// The row an offset falls on.
     pub fn row_of(&self, buffer: &Buffer, offset: usize) -> Row {
-        let text = &buffer.text;
+        let text = &buffer.text();
         let line = text.line_of(offset);
         let content = text.line_str(line);
         let column =
@@ -173,7 +208,7 @@ impl View {
     /// Scrolling stops with the last line at the bottom of the screen; there
     /// is no empty space past the end of the document.
     pub fn max_top_line(&self, buffer: &Buffer) -> usize {
-        buffer.text.line_count().saturating_sub(self.height())
+        buffer.text().line_count().saturating_sub(self.height())
     }
 
     pub fn scroll_lines(&mut self, delta: isize, buffer: &Buffer) {
@@ -198,7 +233,7 @@ impl View {
         motion: Motion,
         extend: bool,
     ) -> Selection {
-        let text = &buffer.text;
+        let text = &buffer.text();
         let (head, goal_column) = match motion {
             Motion::Row(direction) => self.move_by_rows(buffer, &selection, direction, 1),
             Motion::Page(direction) => {
@@ -225,7 +260,7 @@ impl View {
         direction: Direction,
         rows: usize,
     ) -> (usize, Option<usize>) {
-        let text = &buffer.text;
+        let text = &buffer.text();
         let row = self.row_of(buffer, selection.head);
         let content = text.line_str(row.line);
         let column = layout::column_of_byte(
@@ -257,7 +292,7 @@ impl View {
 
     /// Grows the column of cursors from whichever end is being extended.
     pub fn add_cursor(&mut self, buffer: &Buffer, direction: Direction) {
-        let text = &buffer.text;
+        let text = &buffer.text();
         let edge = match direction {
             Direction::Backward => self.selections.iter().next(),
             Direction::Forward => self.selections.iter().last(),
@@ -298,7 +333,7 @@ impl View {
     /// Brings the primary cursor back on screen, keeping a margin above and
     /// below it where the document allows.
     pub fn scroll_to_cursor(&mut self, buffer: &Buffer) {
-        let text = &buffer.text;
+        let text = &buffer.text();
         let head = self.selections.primary().head;
         let line = text.line_of(head);
         let margin = SCROLL_MARGIN.min(self.height().saturating_sub(1) / 2);
@@ -331,7 +366,7 @@ impl View {
         line: usize,
         matches: &[Range<usize>],
     ) -> LineHighlight {
-        let text = &buffer.text;
+        let text = &buffer.text();
         let tab_width = buffer.tab_width();
         let start = text.line_start(line);
         let content = text.line_str(line);
@@ -377,7 +412,7 @@ impl View {
     /// Translates a click into a byte offset. Rows past the last one land on
     /// the last row, as they do in any editor.
     pub fn offset_at_screen(&self, buffer: &Buffer, row: usize, column: usize) -> usize {
-        let text = &buffer.text;
+        let text = &buffer.text();
         let rows: Vec<Row> = self.rows(buffer).collect();
         let Some(row) = rows.get(row).or(rows.last()) else {
             return 0;
@@ -483,7 +518,7 @@ mod tests {
     /// The view a terminal of this size gives a one-line buffer, with no
     /// panel open: the status bar takes a row and the gutter two columns.
     fn view(width: usize, height: usize) -> View {
-        let mut view = View::new(BufferId::FIRST);
+        let mut view = View::new(BufferId::FIRST, 0);
         fit(&mut view, width, height, 1);
         view
     }
@@ -563,7 +598,7 @@ mod tests {
         set_width(&mut view, 10);
 
         view.move_selections(&buffer, Motion::LineEdge(Direction::Forward), false);
-        assert_eq!(view.left_column, buffer.text.len() + 1 - view.width());
+        assert_eq!(view.left_column, buffer.text().len() + 1 - view.width());
 
         view.move_selections(&buffer, Motion::LineEdge(Direction::Backward), false);
         assert_eq!(view.left_column, 0);
@@ -662,7 +697,7 @@ mod tests {
 
     fn view_of(buffer: &Buffer, offset: usize) -> View {
         let mut view = view(80, 25);
-        fit(&mut view, 80, 25, buffer.text.line_count());
+        fit(&mut view, 80, 25, buffer.text().line_count());
         view.selections = SelectionSet::single(offset);
         view
     }
@@ -720,7 +755,7 @@ mod tests {
         let mut view = view_of(&buffer, 7);
 
         view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
-        assert_eq!(view.selections.primary().head, buffer.text.len());
+        assert_eq!(view.selections.primary().head, buffer.text().len());
 
         view.move_selections(&buffer, Motion::Row(Direction::Backward), false);
         assert_eq!(view.selections.primary().head, 2);
@@ -730,10 +765,10 @@ mod tests {
     fn a_page_moves_a_screenful_of_rows_at_once() {
         let buffer = buf(&"line\n".repeat(100));
         let mut view = view_of(&buffer, 0);
-        fit(&mut view, 80, 11, buffer.text.line_count());
+        fit(&mut view, 80, 11, buffer.text().line_count());
 
         view.move_selections(&buffer, Motion::Page(Direction::Forward), false);
-        assert_eq!(buffer.text.line_of(view.selections.primary().head), view.height() - 1);
+        assert_eq!(buffer.text().line_of(view.selections.primary().head), view.height() - 1);
 
         view.move_selections(&buffer, Motion::Page(Direction::Backward), false);
         assert_eq!(view.selections.primary().head, 0);
@@ -756,12 +791,12 @@ mod tests {
     fn the_screen_follows_the_cursor() {
         let buffer = buf(&"line\n".repeat(100));
         let mut view = view_of(&buffer, 0);
-        fit(&mut view, 80, 11, buffer.text.line_count());
+        fit(&mut view, 80, 11, buffer.text().line_count());
 
         for _ in 0..20 {
             view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
         }
-        assert_eq!(buffer.text.line_of(view.selections.primary().head), 20);
+        assert_eq!(buffer.text().line_of(view.selections.primary().head), 20);
         assert_eq!(view.top_line, 20 + SCROLL_MARGIN + 1 - view.height());
 
         view.move_selections(&buffer, Motion::Document(Direction::Backward), false);

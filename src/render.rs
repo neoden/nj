@@ -42,7 +42,7 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
     let mut drawn = view.area.y;
 
     for row in view.rows(buffer) {
-        let text = buffer.text.line_str(row.line);
+        let text = buffer.text().line_str(row.line);
         let highlight = view.highlight_line(buffer, row.line, editor.matches());
         // Wrapped continuations leave the gutter empty: the number belongs to
         // the logical line, not to every row it spans.

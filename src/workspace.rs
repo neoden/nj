@@ -30,15 +30,30 @@ pub struct Workspace {
 impl Workspace {
     /// One buffer, one view onto it, in focus.
     pub fn single(buffer: Buffer) -> Self {
+        let view = View::new(BufferId(0), buffer.version());
         Self {
             buffers: vec![buffer],
-            views: vec![View::new(BufferId(0))],
+            views: vec![view],
             focused: ViewId(0),
         }
     }
 
+    /// Another window onto a buffer, with its own cursors (ADR 9).
+    pub fn open_view(&mut self, buffer: BufferId) -> ViewId {
+        self.views.push(View::new(buffer, self.buffers[buffer.0].version()));
+        ViewId(self.views.len() - 1)
+    }
+
     pub fn focused(&self) -> ViewId {
         self.focused
+    }
+
+    /// Moves the focus, and brings the view up to date with whatever was
+    /// done to its buffer through other views while it was away.
+    pub fn focus_on(&mut self, id: ViewId) {
+        self.focused = id;
+        let (view, buffer) = self.focus_mut();
+        view.catch_up(buffer);
     }
 
     pub fn buffer(&self, id: BufferId) -> &Buffer {
@@ -76,5 +91,42 @@ impl Workspace {
         let view = &mut self.views[self.focused.0];
         let buffer = view.buffer;
         (view, &mut self.buffers[buffer.0])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::buffer::EditKind;
+    use crate::selection::SelectionSet;
+    use crate::text::Text;
+    use crate::transaction::{CursorAfter, Transaction};
+
+    /// Two views on one buffer keep their own cursors (ADR 9), and the one
+    /// not in focus is carried along through the edits it did not see.
+    #[test]
+    fn a_view_left_behind_catches_up_when_it_is_focused_again() {
+        let mut workspace = Workspace::single(Buffer::from_text(Text::from_str("abc def")));
+        let first = workspace.focused();
+        let second = workspace.open_view(BufferId(0));
+
+        workspace.focus_on(second);
+        workspace.focus_mut().0.selections = SelectionSet::single(4);
+
+        // Back in the first view, insert at the very start.
+        workspace.focus_on(first);
+        let (view, buffer) = workspace.focus_edit();
+        let transaction = Transaction::edit(&SelectionSet::single(0), CursorAfter::EndOfChange, |_| {
+            (0..0, "___".to_owned())
+        });
+        view.selections = buffer.apply(transaction, EditKind::Other);
+        view.mark_current(buffer);
+        assert_eq!(view.selections.primary().head, 3);
+
+        // The second view still says 4 — until it is looked at.
+        assert_eq!(workspace.view(second).selections.primary().head, 4);
+        workspace.focus_on(second);
+        assert_eq!(workspace.view(second).selections.primary().head, 7);
+        assert_eq!(workspace.view(first).selections.primary().head, 3);
     }
 }

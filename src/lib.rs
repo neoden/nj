@@ -2,6 +2,7 @@
 //! this split the module tree would belong to the binary, and an integration
 //! test could not reach any of it.
 
+pub mod anchor;
 pub mod app;
 pub mod buffer;
 pub mod clipboard;

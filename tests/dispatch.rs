@@ -59,7 +59,7 @@ fn typed(editor: &mut Editor, text: &str) {
 }
 
 fn content(editor: &Editor) -> String {
-    editor.buffer().text.to_string()
+    editor.buffer().text().to_string()
 }
 
 fn ctrl(editor: &mut Editor, character: char) {

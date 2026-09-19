@@ -84,7 +84,7 @@ fn mouse_command(mouse: MouseEvent) -> Option<Command> {
 /// is happening.
 fn status(editor: &Editor) -> (String, String) {
     let (view, buffer) = (editor.view(), editor.buffer());
-    let line = buffer.text.line_of(view.selections.primary().head);
+    let line = buffer.text().line_of(view.selections.primary().head);
     let column = editor.cursor_column();
 
     let right = format!(
@@ -92,7 +92,7 @@ fn status(editor: &Editor) -> (String, String) {
         buffer.name(),
         if buffer.is_modified() { "*" } else { "" },
         buffer.language.name,
-        buffer.text.line_count(),
+        buffer.text().line_count(),
         line + 1,
         column + 1,
     );

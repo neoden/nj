@@ -106,7 +106,7 @@ impl Editor {
     pub fn resize(&mut self, term_width: usize, term_height: usize) {
         let panel = self.panel_height();
         let (view, buffer) = self.workspace.focus_mut();
-        let line_count = buffer.text.line_count();
+        let line_count = buffer.text().line_count();
         self.screen = Screen::divide(term_width, term_height, view::gutter_width(line_count), panel);
         view.resize(self.screen.text, line_count);
     }
@@ -360,7 +360,7 @@ impl Editor {
         let primary = self.view().selections.primary();
         match primary.is_empty() {
             true => None,
-            false => Some(self.buffer().text.slice(primary.range()).to_string()),
+            false => Some(self.buffer().text().slice(primary.range()).to_string()),
         }
     }
 
@@ -412,7 +412,7 @@ impl Editor {
         };
 
         let query = Query::literal(needle);
-        search.retarget(query.clone(), &self.workspace.focus().1.text);
+        search.retarget(query.clone(), self.workspace.focus().1.text());
         self.last = (!query.is_empty()).then_some(query);
 
         let origin = search.origin.clone();
@@ -455,7 +455,7 @@ impl Editor {
             return;
         };
         let from = self.from(direction);
-        match query.find(&self.buffer().text, from, direction) {
+        match query.find(&self.buffer().text(), from, direction) {
             Some(hit) => self.select_hit(hit),
             None => self.message = Some("Not found".to_owned()),
         }
@@ -497,7 +497,7 @@ impl Editor {
 
     fn goto_line(&mut self, line: usize) {
         let (view, buffer) = self.workspace.focus_mut();
-        let text = &buffer.text;
+        let text = &buffer.text();
         let line = line.min(text.line_count().saturating_sub(1));
         view.selections = Selection::cursor(text.line_start(line)).into();
         view.scroll_to_cursor(buffer);
@@ -588,7 +588,7 @@ impl Editor {
     /// several cursors is taken once, however many of them sit on it.
     fn copy(&mut self) {
         let lines = self.view().selections.iter().all(Selection::is_empty);
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let pieces = match lines {
             true => self
                 .touched_lines()
@@ -638,7 +638,7 @@ impl Editor {
     /// One change per line rather than per cursor: a line removed twice would
     /// take the line after it as well.
     fn cut_lines(&mut self) {
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let changes: Vec<Change> = self
             .touched_lines()
             .into_iter()
@@ -675,7 +675,7 @@ impl Editor {
             .into_iter();
         let mut leading = leading.into_iter();
 
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let cursor = match lines {
             true => CursorAfter::Displaced,
             false => CursorAfter::EndOfChange,
@@ -712,7 +712,7 @@ impl Editor {
     /// happens here: opening a block deepens the indent only once there is a
     /// parser to say so.
     fn insert_newline(&mut self) {
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let mut leading = self.first_on_each_line(Selection::min).into_iter();
 
         let transaction = Transaction::edit(
@@ -750,7 +750,7 @@ impl Editor {
     /// Whether each selection is the first one on its line, so that a line
     /// edit happens once however many cursors sit on it.
     fn first_on_each_line(&self, offset: impl Fn(&Selection) -> usize) -> Vec<bool> {
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let mut previous = None;
         self.view()
             .selections
@@ -787,7 +787,7 @@ impl Editor {
     }
 
     fn outdent(&mut self) {
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let unit = self.buffer().indent;
         let changes = self
             .touched_lines()
@@ -818,7 +818,7 @@ impl Editor {
     }
 
     fn indent_lines(&mut self) {
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let unit = self.buffer().indent.unit();
         let changes = self
             .touched_lines()
@@ -839,7 +839,7 @@ impl Editor {
     /// whole, so the indentation it just gained is inside it rather than
     /// hanging off its left edge.
     fn apply_to_lines(&mut self, changes: Vec<Change>) {
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let after = self.view().selections.mapped(|selection| {
             if selection.is_empty() {
                 let head = transaction::displace(selection.head, &changes);
@@ -874,7 +874,7 @@ impl Editor {
             return;
         };
 
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let lines: Vec<usize> = self
             .touched_lines()
             .into_iter()
@@ -935,7 +935,7 @@ impl Editor {
     /// A selection ending exactly on a line start does not reach that line —
     /// it only swallowed the break before it.
     fn touched_lines(&self) -> Vec<usize> {
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let mut lines: Vec<usize> = self
             .view()
             .selections
@@ -956,7 +956,7 @@ impl Editor {
 
     pub fn cursor_column(&self) -> usize {
         let (view, buffer) = self.workspace.focus();
-        let text = &buffer.text;
+        let text = &buffer.text();
         let head = view.selections.primary().head;
         let line = text.line_of(head);
         layout::column_of_byte(
@@ -968,7 +968,7 @@ impl Editor {
 
     /// A cursor with nothing selected eats the neighbouring text instead.
     fn delete(&mut self, motion: Motion) {
-        let text = &self.buffer().text;
+        let text = &self.buffer().text();
         let indent = self.buffer().indent;
         let transaction = Transaction::edit(
             &self.view().selections,
@@ -1015,7 +1015,7 @@ impl Editor {
     /// swallows the next line, because the selection now ends on its start.
     fn select_line(&mut self) {
         let (view, buffer) = self.workspace.focus_mut();
-        let text = &buffer.text;
+        let text = &buffer.text();
         view.selections = view.selections.mapped(|selection| {
             let last = text.line_of(selection.max());
             Selection {
@@ -1036,7 +1036,7 @@ impl Editor {
         let (view, buffer) = self.workspace.focus_mut();
         view.selections = Selection {
             anchor: 0,
-            head: buffer.text.len(),
+            head: buffer.text().len(),
             goal_column: None,
         }
         .into();
@@ -1063,7 +1063,7 @@ impl Editor {
 
         let (view, buffer) = self.workspace.focus_mut();
         let from = view.selections.primary().max();
-        let Some(hit) = query.find(&buffer.text, from, Direction::Forward) else {
+        let Some(hit) = query.find(&buffer.text(), from, Direction::Forward) else {
             return;
         };
         if view.selections.iter().any(|selection| selection.range() == hit) {
@@ -1081,7 +1081,7 @@ impl Editor {
         };
 
         let (view, buffer) = self.workspace.focus_mut();
-        let selections = query.all(&buffer.text).map(Query::selection).collect();
+        let selections = query.all(&buffer.text()).map(Query::selection).collect();
         view.selections = SelectionSet::from_selections(selections, 0);
         view.scroll_to_cursor(buffer);
         self.remember_occurrences(query.whole_word);
@@ -1091,7 +1091,7 @@ impl Editor {
     /// is selected is there anything to search for.
     fn take_query(&mut self) -> Option<Query> {
         let (view, buffer) = self.workspace.focus_mut();
-        let text = &buffer.text;
+        let text = &buffer.text();
         if view.selections.iter().any(Selection::is_empty) {
             view.selections = view.selections.mapped(|selection| {
                 if !selection.is_empty() {
@@ -1116,7 +1116,7 @@ impl Editor {
 
         let range = self.view().selections.primary().range();
         Some(Query {
-            needle: self.buffer().text.slice(range).to_string(),
+            needle: self.buffer().text().slice(range).to_string(),
             whole_word,
         })
     }
@@ -1132,6 +1132,7 @@ impl Editor {
         let (view, buffer) = self.workspace.focus_edit();
         if let Some(selections) = buffer.undo() {
             view.selections = selections;
+            view.mark_current(buffer);
             view.scroll_to_cursor(buffer);
         }
     }
@@ -1140,13 +1141,17 @@ impl Editor {
         let (view, buffer) = self.workspace.focus_edit();
         if let Some(selections) = buffer.redo() {
             view.selections = selections;
+            view.mark_current(buffer);
             view.scroll_to_cursor(buffer);
         }
     }
 
+    /// The buffer changes here and nowhere else in the editor; the view
+    /// gets the cursors the transaction placed, which are already current.
     fn apply(&mut self, transaction: Transaction, kind: EditKind) {
         let (view, buffer) = self.workspace.focus_edit();
         view.selections = buffer.apply(transaction, kind);
+        view.mark_current(buffer);
         view.scroll_to_cursor(buffer);
     }
 }
@@ -1224,7 +1229,7 @@ mod tests {
     }
 
     fn content(editor: &Editor) -> String {
-        editor.buffer().text.to_string()
+        editor.buffer().text().to_string()
     }
 
     /// Starting a test from a known place is a command like any other.
@@ -1920,7 +1925,7 @@ mod tests {
         editor.select_all();
         assert_eq!(
             editor.view().selections.primary().range(),
-            0..editor.buffer().text.len()
+            0..editor.buffer().text().len()
         );
         assert_eq!(editor.view().top_line, top);
     }

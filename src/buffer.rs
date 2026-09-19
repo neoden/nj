@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fs;
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
@@ -5,6 +6,7 @@ use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 
+use crate::anchor::{self, Anchor, Splice, Version};
 use crate::indent;
 use crate::language::{self, Indent, Language};
 use crate::movement::{Class, Direction};
@@ -16,6 +18,11 @@ const BOM: &str = "\u{feff}";
 
 /// Every step holds the text it removed, so the history is bounded.
 const UNDO_LIMIT: usize = 1000;
+
+/// Steps the journal keeps. An anchor older than that cannot be resolved,
+/// which is said rather than answered wrongly (ADR 18). A step is a few
+/// ranges, so this is cheap to keep long.
+const JOURNAL_LIMIT: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LineEnding {
@@ -82,9 +89,13 @@ pub enum Backing {
 
 /// One open text: what is being edited, plus everything needed to write it
 /// back where it came from.
+///
+/// The text is private, and the one call that changes it writes the journal
+/// (ADR 18): a position taken at some version can then be brought forward to
+/// the current one, however long ago and by whomever it was taken.
 #[derive(Debug)]
 pub struct Buffer {
-    pub text: Text,
+    text: Text,
     pub framing: Framing,
     pub backing: Backing,
     pub language: &'static Language,
@@ -96,6 +107,13 @@ pub struct Buffer {
     /// The revision the file on disk holds, or `None` when that is the document
     /// as it was opened.
     saved: Option<Revision>,
+    /// Goes up by one per applied transaction, undo and redo included: they
+    /// are edits like any other, not a rewind.
+    version: Version,
+    /// What each transaction did, oldest first; the front entry took the text
+    /// from `version - journal.len()` to the version after it. Geometry only,
+    /// so it is not the undo stack and cannot be.
+    journal: VecDeque<Vec<Splice>>,
 }
 
 /// Names an undo group, so that saving can remember which edit reached the
@@ -131,6 +149,8 @@ impl Default for Buffer {
             last_edit: None,
             next_revision: 0,
             saved: None,
+            version: 0,
+            journal: VecDeque::new(),
         }
     }
 }
@@ -141,6 +161,41 @@ impl Buffer {
             text,
             ..Self::default()
         }
+    }
+
+    pub fn text(&self) -> &Text {
+        &self.text
+    }
+
+    pub fn version(&self) -> Version {
+        self.version
+    }
+
+    /// A position in the current text, from a position taken at an earlier
+    /// version. `None` when that version has left the journal.
+    pub fn resolve(&self, anchor: Anchor) -> Option<usize> {
+        let behind = self.version.checked_sub(anchor.version)?;
+        let steps = usize::try_from(behind).ok()?;
+        if steps > self.journal.len() {
+            return None;
+        }
+        let since = self.journal.len() - steps;
+        Some(self.journal.range(since..).fold(anchor.offset, |offset, step| {
+            anchor::displace(offset, step.iter().cloned(), anchor.bias)
+        }))
+    }
+
+    /// The one place the text changes: whatever is applied is journaled, and
+    /// the version moves on.
+    fn splice(&mut self, transaction: Transaction) -> Transaction {
+        let splices = transaction.splices();
+        let inverse = transaction.apply(&mut self.text);
+        self.journal.push_back(splices);
+        if self.journal.len() > JOURNAL_LIMIT {
+            self.journal.pop_front();
+        }
+        self.version += 1;
+        inverse
     }
 
     /// A missing file opens as an empty buffer, so `ned newfile` works.
@@ -214,7 +269,7 @@ impl Buffer {
     pub fn apply(&mut self, transaction: Transaction, kind: EditKind) -> SelectionSet {
         let selections = transaction.selections_after().clone();
         let joins = self.joins_previous(&transaction, kind);
-        let inverse = transaction.apply(&mut self.text);
+        let inverse = self.splice(transaction);
 
         match self.undo_stack.last_mut().filter(|_| joins) {
             // Groups are kept in the order they will be applied, and undoing
@@ -270,7 +325,7 @@ impl Buffer {
 
         for transaction in group.transactions {
             selections = transaction.selections_after().clone();
-            transactions.push(transaction.apply(&mut self.text));
+            transactions.push(self.splice(transaction));
         }
 
         transactions.reverse();
@@ -459,6 +514,8 @@ fn stage(staging: &Path, original: &Path, contents: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::anchor::Bias;
+    use crate::transaction::CursorAfter;
 
     #[test]
     fn detects_line_endings() {
@@ -547,13 +604,24 @@ mod tests {
         std::env::temp_dir().join(format!("ned-{}-{name}", std::process::id()))
     }
 
+    /// An edit the way the editor makes them: as a transaction, so that the
+    /// history and the journal see it.
+    fn insert(buffer: &mut Buffer, at: usize, text: &str) {
+        let transaction = Transaction::edit(
+            &SelectionSet::single(at),
+            CursorAfter::EndOfChange,
+            |_| (at..at, text.to_owned()),
+        );
+        buffer.apply(transaction, EditKind::Other);
+    }
+
     #[test]
     fn saving_writes_the_contents_back() {
         let path = scratch("save");
         fs::write(&path, "old\n").unwrap();
 
         let mut buffer = Buffer::open(&path).unwrap();
-        buffer.text.insert(3, " and new");
+        insert(&mut buffer, 3, " and new");
         buffer.save().unwrap();
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "old and new\n");
@@ -569,7 +637,7 @@ mod tests {
 
         let mut buffer = Buffer::open(&path).unwrap();
         assert!(matches!(buffer.backing, Backing::File { on_disk: None, .. }));
-        buffer.text.insert(0, "fresh\n");
+        insert(&mut buffer, 0, "fresh\n");
         buffer.save().unwrap();
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "fresh\n");
@@ -612,6 +680,73 @@ mod tests {
         let _ = fs::remove_file(&path);
     }
 
+    fn anchor(buffer: &Buffer, offset: usize, bias: Bias) -> Anchor {
+        Anchor {
+            version: buffer.version(),
+            offset,
+            bias,
+        }
+    }
+
+    #[test]
+    fn every_transaction_moves_the_version_on_including_undo() {
+        let mut buffer = Buffer::parse("abc");
+        assert_eq!(buffer.version(), 0);
+
+        insert(&mut buffer, 1, "X");
+        assert_eq!(buffer.version(), 1);
+        buffer.undo();
+        assert_eq!(buffer.version(), 2);
+        buffer.redo();
+        assert_eq!(buffer.version(), 3);
+    }
+
+    #[test]
+    fn an_anchor_is_carried_through_the_edits_since_its_version() {
+        let mut buffer = Buffer::parse("abcdef");
+        let e = anchor(&buffer, 4, Bias::After);
+        let start = anchor(&buffer, 0, Bias::Before);
+
+        insert(&mut buffer, 0, "__");
+        insert(&mut buffer, 3, "X");
+        assert_eq!(buffer.text().to_string(), "__aXbcdef");
+        assert_eq!(buffer.resolve(e), Some(7));
+        assert_eq!(buffer.resolve(start), Some(0));
+
+        // A current anchor resolves to itself.
+        assert_eq!(buffer.resolve(anchor(&buffer, 5, Bias::After)), Some(5));
+    }
+
+    #[test]
+    fn an_anchor_survives_an_undo_because_undo_is_an_edit_too() {
+        let mut buffer = Buffer::parse("abcdef");
+        insert(&mut buffer, 0, "___");
+        let d = anchor(&buffer, 6, Bias::After);
+
+        buffer.undo();
+        assert_eq!(buffer.text().to_string(), "abcdef");
+        assert_eq!(buffer.resolve(d), Some(3));
+    }
+
+    #[test]
+    fn an_anchor_older_than_the_journal_cannot_be_resolved() {
+        let mut buffer = Buffer::parse("");
+        let old = anchor(&buffer, 0, Bias::After);
+        for _ in 0..JOURNAL_LIMIT {
+            insert(&mut buffer, 0, "x");
+        }
+        assert_eq!(buffer.resolve(old), Some(JOURNAL_LIMIT));
+
+        insert(&mut buffer, 0, "x");
+        assert_eq!(buffer.resolve(old), None);
+        // The one after it is still in reach.
+        let next = Anchor {
+            version: 1,
+            ..old
+        };
+        assert_eq!(buffer.resolve(next), Some(JOURNAL_LIMIT));
+    }
+
     #[test]
     fn a_scratch_buffer_has_nowhere_to_be_saved() {
         let mut buffer = Buffer::default();
@@ -631,7 +766,7 @@ mod tests {
         buffer.finish(&mut out).unwrap();
         assert_eq!(out, b"in\r\n");
 
-        buffer.text.insert(0, "edited ");
+        insert(&mut buffer, 0, "edited ");
         let mut out = Vec::new();
         buffer.finish(&mut out).unwrap();
         assert_eq!(out, b"in\r\n");
@@ -652,7 +787,7 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut buffer = Buffer::open(&path).unwrap();
-        buffer.text.insert(0, "# edited\n");
+        insert(&mut buffer, 0, "# edited\n");
         buffer.save().unwrap();
 
         assert_eq!(
