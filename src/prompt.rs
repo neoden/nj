@@ -1,8 +1,6 @@
 use std::ops::Range;
 
-use crossterm::event::KeyEvent;
-
-use crate::key::{self, Key, KeyCode, Mods};
+use crate::key::{KeyCode, Keystroke, Mods};
 use crate::movement::{self, Direction, Motion};
 use crate::panel::Outcome;
 use crate::selection::SelectionSet;
@@ -84,9 +82,10 @@ impl Field {
     ///
     /// `None` means the key was not a field key at all; otherwise the flag says
     /// whether the contents changed, which is the only thing callers act on.
-    pub fn handle_key(&mut self, key: Key, event: &KeyEvent) -> Option<bool> {
+    pub fn handle_key(&mut self, stroke: Keystroke) -> Option<bool> {
         use Direction::{Backward, Forward};
 
+        let Keystroke { key, text } = stroke;
         let ctrl = key.mods.contains(Mods::CTRL);
         let extend = key.mods.contains(Mods::SHIFT);
 
@@ -136,7 +135,7 @@ impl Field {
                 false
             }
             _ => {
-                self.insert(&key::text_char(event)?.to_string());
+                self.insert(text?.encode_utf8(&mut [0; 4]));
                 true
             }
         };
@@ -215,7 +214,8 @@ impl Prompt {
 
     /// What the strip does with a keystroke, and what it wants done about it.
     /// Everything not listed here belongs to the active field.
-    pub fn handle_key(&mut self, key: Key, event: &KeyEvent) -> Outcome {
+    pub fn handle_key(&mut self, stroke: Keystroke) -> Outcome {
+        let key = stroke.key;
         let ctrl = key.mods.contains(Mods::CTRL);
         let extend = key.mods.contains(Mods::SHIFT);
 
@@ -233,7 +233,7 @@ impl Prompt {
 
         // Only an edited query needs the search run again; anything else would
         // drag the cursor back to the first hit.
-        match self.fields[self.active].handle_key(key, event) {
+        match self.fields[self.active].handle_key(stroke) {
             Some(true) => Outcome::Changed,
             _ => Outcome::Nothing,
         }

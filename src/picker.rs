@@ -1,7 +1,5 @@
-use crossterm::event::KeyEvent;
-
 use crate::fuzzy;
-use crate::key::{Key, KeyCode};
+use crate::key::{KeyCode, Keystroke};
 use crate::panel::Outcome;
 use crate::prompt::Field;
 
@@ -130,10 +128,10 @@ impl Picker {
 
     /// Moving through the list and refiltering are the picker's own business,
     /// so only choosing and leaving reach the editor.
-    pub fn handle_key(&mut self, key: Key, event: &KeyEvent) -> Outcome {
+    pub fn handle_key(&mut self, stroke: Keystroke) -> Outcome {
         let page = VISIBLE as isize;
 
-        match key.code {
+        match stroke.key.code {
             KeyCode::Esc => return Outcome::Close,
             KeyCode::Enter => return Outcome::Pick,
             // The list grows upwards from the query, so moving up the screen
@@ -143,7 +141,7 @@ impl Picker {
             KeyCode::PageUp => self.move_selection(page),
             KeyCode::PageDown => self.move_selection(-page),
             _ => {
-                if self.query.handle_key(key, event) == Some(true) {
+                if self.query.handle_key(stroke) == Some(true) {
                     self.refilter();
                 }
             }

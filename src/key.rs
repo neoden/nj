@@ -37,6 +37,26 @@ pub struct Key {
     pub mods: Mods,
 }
 
+/// What arrived from the keyboard: the key a keymap matches on, and the
+/// character it inserts if it inserts one. The two are kept apart because
+/// the key is normalized — lowercased, mapped to the physical position —
+/// and the text never is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Keystroke {
+    pub key: Key,
+    pub text: Option<char>,
+}
+
+impl Keystroke {
+    /// `None` for a release, which no binding is interested in.
+    pub fn from_event(event: &KeyEvent) -> Option<Self> {
+        Some(Self {
+            key: Key::from_event(event)?,
+            text: text_char(event),
+        })
+    }
+}
+
 impl Key {
     pub fn from_event(event: &KeyEvent) -> Option<Self> {
         if event.kind == KeyEventKind::Release {
@@ -86,7 +106,7 @@ impl Key {
 }
 
 /// The character a keystroke should insert, if any.
-pub fn text_char(event: &KeyEvent) -> Option<char> {
+fn text_char(event: &KeyEvent) -> Option<char> {
     if event.kind == KeyEventKind::Release
         || event
             .modifiers
@@ -149,7 +169,15 @@ mod tests {
             Key::from_event(&event),
             expected(KeyCode::Char('ф'), Mods::empty())
         );
-        assert_eq!(text_char(&event), Some('ф'));
+        assert_eq!(Keystroke::from_event(&event).and_then(|s| s.text), Some('ф'));
+    }
+
+    #[test]
+    fn the_key_is_normalized_and_the_text_is_not() {
+        let event = key(TermKeyCode::Char('K'), KeyModifiers::SHIFT);
+        let stroke = Keystroke::from_event(&event).unwrap();
+        assert_eq!(stroke.key.code, KeyCode::Char('k'));
+        assert_eq!(stroke.text, Some('K'));
     }
 
     #[test]
@@ -175,9 +203,7 @@ mod tests {
 
     #[test]
     fn combinations_insert_nothing() {
-        assert_eq!(
-            text_char(&key(TermKeyCode::Char('a'), KeyModifiers::CONTROL)),
-            None
-        );
+        let event = key(TermKeyCode::Char('a'), KeyModifiers::CONTROL);
+        assert_eq!(Keystroke::from_event(&event).and_then(|s| s.text), None);
     }
 }

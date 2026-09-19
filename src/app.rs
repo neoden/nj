@@ -5,12 +5,10 @@ use std::io;
 use std::time::Duration;
 
 use anyhow::Result;
-use crossterm::event::{
-    self, Event, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-};
+use crossterm::event::{self, Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
 use crate::editor::Editor;
-use crate::key::{self, Key, KeyCode, Mods};
+use crate::key::{Key, KeyCode, Keystroke, Mods};
 use crate::movement::{Direction, Motion};
 use crate::panel::Outcome;
 use crate::picker::Pick;
@@ -59,15 +57,17 @@ pub fn run(editor: &mut Editor) -> Result<()> {
 /// terminal. This is the largest surface the suite does not reach yet.
 pub fn handle(event: Event, editor: &mut Editor) {
     match event {
-        Event::Key(event) => match Key::from_event(&event) {
+        Event::Key(event) => match Keystroke::from_event(&event) {
             // An open panel owns the keyboard (ADR 12), so even quitting waits
             // for it to be dismissed rather than throwing it away.
-            Some(key) if is_quit(key) && editor.panel.is_none() => editor.request_quit(),
-            Some(key) => {
+            Some(stroke) if is_quit(stroke.key) && editor.panel.is_none() => {
+                editor.request_quit()
+            }
+            Some(stroke) => {
                 editor.message = None;
                 match editor.panel.is_some() {
-                    true => handle_panel_key(key, &event, editor),
-                    false => handle_key(key, &event, editor),
+                    true => handle_panel_key(stroke, editor),
+                    false => handle_key(stroke, editor),
                 }
             }
             None => {}
@@ -87,12 +87,12 @@ fn is_quit(key: Key) -> bool {
 /// The panel decides what a key means; this only carries out what it asked
 /// for. Every outcome is one method, so nothing here knows what kind of panel
 /// is open.
-fn handle_panel_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
+fn handle_panel_key(stroke: Keystroke, editor: &mut Editor) {
     let Some(panel) = editor.panel.as_mut() else {
         return;
     };
 
-    match panel.handle_key(key, event) {
+    match panel.handle_key(stroke) {
         Outcome::Nothing => {}
         Outcome::Close => editor.close_panel(),
         Outcome::Changed => editor.prompt_changed(),
@@ -105,9 +105,10 @@ fn handle_panel_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
 }
 
 /// Temporary bindings: these become commands once the keymap exists.
-fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
+fn handle_key(stroke: Keystroke, editor: &mut Editor) {
     use Direction::{Backward, Forward};
 
+    let key = stroke.key;
     let extend = key.mods.contains(Mods::SHIFT);
     let ctrl = key.mods.contains(Mods::CTRL);
     let alt = key.mods.contains(Mods::ALT);
@@ -164,16 +165,11 @@ fn handle_key(key: Key, event: &KeyEvent, editor: &mut Editor) {
         KeyCode::Esc if editor.view.selections.len() > 1 => editor.remove_secondary_cursors(),
         KeyCode::Esc => editor.cancel_selection(),
         _ => {
-            if let Some(character) = key::text_char(event) {
-                insert_char(editor, character);
+            if let Some(character) = stroke.text {
+                editor.insert(character.encode_utf8(&mut [0; 4]));
             }
         }
     }
-}
-
-fn insert_char(editor: &mut Editor, character: char) {
-    let mut buffer = [0u8; 4];
-    editor.insert(character.encode_utf8(&mut buffer));
 }
 
 fn handle_mouse(mouse: MouseEvent, editor: &mut Editor) {

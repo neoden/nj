@@ -1,6 +1,4 @@
-use crossterm::event::KeyEvent;
-
-use crate::key::{Key, KeyCode, Mods};
+use crate::key::{Key, KeyCode, Keystroke, Mods};
 use crate::movement::Direction;
 use crate::picker::Picker;
 use crate::prompt::Prompt;
@@ -110,11 +108,11 @@ impl Panel {
 
     /// The only place that asks what kind of panel this is. A new kind adds an
     /// arm here, an arm in `height`, and its own drawing — and nothing else.
-    pub fn handle_key(&mut self, key: Key, event: &KeyEvent) -> Outcome {
+    pub fn handle_key(&mut self, stroke: Keystroke) -> Outcome {
         match self {
-            Panel::Prompt(prompt) => prompt.handle_key(key, event),
-            Panel::Picker(picker) => picker.handle_key(key, event),
-            Panel::Confirm(confirm) => confirm.handle_key(key),
+            Panel::Prompt(prompt) => prompt.handle_key(stroke),
+            Panel::Picker(picker) => picker.handle_key(stroke),
+            Panel::Confirm(confirm) => confirm.handle_key(stroke.key),
         }
     }
 
