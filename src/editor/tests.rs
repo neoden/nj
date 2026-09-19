@@ -891,6 +891,32 @@ fn every_hit_can_become_a_cursor() {
     assert_eq!(content(&editor), "key, key, key");
 }
 
+/// P10: a cursor on each of a hundred thousand hits is not a selection
+/// anyone can edit with, so neither command makes one.
+#[test]
+fn too_many_hits_are_refused_rather_than_partly_selected() {
+    let mut over = editor(&"x ".repeat(MAX_CURSORS + 1), 0);
+
+    over.select_next_occurrence();
+    assert_eq!(ranges(&over), [0..1]);
+    over.select_all_occurrences();
+    assert_eq!(ranges(&over), [0..1]);
+    assert!(over.message().unwrap().starts_with("More than"));
+
+    over.open_prompt(Purpose::Search);
+    type_into_prompt(&mut over, "x");
+    over.submit_prompt(false);
+    over.select_all_matches();
+    assert_eq!(over.view().selections.len(), 1);
+    assert!(over.panel.is_some());
+
+    // One fewer and the command goes through.
+    let mut under = editor(&"x ".repeat(MAX_CURSORS), 0);
+    under.select_next_occurrence();
+    under.select_all_occurrences();
+    assert_eq!(under.view().selections.len(), MAX_CURSORS);
+}
+
 #[test]
 fn narrowing_a_query_finds_what_scanning_would() {
     let mut editor = editor("ab abc abcd", 0);

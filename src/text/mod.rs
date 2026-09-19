@@ -14,6 +14,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 
+use ropey::iter::Chunks;
 use ropey::{LineType, Rope, RopeBuilder, RopeSlice};
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 
@@ -81,33 +82,9 @@ impl Text {
         (byte < self.len()).then(|| self.rope.char(byte))
     }
 
-    /// Searched chunk by chunk, keeping enough of each one to catch a match
-    /// lying across the seam. UTF-8 is self-synchronizing, so a match found
-    /// this way can never start or end inside a character.
+    /// The first hit starting at or after `from`.
     pub fn find(&self, needle: &str, from: usize) -> Option<usize> {
-        if needle.is_empty() {
-            return None;
-        }
-
-        let from = self.rope.ceil_char_boundary(from);
-        let (mut chunks, chunk_start) = self.rope.chunks_at(from);
-        let mut window = chunks.next()?[from - chunk_start..].to_owned();
-        let mut window_start = from;
-
-        loop {
-            if let Some(at) = window.find(needle) {
-                return Some(window_start + at);
-            }
-            let chunk = chunks.next()?;
-
-            let mut cut = window.len().saturating_sub(needle.len() - 1);
-            while !window.is_char_boundary(cut) {
-                cut -= 1;
-            }
-            window.drain(..cut);
-            window_start += cut;
-            window.push_str(chunk);
-        }
+        Scanner::new(self, needle, from)?.next()
     }
 
     /// The last hit starting before `before`, walked chunk by chunk from
@@ -160,9 +137,8 @@ impl Text {
     /// Every hit, left to right.
     pub fn matches<'a>(&'a self, needle: &'a str) -> Matches<'a> {
         Matches {
-            text: self,
-            needle,
-            at: 0,
+            scanner: Scanner::new(self, needle, 0),
+            len: needle.len(),
         }
     }
 
@@ -233,21 +209,75 @@ impl Text {
     }
 }
 
-/// The one place that walks from hit to hit. A pattern able to match nothing
-/// would need `at` to advance by a grapheme instead; a literal cannot.
-pub struct Matches<'a> {
-    text: &'a Text,
+/// Walks the text forward chunk by chunk, keeping a window with enough of
+/// the previous chunk to catch a hit lying across the seam. UTF-8 is
+/// self-synchronizing, so a hit found this way can never start or end inside
+/// a character. Hits do not overlap: the next search starts where the last
+/// hit ended, which is why a pattern able to match nothing is not allowed.
+struct Scanner<'a> {
+    chunks: Chunks<'a>,
     needle: &'a str,
-    at: usize,
+    window: String,
+    /// Offset of the window's first byte in the text.
+    window_start: usize,
+    /// Within the window: the end of the last hit, before which nothing is
+    /// looked at again.
+    searched: usize,
+}
+
+impl<'a> Scanner<'a> {
+    /// `None` for an empty needle, or a start past the end of the text.
+    fn new(text: &'a Text, needle: &'a str, from: usize) -> Option<Self> {
+        if needle.is_empty() {
+            return None;
+        }
+        let from = text.rope.ceil_char_boundary(from);
+        let (mut chunks, chunk_start) = text.rope.chunks_at(from);
+        let window = chunks.next()?[from - chunk_start..].to_owned();
+        Some(Self {
+            chunks,
+            needle,
+            window,
+            window_start: from,
+            searched: 0,
+        })
+    }
+
+    fn next(&mut self) -> Option<usize> {
+        loop {
+            if let Some(at) = self.window[self.searched..].find(self.needle) {
+                let found = self.searched + at;
+                self.searched = found + self.needle.len();
+                return Some(self.window_start + found);
+            }
+            let chunk = self.chunks.next()?;
+
+            // Keep the tail a hit could still begin in; whatever is searched
+            // past it stays searched.
+            let mut cut = self.window.len().saturating_sub(self.needle.len() - 1);
+            while !self.window.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            self.window.drain(..cut);
+            self.window_start += cut;
+            self.searched = self.searched.saturating_sub(cut);
+            self.window.push_str(chunk);
+        }
+    }
+}
+
+/// Every hit of a literal, left to right, as a range.
+pub struct Matches<'a> {
+    scanner: Option<Scanner<'a>>,
+    len: usize,
 }
 
 impl Iterator for Matches<'_> {
     type Item = Range<usize>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let found = self.text.find(self.needle, self.at)?;
-        self.at = found + self.needle.len();
-        Some(found..self.at)
+        let found = self.scanner.as_mut()?.next()?;
+        Some(found..found + self.len)
     }
 }
 
@@ -422,6 +452,22 @@ mod tests {
             let text = Text::from_str(&content);
 
             assert_eq!(text.find("мир", 0), Some(offset), "at {offset}");
+        }
+    }
+
+    #[test]
+    fn walking_the_hits_survives_the_seams() {
+        for offset in 900..1_200 {
+            // Hits butting against each other on both sides of the seam, and
+            // one lying across it.
+            let mut content = "a".repeat(4_000);
+            content.replace_range(offset - 10..offset + 5, "xyzxyzxyzxyzxyz");
+            let text = Text::from_str(&content);
+
+            let hits: Vec<_> = text.matches("xyz").collect();
+            let expected: Vec<_> = (0..5).map(|i| offset - 10 + i * 3).map(|s| s..s + 3).collect();
+            assert_eq!(hits, expected, "at {offset}");
+            assert_eq!(text.matches("a").count(), 4_000 - 15, "at {offset}");
         }
     }
 

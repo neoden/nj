@@ -38,6 +38,15 @@ use workspace::{BufferId, Workspace};
 /// check is a `stat`, and the save it guards asks again anyway.
 const WATCH_INTERVAL: Duration = Duration::from_secs(1);
 
+/// More cursors than this and every keystroke is an edit of that many
+/// places. A command that would put a cursor on every hit refuses past it,
+/// rather than quietly taking some of the hits (P10).
+const MAX_CURSORS: usize = 10_000;
+
+fn too_many_hits() -> String {
+    format!("More than {MAX_CURSORS} occurrences; select fewer")
+}
+
 /// The editor behind its boundary (ADR 16): commands go in through
 /// `execute`, reports from its own workers through `receive`, and what comes
 /// out is read-only. No `&mut` to anything inside leaves this type, and no
@@ -550,6 +559,10 @@ impl Editor {
         if search.hits().is_empty() {
             return;
         }
+        if search.hits().len() > MAX_CURSORS {
+            self.message = Some(too_many_hits());
+            return;
+        }
 
         let selections = search.selections(self.view().selections.primary().min());
         let (view, buffer) = self.workspace.focus_mut();
@@ -909,8 +922,18 @@ impl Editor {
             return;
         };
 
+        // One past the limit is all it takes to know there are too many.
+        let selections: Vec<_> = query
+            .all(self.buffer().text())
+            .take(MAX_CURSORS + 1)
+            .map(Query::selection)
+            .collect();
+        if selections.len() > MAX_CURSORS {
+            self.message = Some(too_many_hits());
+            return;
+        }
+
         let (view, buffer) = self.workspace.focus_mut();
-        let selections = query.all(&buffer.text()).map(Query::selection).collect();
         view.selections = SelectionSet::from_selections(selections, 0);
         view.scroll_to_cursor(buffer);
         self.remember_occurrences(query.whole_word);
