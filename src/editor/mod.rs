@@ -34,7 +34,7 @@ use command::{Command, Edit, File, PanelCommand, Select};
 use job::{JobId, Jobs, Message, Report};
 use panel::picker::{self, Candidate, Pick, Picker};
 use panel::prompt::{Field, Prompt, Purpose};
-use panel::{After, Confirm, Panel, Question};
+use panel::{After, Answer, Confirm, Panel};
 use screen::Screen;
 use view::View;
 use workspace::{BufferId, Workspace};
@@ -421,6 +421,7 @@ impl Editor {
     }
 
     fn open_prompt(&mut self, purpose: Purpose) {
+        self.close_panel();
         let mut prompt = Prompt::new(purpose.clone());
 
         if purpose.searches() {
@@ -677,25 +678,32 @@ impl Editor {
         view.scroll_to_cursor(buffer);
     }
 
-    /// Saves unless another writer got there first, in which case it asks
-    /// rather than overwriting their work blindly (ADR 20). What the save
-    /// was for is carried on with only once the text has reached the disk.
+    /// Saves, and carries on with what the save was for once the text has
+    /// reached the disk — and not before, since saving may ask first.
     fn save(&mut self, after: After) {
         // A buffer with no name yet is asked for one; what the save was for
         // rides along.
         if matches!(self.buffer().backing, Backing::Scratch) {
             return self.open_prompt(Purpose::SaveAs(after));
         }
-        if self.buffer().changed_on_disk() {
-            self.panel = Some(Panel::Confirm(Confirm::overwrite(after)));
-            return;
-        }
-        if self.write() {
+        if self.write(after.clone()) {
             self.proceed(after);
         }
     }
 
-    fn write(&mut self) -> bool {
+    /// Writes the buffer where it came from, unless another writer got
+    /// there first: then it asks rather than overwriting their work blindly
+    /// (ADR 20), and the answer carries `after` on. True once written.
+    fn write(&mut self, after: After) -> bool {
+        if self.buffer().changed_on_disk() {
+            self.panel = Some(Panel::Confirm(Confirm::overwrite(after)));
+            return false;
+        }
+        self.write_anyway()
+    }
+
+    /// The write the question above leads to.
+    fn write_anyway(&mut self) -> bool {
         let outcome = self.buffer_mut().save();
         self.report(outcome)
     }
@@ -721,10 +729,15 @@ impl Editor {
     }
 
     /// Asks before saving over a file that is already there — before the
-    /// buffer is renamed, so that declining leaves nothing half done.
+    /// buffer is renamed, so that declining leaves nothing half done. The
+    /// buffer's own file is not "there" in that sense: that is a plain save,
+    /// with the question a plain save asks.
     fn save_as(&mut self, path: PathBuf, after: After) {
         let ours = matches!(&self.buffer().backing, Backing::File { path: current, .. } if *current == path);
-        if path.exists() && !ours {
+        if ours {
+            return self.save(after);
+        }
+        if path.exists() {
             self.panel = Some(Panel::Confirm(Confirm::replace(path, after)));
             return;
         }
@@ -750,7 +763,7 @@ impl Editor {
     fn request_quit(&mut self) {
         match self.buffer().is_modified() {
             false => self.exit = Some(Exit::Quit),
-            true => self.panel = Some(Panel::Confirm(Confirm::leave(After::Quit))),
+            true => self.panel = Some(Panel::Confirm(Confirm::before_quitting())),
         }
     }
 
@@ -772,7 +785,7 @@ impl Editor {
         }
         match self.buffer().is_modified() {
             false => self.replace(path),
-            true => self.panel = Some(Panel::Confirm(Confirm::leave(After::Open(path)))),
+            true => self.panel = Some(Panel::Confirm(Confirm::before_opening(path))),
         }
     }
 
@@ -793,33 +806,30 @@ impl Editor {
         self.watch(id);
     }
 
-    /// Saving may raise a question of its own, which then replaces this one.
-    fn answer(&mut self, answer: char) {
+    /// The question closes before its answer is carried out, since the
+    /// answer may raise a question of its own.
+    fn answer(&mut self, key: char) {
         let Some(Panel::Confirm(confirm)) = &self.panel else {
             return;
         };
-
         // The letters are commands, not text, so they are read off the
         // physical key rather than the current keyboard layout.
-        let answer = key::physical_key(answer);
-        if !confirm.answers.iter().any(|&(key, _)| key == answer) {
+        let Some(answer) = confirm.answer(key::physical_key(key)) else {
             return;
-        }
-        let about = confirm.about.clone();
+        };
         self.close_panel();
 
-        match (about, answer) {
-            (Question::Leave(after), 's') => self.save(after),
-            (Question::Leave(After::Quit), 'q') => self.exit = Some(Exit::Quit),
-            (Question::Abort, 'a') => self.exit = Some(Exit::Abort),
-            (Question::Leave(After::Open(path)), 'd') => self.replace(path),
-            (Question::Overwrite(after), 'o') => {
-                if self.write() {
+        match answer {
+            Answer::Save(after) => self.save(after),
+            Answer::Quit => self.exit = Some(Exit::Quit),
+            Answer::Open(path) => self.replace(path),
+            Answer::Overwrite(after) => {
+                if self.write_anyway() {
                     self.proceed(after);
                 }
             }
-            (Question::Replace(path, after), 'o') => self.save_under(path, after),
-            _ => {}
+            Answer::Replace(path, after) => self.save_under(path, after),
+            Answer::Abort => self.exit = Some(Exit::Abort),
         }
     }
 

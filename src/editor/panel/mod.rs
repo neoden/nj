@@ -9,23 +9,36 @@ use picker::Picker;
 use prompt::{Field, Prompt};
 
 /// A question with single-key answers. `Esc` always means "never mind".
+/// Each choice carries what it does, so there is no separate record of
+/// what the question was about to keep in step with the answers.
 #[derive(Debug)]
 pub struct Confirm {
     pub question: &'static str,
-    pub answers: &'static [(char, &'static str)],
-    pub about: Question,
+    pub choices: Vec<Choice>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Question {
-    /// Unsaved changes stand in the way of leaving the buffer behind.
-    Leave(After),
-    /// The file changed on disk since it was read. Asked on the way out as
-    /// well, when "save and quit" runs into it.
+pub struct Choice {
+    pub key: char,
+    pub label: &'static str,
+    pub answer: Answer,
+}
+
+/// What answering does. Every variant is an action the editor carries out
+/// as it is, with no question left to ask which one was meant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Answer {
+    /// Save, then carry on with what the save was for.
+    Save(After),
+    /// Leave the changes behind.
+    Quit,
+    /// Leave the changes behind and open this file instead.
+    Open(PathBuf),
+    /// Write over what another writer put on disk, then carry on.
     Overwrite(After),
-    /// Saving as a file that exists.
+    /// Save under this name although a file is there already.
     Replace(PathBuf, After),
-    /// Unsaved changes would go with the abort.
+    /// Leave with a failure, changes and all.
     Abort,
 }
 
@@ -39,51 +52,68 @@ pub enum After {
 }
 
 impl Confirm {
-    /// `after` says what the answer leads to; `Stay` has nothing to leave
-    /// for and is not asked about.
-    pub fn leave(after: After) -> Self {
-        let answers: &'static [(char, &'static str)] = match after {
-            After::Stay | After::Quit => &[('s', "Save and quit"), ('q', "Quit anyway")],
-            After::Open(_) => &[('s', "Save and open"), ('d', "Discard and open")],
-        };
-        Self {
-            question: "Unsaved changes",
-            answers,
-            about: Question::Leave(after),
-        }
+    fn new(question: &'static str, choices: Vec<(char, &'static str, Answer)>) -> Self {
+        let choices = choices
+            .into_iter()
+            .map(|(key, label, answer)| Choice { key, label, answer })
+            .collect();
+        Self { question, choices }
     }
 
+    /// Unsaved changes stand in the way of quitting.
+    pub fn before_quitting() -> Self {
+        Self::new(
+            "Unsaved changes",
+            vec![
+                ('s', "Save and quit", Answer::Save(After::Quit)),
+                ('q', "Quit anyway", Answer::Quit),
+            ],
+        )
+    }
+
+    /// Unsaved changes stand in the way of another file taking this one's
+    /// place.
+    pub fn before_opening(path: PathBuf) -> Self {
+        Self::new(
+            "Unsaved changes",
+            vec![
+                ('s', "Save and open", Answer::Save(After::Open(path.clone()))),
+                ('d', "Discard and open", Answer::Open(path)),
+            ],
+        )
+    }
+
+    /// The file changed on disk since it was read. Asked on the way out as
+    /// well, when "save and quit" runs into it.
     pub fn overwrite(after: After) -> Self {
-        Self {
-            question: "File changed on disk",
-            answers: &[('o', "Overwrite")],
-            about: Question::Overwrite(after),
-        }
+        Self::new("File changed on disk", vec![('o', "Overwrite", Answer::Overwrite(after))])
     }
 
-    pub fn abort() -> Self {
-        Self {
-            question: "Unsaved changes",
-            answers: &[('a', "Abort anyway")],
-            about: Question::Abort,
-        }
-    }
-
+    /// Saving as a file that exists.
     pub fn replace(path: PathBuf, after: After) -> Self {
-        Self {
-            question: "File exists",
-            answers: &[('o', "Overwrite")],
-            about: Question::Replace(path, after),
-        }
+        Self::new("File exists", vec![('o', "Overwrite", Answer::Replace(path, after))])
+    }
+
+    /// Unsaved changes would go with the abort.
+    pub fn abort() -> Self {
+        Self::new("Unsaved changes", vec![('a', "Abort anyway", Answer::Abort)])
+    }
+
+    /// What `key` answers, if it answers anything.
+    pub fn answer(&self, key: char) -> Option<Answer> {
+        self.choices
+            .iter()
+            .find(|choice| choice.key == key)
+            .map(|choice| choice.answer.clone())
     }
 
     /// The question and its answers, one per row, with the labels lined up.
     /// Height and drawing read the same list, so they cannot disagree.
     pub fn rows(&self) -> Vec<String> {
         let answers: Vec<(String, &str)> = self
-            .answers
+            .choices
             .iter()
-            .map(|&(key, label)| (key.to_string(), label))
+            .map(|choice| (choice.key.to_string(), choice.label))
             .chain([("esc".to_owned(), "Cancel")])
             .collect();
 

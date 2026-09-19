@@ -346,6 +346,19 @@ fn a_line_left_holding_only_indentation_is_emptied() {
     assert_eq!(content(&editor), "\n    \n");
 }
 
+/// Only the first cursor on a line may empty it, and the flag saying which
+/// is first has to be read for every cursor, or a later one reads another's.
+#[test]
+fn a_second_cursor_on_an_indented_line_does_not_empty_it() {
+    let mut editor = editor("    ", 2);
+    add_cursor(&mut editor, 4);
+    editor.insert_newline();
+
+    // Each cursor carries the indent before it; the second, at the end of
+    // the line, is not the first there and so leaves the line alone.
+    assert_eq!(content(&editor), "  \n    \n    ");
+}
+
 #[test]
 fn every_cursor_keeps_its_own_indentation() {
     let mut editor = editor("  one\n    two\n", 5);
@@ -567,13 +580,7 @@ fn a_file_changed_elsewhere_is_not_overwritten_unasked() {
     std::fs::write(&path, "theirs, and longer\n").unwrap();
 
     editor.execute(Command::File(File::Save));
-    assert!(matches!(
-        editor.panel,
-        Some(Panel::Confirm(Confirm {
-            about: Question::Overwrite(After::Stay),
-            ..
-        }))
-    ));
+    assert_eq!(confirm(&editor), Some(vec![Answer::Overwrite(After::Stay)]));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs, and longer\n");
     assert!(editor.buffer().is_modified());
 
@@ -639,6 +646,22 @@ fn a_picker_ignores_candidates_meant_for_another() {
     assert_eq!(picker(&editor).total(), total);
 }
 
+/// A prompt opened over a picker — reachable through a command, if not a
+/// key — takes its place and lets its worker go, as a picker would.
+#[test]
+fn a_prompt_replaces_whatever_panel_was_open() {
+    let mut editor = editor("", 0);
+    editor.execute(Command::Panel(PanelCommand::Picker(Pick::Language)));
+    let Some(Panel::Picker(picker)) = &editor.panel else {
+        panic!("a picker is open");
+    };
+    let job = picker.job;
+
+    editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::GotoLine)));
+    assert!(editor.prompt().is_some());
+    assert!(!editor.jobs.is_live(job));
+}
+
 /// "Save and quit" that runs into another writer asks, and the answer
 /// still quits: the intention to leave is not lost with the question.
 #[test]
@@ -653,13 +676,7 @@ fn save_and_quit_still_quits_after_agreeing_to_overwrite() {
     editor.execute(Command::Quit);
     editor.execute(Command::Panel(PanelCommand::Answer('s')));
     assert!(!editor.should_quit());
-    assert!(matches!(
-        editor.panel,
-        Some(Panel::Confirm(Confirm {
-            about: Question::Overwrite(After::Quit),
-            ..
-        }))
-    ));
+    assert_eq!(confirm(&editor), Some(vec![Answer::Overwrite(After::Quit)]));
 
     // Declining leaves everything as it was: not written, not quit.
     editor.execute(Command::Panel(PanelCommand::Close));
@@ -679,9 +696,13 @@ fn scratch_path(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("ned-{}-{name}", std::process::id()))
 }
 
-fn confirm(editor: &Editor) -> Option<&Question> {
+/// What the open question offers, in the order it lists them; `None` when
+/// nothing is being asked.
+fn confirm(editor: &Editor) -> Option<Vec<Answer>> {
     match &editor.panel {
-        Some(Panel::Confirm(confirm)) => Some(&confirm.about),
+        Some(Panel::Confirm(confirm)) => {
+            Some(confirm.choices.iter().map(|choice| choice.answer.clone()).collect())
+        }
         _ => None,
     }
 }
@@ -742,7 +763,13 @@ fn opening_over_unsaved_changes_asks_first() {
     let mut editor = Editor::new(Buffer::open(&mine).unwrap());
     editor.insert("!");
     editor.execute(Command::File(File::Open(theirs.clone())));
-    assert_eq!(confirm(&editor), Some(&Question::Leave(After::Open(theirs.clone()))));
+    assert_eq!(
+        confirm(&editor),
+        Some(vec![
+            Answer::Save(After::Open(theirs.clone())),
+            Answer::Open(theirs.clone())
+        ])
+    );
     assert_eq!(content(&editor), "!mine\n");
 
     // Declining leaves everything as it was.
@@ -774,7 +801,7 @@ fn a_question_ignores_keys_that_answer_nothing() {
     editor.insert("!");
     editor.execute(Command::Quit);
     editor.execute(Command::Panel(PanelCommand::Answer('d')));
-    assert_eq!(confirm(&editor), Some(&Question::Leave(After::Quit)));
+    assert_eq!(confirm(&editor), Some(vec![Answer::Save(After::Quit), Answer::Quit]));
     assert!(!editor.should_quit());
 }
 
@@ -798,12 +825,21 @@ fn saving_as_names_a_scratch_buffer_and_asks_before_taking_a_file_that_exists() 
     assert!(editor.panel.is_none());
     assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "text!");
 
+    // Unless another writer got there first: then it is a plain save, and
+    // asks what a plain save asks rather than overwriting them.
+    std::fs::write(&fresh, "rewritten elsewhere\n").unwrap();
+    editor.insert("?");
+    editor.execute(Command::File(File::SaveAs(fresh.clone())));
+    assert_eq!(confirm(&editor), Some(vec![Answer::Overwrite(After::Stay)]));
+    editor.execute(Command::Panel(PanelCommand::Answer('o')));
+    assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "text!?");
+
     editor.execute(Command::File(File::SaveAs(taken.clone())));
-    assert_eq!(confirm(&editor), Some(&Question::Replace(taken.clone(), After::Stay)));
+    assert_eq!(confirm(&editor), Some(vec![Answer::Replace(taken.clone(), After::Stay)]));
     // Not renamed until agreed to.
     assert_eq!(editor.buffer().name(), fresh.display().to_string());
     editor.execute(Command::Panel(PanelCommand::Answer('o')));
-    assert_eq!(std::fs::read_to_string(&taken).unwrap(), "text!");
+    assert_eq!(std::fs::read_to_string(&taken).unwrap(), "text!?");
     assert_eq!(editor.buffer().name(), taken.display().to_string());
 
     let _ = std::fs::remove_file(&fresh);
@@ -852,7 +888,7 @@ fn an_abort_leaves_with_a_failure_and_asks_about_changes_first() {
     let mut dirty = editor("text", 0);
     dirty.insert("!");
     dirty.execute(Command::Abort);
-    assert_eq!(confirm(&dirty), Some(&Question::Abort));
+    assert_eq!(confirm(&dirty), Some(vec![Answer::Abort]));
     assert!(!dirty.should_quit());
 
     dirty.execute(Command::Panel(PanelCommand::Close));
@@ -936,15 +972,23 @@ fn saving_a_nameless_buffer_asks_for_a_name_and_carries_on() {
 /// A save that fails says why and goes no further.
 #[test]
 fn a_save_that_fails_cancels_the_quit() {
+    // A file in a directory that does not exist opens empty and cannot be
+    // written back.
     let path = scratch_path("unwritable").join("below");
-    let mut editor = editor("text", 0);
+    let mut editor = Editor::new(Buffer::open(&path).unwrap());
     editor.insert("!");
-    editor.execute(Command::File(File::SaveAs(path)));
     editor.request_quit();
     editor.answer('s');
 
     assert!(!editor.should_quit());
     assert!(editor.message().unwrap().starts_with("cannot write"));
+
+    // Saving under another name that cannot be written either changes
+    // nothing: the buffer keeps its name and its changes.
+    editor.execute(Command::File(File::SaveAs(scratch_path("unwritable").join("other"))));
+    assert!(editor.message().unwrap().starts_with("cannot write"));
+    assert_eq!(editor.buffer().name(), path.display().to_string());
+    assert!(editor.buffer().is_modified());
 }
 
 /// The prompts behind `Ctrl+O` and `Ctrl+Shift+S`: a path typed in becomes

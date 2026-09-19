@@ -373,29 +373,36 @@ impl Buffer {
             }
             Backing::Stdio { committed } => *committed = self.text.clone(),
         }
+        self.mark_saved();
+        Ok(())
+    }
 
+    /// What is in the buffer now is what the backing holds.
+    fn mark_saved(&mut self) {
         self.saved = self.undo_stack.last().map(|group| group.revision);
         // Typing after a save starts a group of its own, or it would go on
         // extending the revision that just reached the disk.
         self.last_edit = None;
-        Ok(())
     }
 
-    /// Makes `path` the file behind the buffer and writes it there. The
-    /// language follows the new name, as it would have on opening. A
-    /// pipeline buffer is not rebound: its text is owed to standard output,
-    /// so it gets a copy written and stays what it is.
+    /// Writes the text to `path` and makes that the file behind the buffer —
+    /// in that order, so that a write that fails leaves the buffer as it
+    /// was. The language follows the new name, as it would have on opening.
+    /// A pipeline buffer is not rebound: its text is owed to standard
+    /// output, so it gets a copy written and stays what it is.
     pub fn save_as(&mut self, path: PathBuf) -> Result<()> {
+        write_atomically(&path, &self.framing.encode(&self.text))
+            .with_context(|| format!("cannot write {}", path.display()))?;
         if matches!(self.backing, Backing::Stdio { .. }) {
-            return write_atomically(&path, &self.framing.encode(&self.text))
-                .with_context(|| format!("cannot write {}", path.display()));
+            return Ok(());
         }
         self.set_language(language::detect(&path));
         self.backing = Backing::File {
+            on_disk: Stamp::of(&path),
             path,
-            on_disk: None,
         };
-        self.save()
+        self.mark_saved();
+        Ok(())
     }
 
     /// What a pipeline downstream receives once the editor has exited: the
@@ -501,6 +508,11 @@ fn read_text(mut reader: impl Read) -> io::Result<(Text, Framing)> {
 /// staging file is a sibling because a rename is only atomic within one
 /// filesystem.
 fn write_atomically(path: &Path, contents: &str) -> Result<()> {
+    // A symlink is followed: the file it points to is what gets replaced,
+    // and the link stays a link. A path with nothing behind it yet stays as
+    // it is.
+    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let path = resolved.as_path();
     let name = path.file_name().context("path names no file")?.to_string_lossy();
     let directory = path
         .parent()
@@ -797,6 +809,18 @@ mod tests {
     }
 
     #[test]
+    fn a_save_as_that_fails_leaves_the_buffer_as_it_was() {
+        let path = scratch("missing-directory").join("below.rs");
+        let mut buffer = Buffer::default();
+        insert(&mut buffer, 0, "text");
+
+        assert!(buffer.save_as(path).is_err());
+        assert_eq!(buffer.name(), "[scratch]");
+        assert_eq!(buffer.language.name, "Text");
+        assert!(buffer.is_modified());
+    }
+
+    #[test]
     fn a_pipeline_saved_as_writes_a_copy_and_stays_a_pipeline() {
         let path = scratch("pipeline-copy");
         let _ = fs::remove_file(&path);
@@ -840,6 +864,27 @@ mod tests {
         let mut out = Vec::new();
         buffer.finish(&mut out).unwrap();
         assert_eq!(out, b"edited in\r\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_through_a_symlink_writes_the_target_and_keeps_the_link() {
+        let target = scratch("link-target");
+        let link = scratch("link");
+        fs::write(&target, "old\n").unwrap();
+        let _ = fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let mut buffer = Buffer::open(&link).unwrap();
+        insert(&mut buffer, 0, "new ");
+        buffer.save().unwrap();
+
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new old\n");
+        assert!(!buffer.changed_on_disk());
+
+        let _ = fs::remove_file(&link);
+        let _ = fs::remove_file(&target);
     }
 
     #[cfg(unix)]

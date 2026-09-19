@@ -30,12 +30,13 @@ pub fn newline(text: &Text, selections: &SelectionSet) -> Transaction {
             .take_while(|character| character.is_whitespace())
             .collect();
 
+        // Taken for every selection, or the flags fall out of step with
+        // the cursors they belong to.
+        let first = leading.next().unwrap_or(false);
         // A line holding nothing but this indent is left behind empty
         // rather than as a row of spaces.
-        let abandoned = indent.len() == local
-            && content[local..].is_empty()
-            && selection.is_empty()
-            && leading.next().unwrap_or(false);
+        let abandoned =
+            first && indent.len() == local && content[local..].is_empty() && selection.is_empty();
 
         let range = match abandoned {
             true => start..selection.max(),

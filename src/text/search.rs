@@ -136,11 +136,19 @@ impl Session {
             && query.needle.starts_with(&self.query.needle);
 
         match narrows {
-            true => self.hits.retain_mut(|hit| {
-                let stands = query.hits_at(text, hit.start);
-                hit.end = hit.start + query.needle.len();
-                stands
-            }),
+            true => {
+                // Grown hits may reach into their neighbours; a scan would
+                // have skipped those, so sifting skips them too.
+                let mut taken = 0;
+                self.hits.retain_mut(|hit| {
+                    let stands = hit.start >= taken && query.hits_at(text, hit.start);
+                    hit.end = hit.start + query.needle.len();
+                    if stands {
+                        taken = hit.end;
+                    }
+                    stands
+                });
+            }
             false => self.hits = query.all(text).collect(),
         }
         self.query = query;
@@ -268,6 +276,20 @@ mod tests {
         // Backspace cannot narrow, so this one has to read the text again.
         session.retarget(Query::literal("abc"), &text);
         assert_eq!(session.hits(), [3..6, 10..13]);
+    }
+
+    /// Sifting must end with the same hits a fresh scan would find, which
+    /// for a needle that overlaps itself means dropping every other one.
+    #[test]
+    fn narrowing_keeps_the_hits_disjoint() {
+        let text = text("aaaaa");
+        let mut session = Session::new(SelectionSet::single(0));
+        session.retarget(Query::literal("a"), &text);
+        session.retarget(Query::literal("aa"), &text);
+
+        let scanned: Vec<_> = Query::literal("aa").all(&text).collect();
+        assert_eq!(session.hits(), [0..2, 2..4]);
+        assert_eq!(session.hits(), scanned.as_slice());
     }
 
     #[test]
