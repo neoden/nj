@@ -11,6 +11,7 @@ pub mod editor;
 pub mod fuzzy;
 pub mod grid;
 pub mod indent;
+pub mod job;
 pub mod key;
 pub mod keymap;
 pub mod language;

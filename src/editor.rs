@@ -1,14 +1,17 @@
 use std::ops::Range;
+use std::sync::mpsc::{Receiver, Sender};
+use std::time::Duration;
 
-use crate::buffer::{Buffer, EditKind};
+use crate::buffer::{Backing, Buffer, EditKind, Stamp};
 use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::command::{Command, Edit, File, PanelCommand, Select};
+use crate::job::{Jobs, Message, Report};
 use crate::key;
 use crate::language::{self, Indent, Language};
 use crate::layout;
 use crate::movement::{self, Class, Direction, Motion};
 use crate::panel::{Confirm, Panel, Question};
-use crate::picker::{Pick, Picker};
+use crate::picker::{self, Pick, Picker};
 use crate::prompt::{Field, Prompt, Purpose};
 use crate::screen::Screen;
 use crate::search::{Query, Session};
@@ -16,11 +19,16 @@ use crate::selection::{Selection, SelectionSet};
 use crate::text::Text;
 use crate::transaction::{self, Change, CursorAfter, Transaction};
 use crate::view::{self, View};
-use crate::workspace::Workspace;
+use crate::workspace::{BufferId, Workspace};
 
-/// The editor behind its one boundary (ADR 16): commands go in through
-/// `execute`, and what comes out is read-only. No `&mut` to anything inside
-/// leaves this type.
+/// How often the file behind a buffer is looked at. Seconds are plenty: the
+/// check is a `stat`, and the save it guards asks again anyway.
+const WATCH_INTERVAL: Duration = Duration::from_secs(1);
+
+/// The editor behind its boundary (ADR 16): commands go in through
+/// `execute`, reports from its own workers through `receive`, and what comes
+/// out is read-only. No `&mut` to anything inside leaves this type, and no
+/// thread but the one holding it ever touches it (ADR 21).
 pub struct Editor {
     workspace: Workspace,
     /// How the terminal was last divided; what the focused view's area came
@@ -38,11 +46,16 @@ pub struct Editor {
     quit: bool,
     occurrences: Option<Occurrences>,
     system: Option<SystemClipboard>,
+    jobs: Jobs,
+    /// Where everything arrives: input forwarded from the terminal, and the
+    /// reports of the jobs.
+    inbox: Receiver<Message>,
 }
 
 impl Editor {
     pub fn new(buffer: Buffer) -> Self {
-        Self {
+        let (jobs, inbox) = Jobs::new();
+        let mut editor = Self {
             workspace: Workspace::single(buffer),
             screen: Screen::default(),
             clipboard: Clipboard::default(),
@@ -53,7 +66,83 @@ impl Editor {
             quit: false,
             occurrences: None,
             system: None,
+            jobs,
+            inbox,
+        };
+        editor.watch(editor.workspace.focused_buffer());
+        editor
+    }
+
+    /// For whoever else has something to put in the inbox: the thread
+    /// reading the terminal.
+    pub fn sender(&self) -> Sender<Message> {
+        self.jobs.sender()
+    }
+
+    /// Blocks until something arrives. `None` only if every sender is gone,
+    /// which cannot happen while the jobs hold one.
+    pub fn wait(&self) -> Option<Message> {
+        self.inbox.recv().ok()
+    }
+
+    /// Whatever else has arrived already, without waiting.
+    pub fn pending(&self) -> Option<Message> {
+        self.inbox.try_recv().ok()
+    }
+
+    /// The editor's own work coming back to it. Whether it is still wanted
+    /// is decided here: the job may have been cancelled, the panel closed.
+    pub fn receive(&mut self, report: Report) {
+        match report {
+            Report::Candidates { job, batch } => {
+                if let Some(Panel::Picker(picker)) = &mut self.panel
+                    && picker.job == job
+                {
+                    picker.accept(batch);
+                }
+            }
+            Report::FileChanged(id) => {
+                if self.workspace.buffer(id).changed_on_disk() {
+                    self.message = Some("File changed on disk".to_owned());
+                }
+            }
+            Report::Ended(job) => self.jobs.ended(job),
         }
+    }
+
+    /// Handles every report the tasks in flight will send, and returns when
+    /// they have all ended. For tests, which want a picker filled before
+    /// they type into it; the loop never needs it.
+    pub fn finish_jobs(&mut self) {
+        while self.jobs.any_pending() {
+            match self.wait() {
+                Some(Message::Report(report)) => self.receive(report),
+                Some(Message::Input(_)) => {}
+                None => return,
+            }
+        }
+    }
+
+    /// Keeps an eye on the file behind a buffer, so that another writer is
+    /// noticed before `Ctrl+S` runs into them (F1). The worker only says
+    /// that the stamp moved; whether it matters is checked on arrival.
+    fn watch(&mut self, id: BufferId) {
+        let Backing::File { path, on_disk } = &self.workspace.buffer(id).backing else {
+            return;
+        };
+        let (path, mut seen) = (path.clone(), *on_disk);
+        self.jobs.spawn_forever(move |worker| {
+            while !worker.cancelled() {
+                std::thread::sleep(WATCH_INTERVAL);
+                let now = Stamp::of(&path);
+                if now != seen {
+                    seen = now;
+                    if !worker.report(Report::FileChanged(id)) {
+                        return;
+                    }
+                }
+            }
+        });
     }
 
     /// The buffer and the view in focus, which is what nearly every command
@@ -302,28 +391,20 @@ impl Editor {
         self.panel.as_ref()?.as_prompt()
     }
 
+    /// The candidates are read on a worker and arrive as reports, however
+    /// many there are and wherever they come from.
     fn open_picker(&mut self, pick: Pick) {
-        let mut picker = match pick {
-            Pick::Language => Picker::new(
-                pick,
-                language::LANGUAGES
+        self.close_panel();
+        let job = match pick {
+            Pick::Language => self.jobs.spawn(|worker| {
+                let names = language::LANGUAGES
                     .iter()
                     .chain([&language::PLAIN])
-                    .map(|language| language.name.to_owned()),
-            ),
+                    .map(|language| language.name.to_owned());
+                picker::stream(names, &worker);
+            }),
         };
-        picker.pull();
-        self.panel = Some(Panel::Picker(picker));
-    }
-
-    pub fn is_loading(&self) -> bool {
-        self.panel.as_ref().is_some_and(Panel::is_loading)
-    }
-
-    pub fn load_more(&mut self) {
-        if let Some(panel) = &mut self.panel {
-            panel.load_more();
-        }
+        self.panel = Some(Panel::Picker(Picker::new(pick, job)));
     }
 
     fn accept_pick(&mut self) {
@@ -367,6 +448,9 @@ impl Editor {
     /// Closes the panel where the search left off. There is no separate
     /// "accept", so leaving is how you keep what you found.
     fn close_panel(&mut self) {
+        if let Some(Panel::Picker(picker)) = &self.panel {
+            self.jobs.cancel(picker.job);
+        }
         self.panel = None;
         self.search = None;
     }
@@ -1798,6 +1882,59 @@ mod tests {
         assert!(!editor.quit);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// The watcher only says the stamp moved; whether that is another writer
+    /// or our own save is decided on arrival.
+    #[test]
+    fn a_report_of_a_changed_file_is_checked_before_it_is_believed() {
+        let path = std::env::temp_dir().join(format!("ned-{}-watched", std::process::id()));
+        std::fs::write(&path, "mine\n").unwrap();
+        let mut editor = Editor::new(Buffer::open(&path).unwrap());
+        let id = editor.workspace.focused_buffer();
+
+        // Our own save moves the stamp, and the report that follows it says
+        // nothing.
+        editor.insert("!");
+        editor.execute(Command::File(File::Save));
+        editor.receive(Report::FileChanged(id));
+        assert_eq!(editor.message(), None);
+
+        std::fs::write(&path, "theirs, and longer\n").unwrap();
+        editor.receive(Report::FileChanged(id));
+        assert_eq!(editor.message(), Some("File changed on disk"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The picker takes candidates from its own worker only: a batch from a
+    /// picker that has since been closed is not the new one's.
+    #[test]
+    fn a_picker_ignores_candidates_meant_for_another() {
+        fn picker(editor: &Editor) -> &Picker {
+            match &editor.panel {
+                Some(Panel::Picker(picker)) => picker,
+                _ => panic!("a picker is open"),
+            }
+        }
+
+        let mut editor = editor("", 0);
+        editor.execute(Command::Panel(PanelCommand::Picker(Pick::Language)));
+        let stale = picker(&editor).job;
+
+        // Opened again: the first worker is cancelled, but a batch of its
+        // may still be in the queue.
+        editor.execute(Command::Panel(PanelCommand::Picker(Pick::Language)));
+        editor.finish_jobs();
+        assert_ne!(picker(&editor).job, stale);
+        let total = picker(&editor).total();
+        assert!(total > 0);
+
+        editor.receive(Report::Candidates {
+            job: stale,
+            batch: vec!["Stray".to_owned()],
+        });
+        assert_eq!(picker(&editor).total(), total);
     }
 
     /// "Save and quit" that runs into another writer asks, and the answer

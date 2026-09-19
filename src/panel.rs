@@ -93,21 +93,6 @@ impl Panel {
         }
     }
 
-    /// True while a panel still has candidates to read, which is what keeps the
-    /// main loop from going back to sleep.
-    pub fn is_loading(&self) -> bool {
-        match self {
-            Panel::Picker(picker) => picker.is_loading(),
-            _ => false,
-        }
-    }
-
-    pub fn load_more(&mut self) {
-        if let Panel::Picker(picker) = self {
-            picker.pull();
-        }
-    }
-
     pub fn as_prompt(&self) -> Option<&Prompt> {
         match self {
             Panel::Prompt(prompt) => Some(prompt),

@@ -58,7 +58,7 @@ pub struct Stamp {
 }
 
 impl Stamp {
-    fn of(path: &Path) -> Option<Self> {
+    pub fn of(path: &Path) -> Option<Self> {
         let metadata = fs::metadata(path).ok()?;
         Some(Self {
             modified: metadata.modified().ok()?,

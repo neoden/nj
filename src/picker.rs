@@ -1,11 +1,13 @@
 use crate::fuzzy;
+use crate::job::{JobId, Report, Worker};
 use crate::prompt::Field;
 
 /// Rows of candidates shown at once. The query line sits above them.
 pub const VISIBLE: usize = 10;
 
-/// Candidates pulled from the source per turn of the main loop. Bounded so a
-/// directory with a hundred thousand files still draws its first frame at once.
+/// Candidates per report. Bounded so a directory with a hundred thousand
+/// files still draws its first frame at once, and so that receiving one
+/// batch stays within a frame (ADR 21).
 const BATCH: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,41 +15,52 @@ pub enum Pick {
     Language,
 }
 
+/// Reads a source on a worker and reports it in batches. What the picker
+/// was built for: a source that takes a while does not hold up the frame.
+pub fn stream(source: impl Iterator<Item = String>, worker: &Worker) {
+    let mut source = source.peekable();
+    while source.peek().is_some() && !worker.cancelled() {
+        let batch: Vec<String> = source.by_ref().take(BATCH).collect();
+        if !worker.report(Report::Candidates {
+            job: worker.id(),
+            batch,
+        }) {
+            return;
+        }
+    }
+}
+
 pub struct Picker {
     pub pick: Pick,
     pub query: Field,
-    source: Box<dyn Iterator<Item = String>>,
+    /// The worker reading the candidates; its reports are the only ones
+    /// this picker takes.
+    pub job: JobId,
     candidates: Vec<String>,
     /// Indices into `candidates`, best first.
     matches: Vec<usize>,
     scores: Vec<i32>,
     pub selected: usize,
-    exhausted: bool,
 }
 
 impl Picker {
-    pub fn new(pick: Pick, source: impl Iterator<Item = String> + 'static) -> Self {
+    pub fn new(pick: Pick, job: JobId) -> Self {
         Self {
             pick,
             query: Field {
                 label: ">",
                 ..Field::default()
             },
-            source: Box::new(source),
+            job,
             candidates: Vec::new(),
             matches: Vec::new(),
             scores: Vec::new(),
             selected: 0,
-            exhausted: false,
         }
     }
 
     pub fn height(&self) -> usize {
         1 + self.matches.len().min(VISIBLE)
-    }
-
-    pub fn is_loading(&self) -> bool {
-        !self.exhausted
     }
 
     pub fn total(&self) -> usize {
@@ -74,17 +87,12 @@ impl Picker {
             .map(|(row, &index)| (row, self.candidates[index].as_str()))
     }
 
-    /// Takes the next batch from the source. Returns false once it is spent.
-    pub fn pull(&mut self) -> bool {
+    /// Takes a batch the worker reported. New candidates are placed straight
+    /// into the ranking, so the list stays sorted without re-scoring
+    /// everything seen so far (P9).
+    pub fn accept(&mut self, batch: Vec<String>) {
         let query = self.query.contents();
-        for _ in 0..BATCH {
-            let Some(candidate) = self.source.next() else {
-                self.exhausted = true;
-                return false;
-            };
-
-            // New candidates are placed straight into the ranking, so the list
-            // stays sorted without re-scoring everything seen so far.
+        for candidate in batch {
             if let Some(score) = fuzzy::score(&candidate, &query) {
                 let at = self.rank_of(score);
                 self.matches.insert(at, self.candidates.len());
@@ -92,7 +100,6 @@ impl Picker {
             }
             self.candidates.push(candidate);
         }
-        true
     }
 
     pub fn refilter(&mut self) {
@@ -139,10 +146,15 @@ impl std::fmt::Debug for Picker {
 mod tests {
     use super::*;
 
+    use crate::job::{Jobs, Message};
+
+    fn batch(items: &[&str]) -> Vec<String> {
+        items.iter().map(|&item| item.to_owned()).collect()
+    }
+
     fn picker(items: &[&str]) -> Picker {
-        let items: Vec<String> = items.iter().map(|&item| item.to_owned()).collect();
-        let mut picker = Picker::new(Pick::Language, items.into_iter());
-        picker.pull();
+        let mut picker = Picker::new(Pick::Language, JobId::default());
+        picker.accept(batch(items));
         picker
     }
 
@@ -154,7 +166,29 @@ mod tests {
     fn everything_shows_until_something_is_typed() {
         let picker = picker(&["rust", "python", "go"]);
         assert_eq!(picker.len(), 3);
-        assert!(!picker.is_loading());
+    }
+
+    #[test]
+    fn a_source_is_streamed_in_batches_and_then_the_worker_ends() {
+        let (mut jobs, rx) = Jobs::new();
+        let items: Vec<String> = (0..BATCH + 1).map(|n| n.to_string()).collect();
+        let id = jobs.spawn(move |worker| stream(items.into_iter(), &worker));
+
+        let mut reports = Vec::new();
+        loop {
+            match rx.recv().unwrap() {
+                Message::Report(Report::Ended(job)) => {
+                    assert_eq!(job, id);
+                    break;
+                }
+                Message::Report(Report::Candidates { job, batch }) => {
+                    assert_eq!(job, id);
+                    reports.push(batch.len());
+                }
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(reports, [BATCH, 1]);
     }
 
     #[test]
@@ -179,9 +213,9 @@ mod tests {
 
     #[test]
     fn candidates_arriving_later_land_in_the_right_place() {
-        let mut picker = Picker::new(Pick::Language, ["zebra", "go", "gopher"].into_iter().map(String::from));
+        let mut picker = Picker::new(Pick::Language, JobId::default());
         picker.query.insert("go");
-        picker.pull();
+        picker.accept(batch(&["zebra", "go", "gopher"]));
 
         // Sorted by score, not by arrival.
         assert_eq!(shown(&picker), ["go", "gopher"]);

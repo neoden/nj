@@ -48,6 +48,10 @@ impl Workspace {
         self.focused
     }
 
+    pub fn focused_buffer(&self) -> BufferId {
+        self.views[self.focused.0].buffer
+    }
+
     /// Moves the focus, and brings the view up to date with whatever was
     /// done to its buffer through other views while it was away.
     pub fn focus_on(&mut self, id: ViewId) {

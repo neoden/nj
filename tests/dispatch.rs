@@ -73,12 +73,15 @@ fn query(editor: &Editor) -> String {
     }
 }
 
+/// The candidates come from a worker (ADR 21); the test waits for all of
+/// them before it types, so that what it sees does not depend on timing.
 fn open_language_picker(editor: &mut Editor) {
     press(
         editor,
         KeyCode::Char('m'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
+    editor.finish_jobs();
 }
 
 #[test]

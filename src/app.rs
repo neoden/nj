@@ -2,21 +2,36 @@
 //! events, as opposed to what the editor does with commands.
 
 use std::io::Write;
-use std::time::Duration;
+use std::thread;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
 use crate::command::{Command, Edit, Select};
 use crate::editor::Editor;
+use crate::job::Message;
 use crate::key::Keystroke;
 use crate::keymap;
 use crate::render::Renderer;
 
 const MOUSE_SCROLL_LINES: isize = 3;
 
+/// One queue, one thread that owns the editor (ADR 21). The terminal is read
+/// on a thread of its own, because `event::read` blocks and the queue is
+/// what the loop has to wait on.
 pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
     let mut renderer = Renderer::new();
+
+    // Started only now: the terminal has been set up, and its answer to the
+    // keyboard-protocol query has been read by whoever asked.
+    let input = editor.sender();
+    thread::spawn(move || {
+        while let Ok(event) = event::read() {
+            if input.send(Message::Input(event)).is_err() {
+                return;
+            }
+        }
+    });
 
     loop {
         let (width, height) = crossterm::terminal::size()?;
@@ -26,22 +41,31 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
         let (left, right) = status(editor);
         renderer.draw(out, editor, size, &left, &right)?;
 
-        // A panel still reading its candidates must not let the loop go back
-        // to sleep, or the list would stop filling until the next keystroke.
-        if editor.is_loading() && !event::poll(Duration::ZERO)? {
-            editor.load_more();
-            continue;
-        }
-
-        handle(event::read()?, editor);
-        // Whatever else already arrived is processed before drawing again, so
-        // a burst of input costs one frame rather than one frame per event.
-        while !editor.should_quit() && event::poll(Duration::ZERO)? {
-            handle(event::read()?, editor);
-        }
-
-        if editor.should_quit() {
+        // Whatever has arrived by the time the loop wakes is handled before
+        // the next frame, input first: a keystroke never queues behind the
+        // reports that happened to come with it.
+        let Some(first) = editor.wait() else {
             return Ok(());
+        };
+        let mut inputs = Vec::new();
+        let mut reports = Vec::new();
+        let mut sort = |message| match message {
+            Message::Input(event) => inputs.push(event),
+            Message::Report(report) => reports.push(report),
+        };
+        sort(first);
+        while let Some(message) = editor.pending() {
+            sort(message);
+        }
+
+        for event in inputs {
+            handle(event, editor);
+            if editor.should_quit() {
+                return Ok(());
+            }
+        }
+        for report in reports {
+            editor.receive(report);
         }
     }
 }
