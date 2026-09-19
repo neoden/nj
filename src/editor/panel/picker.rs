@@ -57,10 +57,18 @@ pub struct Picker {
     /// this picker takes.
     pub job: JobId,
     candidates: Vec<Candidate>,
-    /// Indices into `candidates`, best first.
-    matches: Vec<usize>,
-    scores: Vec<i32>,
+    /// The candidates the query matches, best first.
+    matches: Vec<Match>,
     pub selected: usize,
+}
+
+/// A candidate that matched, with how well it did — kept together, so that
+/// the ranking is one list rather than two in step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Match {
+    /// Index into `candidates`.
+    candidate: usize,
+    score: i32,
 }
 
 impl Picker {
@@ -74,7 +82,6 @@ impl Picker {
             job,
             candidates: Vec::new(),
             matches: Vec::new(),
-            scores: Vec::new(),
             selected: 0,
         }
     }
@@ -92,8 +99,8 @@ impl Picker {
     }
 
     pub fn selection(&self) -> Option<&Candidate> {
-        let index = *self.matches.get(self.selected)?;
-        Some(&self.candidates[index])
+        let found = self.matches.get(self.selected)?;
+        Some(&self.candidates[found.candidate])
     }
 
     /// The window of matches on screen, kept around the selected one.
@@ -104,7 +111,7 @@ impl Picker {
             .enumerate()
             .skip(first)
             .take(VISIBLE)
-            .map(|(row, &index)| (row, &self.candidates[index]))
+            .map(|(row, found)| (row, &self.candidates[found.candidate]))
     }
 
     /// Takes a batch the worker reported. New candidates are placed straight
@@ -114,9 +121,11 @@ impl Picker {
         let query = self.query.contents();
         for candidate in batch {
             if let Some(score) = fuzzy::score(&candidate.label, &query) {
-                let at = self.rank_of(score);
-                self.matches.insert(at, self.candidates.len());
-                self.scores.insert(at, score);
+                let found = Match {
+                    candidate: self.candidates.len(),
+                    score,
+                };
+                self.matches.insert(self.rank_of(score), found);
             }
             self.candidates.push(candidate);
         }
@@ -124,18 +133,15 @@ impl Picker {
 
     pub fn refilter(&mut self) {
         let query = self.query.contents();
-        let mut ranked: Vec<_> = self
+        self.matches = self
             .candidates
             .iter()
             .enumerate()
-            .filter_map(|(index, candidate)| {
-                fuzzy::score(&candidate.label, &query).map(|score| (score, index))
+            .filter_map(|(candidate, found)| {
+                fuzzy::score(&found.label, &query).map(|score| Match { candidate, score })
             })
             .collect();
-        ranked.sort_by_key(|&(score, _)| std::cmp::Reverse(score));
-
-        self.scores = ranked.iter().map(|&(score, _)| score).collect();
-        self.matches = ranked.into_iter().map(|(_, index)| index).collect();
+        self.matches.sort_by_key(|found| std::cmp::Reverse(found.score));
         self.selected = 0;
     }
 
@@ -147,8 +153,11 @@ impl Picker {
         self.selected = self.selected.saturating_add_signed(delta).min(last);
     }
 
+    /// Where a match of `score` goes: after every match at least as good,
+    /// so that among equals the earlier arrival stays ahead — the same order
+    /// a stable sort in `refilter` gives.
     fn rank_of(&self, score: i32) -> usize {
-        self.scores.partition_point(|&other| other >= score)
+        self.matches.partition_point(|other| other.score >= score)
     }
 }
 

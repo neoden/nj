@@ -30,7 +30,7 @@ pub struct Workspace {
 impl Workspace {
     /// One buffer, one view onto it, in focus.
     pub fn single(buffer: Buffer) -> Self {
-        let view = View::new(BufferId(0), buffer.version());
+        let view = View::new(BufferId(0), &buffer);
         Self {
             buffers: vec![buffer],
             views: vec![view],
@@ -44,7 +44,7 @@ impl Workspace {
     pub fn replace(&mut self, buffer: Buffer) -> BufferId {
         let id = self.focused_buffer();
         let area = self.views[self.focused.0].area;
-        let mut view = View::new(id, buffer.version());
+        let mut view = View::new(id, &buffer);
         view.resize(area, buffer.text().line_count());
         self.buffers[id.0] = buffer;
         self.views[self.focused.0] = view;
@@ -53,7 +53,7 @@ impl Workspace {
 
     /// Another window onto a buffer, with its own cursors (ADR 9).
     pub fn open_view(&mut self, buffer: BufferId) -> ViewId {
-        self.views.push(View::new(buffer, self.buffers[buffer.0].version()));
+        self.views.push(View::new(buffer, &self.buffers[buffer.0]));
         ViewId(self.views.len() - 1)
     }
 

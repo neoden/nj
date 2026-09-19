@@ -29,6 +29,7 @@ use crate::text::movement::{self, Class, Direction, Motion};
 use crate::text::search::{Query, Session};
 use crate::text::selection::{Selection, SelectionSet};
 use crate::text::transaction::{CursorAfter, Transaction};
+use crate::text::Text;
 use clipboard::{Clipboard, Desktop};
 use command::{Command, Edit, File, PanelCommand, Select};
 use job::{JobId, Jobs, Message, Report};
@@ -287,15 +288,18 @@ impl Editor {
                 },
                 |editor| editor.select_all(),
             ),
-            // While a panel is up the hits are in hand and get walked; once
-            // it is gone the last query is run against the text again.
-            Command::FindNext(direction) => match self.panel.is_some() {
-                true => self.go_to_match(direction),
-                false => self.search_next(direction),
+            // While a search is up its hits are in hand and get walked; with
+            // no panel at all the last query is run against the text again.
+            // A panel that is not a search has nothing to find.
+            Command::FindNext(direction) => match (self.search.is_some(), self.panel.is_some()) {
+                (true, _) => self.go_to_match(direction),
+                (false, false) => self.search_next(direction),
+                (false, true) => {}
             },
-            Command::Select(Select::AllOccurrences) => match self.panel.is_some() {
-                true => self.select_all_matches(),
-                false => self.select_all_occurrences(),
+            Command::Select(Select::AllOccurrences) => match (self.search.is_some(), self.panel.is_some()) {
+                (true, _) => self.select_all_matches(),
+                (false, false) => self.select_all_occurrences(),
+                (false, true) => {}
             },
 
             Command::Scroll(rows) => self.scroll(rows),
@@ -737,6 +741,11 @@ impl Editor {
         if ours {
             return self.save(after);
         }
+        // Not a file that could be overwritten, so not worth the question.
+        if path.is_dir() {
+            self.message = Some(format!("{} is a directory", path.display()));
+            return;
+        }
         if path.exists() {
             self.panel = Some(Panel::Confirm(Confirm::replace(path, after)));
             return;
@@ -904,20 +913,21 @@ impl Editor {
     }
 
     /// `Tab` indents whole lines when a selection crosses one, and otherwise
-    /// moves to the next tab stop.
+    /// moves every cursor to the next tab stop from where it stands.
     fn indent(&mut self) {
         let (view, buffer) = self.workspace.focus();
         let selecting = view.selections.iter().any(|selection| !selection.is_empty());
-        match selecting {
-            true => {
-                let transaction = lines::indent(buffer.text(), &view.selections, buffer.indent);
-                self.apply(transaction, EditKind::Other);
-            }
+        let transaction = match selecting {
+            true => lines::indent(buffer.text(), &view.selections, buffer.indent),
             false => {
-                let inserted = lines::to_tab_stop(buffer.indent, self.cursor_column());
-                self.insert(&inserted);
+                let (text, indent, tab_width) = (buffer.text(), buffer.indent, buffer.tab_width());
+                Transaction::edit(&view.selections, CursorAfter::EndOfChange, |selection| {
+                    let column = column_at(text, selection.head, tab_width);
+                    (selection.range(), lines::to_tab_stop(indent, column))
+                })
             }
-        }
+        };
+        self.apply(transaction, EditKind::Other);
     }
 
     fn outdent(&mut self) {
@@ -940,14 +950,7 @@ impl Editor {
 
     pub fn cursor_column(&self) -> usize {
         let (view, buffer) = self.workspace.focus();
-        let text = &buffer.text();
-        let head = view.selections.primary().head;
-        let line = text.line_of(head);
-        layout::column_of_byte(
-            &text.line_str(line),
-            head - text.line_start(line),
-            buffer.tab_width(),
-        )
+        column_at(buffer.text(), view.selections.primary().head, buffer.tab_width())
     }
 
     /// A cursor with nothing selected eats the neighbouring text instead.
@@ -1148,6 +1151,12 @@ impl Editor {
         view.mark_current(buffer);
         view.scroll_to_cursor(buffer);
     }
+}
+
+/// The display column an offset sits in on its line.
+fn column_at(text: &Text, offset: usize, tab_width: usize) -> usize {
+    let line = text.line_of(offset);
+    layout::column_of_byte(&text.line_str(line), offset - text.line_start(line), tab_width)
 }
 
 /// Line numbers are what people count from one.

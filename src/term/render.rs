@@ -477,6 +477,17 @@ mod tests {
         assert!(composed(&editor, 80, 4).row_text(0).starts_with("1 hello"));
     }
 
+    /// The loop resizes before it draws, but nothing else guarantees the
+    /// order: a view that has not been given an area draws no text yet,
+    /// and must not fall over doing so.
+    #[test]
+    fn a_frame_can_be_composed_before_the_first_resize() {
+        let editor = Editor::new(Buffer::from_text(Text::from_str("one\n")));
+        let grid = composed(&editor, 30, 3);
+        // No screen divided yet means no area for anything.
+        assert!((0..3).all(|y| grid.row_text(y).trim().is_empty()));
+    }
+
     #[test]
     fn only_the_current_line_paints_its_gutter() {
         let editor = editor_of("one\ntwo\n", 80, 5);

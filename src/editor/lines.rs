@@ -15,11 +15,9 @@ use crate::text::Text;
 /// happens here: opening a block deepens the indent only once there is a
 /// parser to say so.
 pub fn newline(text: &Text, selections: &SelectionSet) -> Transaction {
-    let mut leading = selections
-        .first_on_each_line(text, Selection::min)
-        .into_iter();
+    let leading = selections.first_on_each_line(text, Selection::min);
 
-    Transaction::edit(selections, CursorAfter::EndOfChange, |selection| {
+    let changes = selections.iter().zip(leading).map(|(selection, first)| {
         let line = text.line_of(selection.min());
         let start = text.line_start(line);
         let content = text.line_str(line);
@@ -30,11 +28,8 @@ pub fn newline(text: &Text, selections: &SelectionSet) -> Transaction {
             .take_while(|character| character.is_whitespace())
             .collect();
 
-        // Taken for every selection, or the flags fall out of step with
-        // the cursors they belong to.
-        let first = leading.next().unwrap_or(false);
         // A line holding nothing but this indent is left behind empty
-        // rather than as a row of spaces.
+        // rather than as a row of spaces — by the first cursor on it only.
         let abandoned =
             first && indent.len() == local && content[local..].is_empty() && selection.is_empty();
 
@@ -43,7 +38,8 @@ pub fn newline(text: &Text, selections: &SelectionSet) -> Transaction {
             false => selection.range(),
         };
         (range, format!("\n{indent}"))
-    })
+    });
+    Transaction::over(selections, CursorAfter::EndOfChange, changes)
 }
 
 /// What `Tab` inserts at a bare cursor: enough to reach the next stop, which

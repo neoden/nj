@@ -81,15 +81,17 @@ pub fn gutter_width(line_count: usize) -> usize {
 }
 
 impl View {
-    pub fn new(buffer: BufferId, version: Version) -> Self {
+    /// Onto `buffer`, at its current version. The gutter is sized from the
+    /// start, so a frame composed before the first `resize` still has one.
+    pub fn new(id: BufferId, buffer: &Buffer) -> Self {
         Self {
-            buffer,
+            buffer: id,
             selections: SelectionSet::single(0),
-            seen: version,
+            seen: buffer.version(),
             top_line: 0,
             left_column: 0,
             area: Area::default(),
-            gutter: 0,
+            gutter: gutter_width(buffer.text().line_count()),
         }
     }
 
@@ -430,7 +432,7 @@ mod tests {
     /// The view a terminal of this size gives a one-line buffer, with no
     /// panel open: the status bar takes a row and the gutter two columns.
     fn view(width: usize, height: usize) -> View {
-        let mut view = View::new(BufferId::FIRST, 0);
+        let mut view = View::new(BufferId::FIRST, &Buffer::default());
         fit(&mut view, width, height, 1);
         view
     }

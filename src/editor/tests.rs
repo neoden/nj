@@ -396,6 +396,16 @@ fn tab_moves_to_the_next_stop_rather_than_a_whole_level() {
 }
 
 #[test]
+fn every_cursor_reaches_its_own_next_stop() {
+    let mut editor = indented("hello\nworld", Indent::Spaces(4), 1);
+    add_cursor(&mut editor, 9);
+    editor.indent();
+
+    // Column 1 needs three spaces to reach 4; column 3 needs one.
+    assert_eq!(content(&editor), "h   ello\nwor ld");
+}
+
+#[test]
 fn tab_inserts_a_tab_when_the_file_uses_them() {
     let mut editor = indented("ab", Indent::Tabs, 2);
     editor.indent();
@@ -834,6 +844,12 @@ fn saving_as_names_a_scratch_buffer_and_asks_before_taking_a_file_that_exists() 
     editor.execute(Command::Panel(PanelCommand::Answer('o')));
     assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "text!?");
 
+    // A directory is not a file to be overwritten: refused, not asked about.
+    editor.execute(Command::File(File::SaveAs(std::env::temp_dir())));
+    assert!(editor.panel.is_none());
+    assert!(editor.message().unwrap().ends_with("is a directory"));
+    assert_eq!(editor.buffer().name(), fresh.display().to_string());
+
     editor.execute(Command::File(File::SaveAs(taken.clone())));
     assert_eq!(confirm(&editor), Some(vec![Answer::Replace(taken.clone(), After::Stay)]));
     // Not renamed until agreed to.
@@ -1253,6 +1269,22 @@ fn f3_still_works_once_the_strip_is_closed() {
 
     editor.search_next(Direction::Forward);
     assert_eq!(editor.view().selections.primary().range(), 4..5);
+}
+
+/// A panel that is not a search neither walks hits it does not have nor
+/// searches the text behind its back.
+#[test]
+fn f3_in_a_panel_that_is_not_a_search_does_nothing() {
+    let mut editor = editor("x . x", 0);
+    editor.open_prompt(Purpose::Search);
+    type_into_prompt(&mut editor, "x");
+    editor.close_panel();
+
+    editor.open_prompt(Purpose::GotoLine);
+    editor.execute(Command::FindNext(Direction::Forward));
+    assert_eq!(editor.message(), None);
+    assert_eq!(editor.view().selections.primary().range(), 0..1);
+    assert!(editor.prompt().is_some());
 }
 
 #[test]

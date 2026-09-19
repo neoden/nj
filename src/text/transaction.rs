@@ -29,19 +29,29 @@ pub enum CursorAfter {
 }
 
 impl Transaction {
-    /// Builds one change per cursor. Selections are sorted and disjoint, so
-    /// the running delta gives each cursor its position in the new text.
+    /// One change per cursor, the same rule for each.
     pub fn edit(
         selections: &SelectionSet,
         cursor: CursorAfter,
-        mut change: impl FnMut(&Selection) -> (Range<usize>, String),
+        change: impl FnMut(&Selection) -> (Range<usize>, String),
     ) -> Self {
-        let mut changes = Vec::with_capacity(selections.len());
+        Self::over(selections, cursor, selections.iter().map(change))
+    }
+
+    /// One change per cursor, in the order of the cursors, worked out by the
+    /// caller — who may have more to go on than the cursor alone. Selections
+    /// are sorted and disjoint, so the running delta gives each cursor its
+    /// position in the new text.
+    pub fn over(
+        selections: &SelectionSet,
+        cursor: CursorAfter,
+        changes: impl IntoIterator<Item = (Range<usize>, String)>,
+    ) -> Self {
+        let mut collected = Vec::with_capacity(selections.len());
         let mut heads = Vec::with_capacity(selections.len());
         let mut delta = 0isize;
 
-        for selection in selections.iter() {
-            let (range, text) = change(selection);
+        for (selection, (range, text)) in selections.iter().zip(changes) {
             let own = text.len() as isize - range.len() as isize;
             let head = match cursor {
                 CursorAfter::EndOfChange => range.start.saturating_add_signed(delta) + text.len(),
@@ -50,11 +60,11 @@ impl Transaction {
             delta += own;
 
             heads.push(Selection::cursor(head));
-            changes.push(Change { range, text });
+            collected.push(Change { range, text });
         }
 
         Self {
-            changes,
+            changes: collected,
             before: selections.clone(),
             after: SelectionSet::from_selections(heads, selections.primary_index()),
         }

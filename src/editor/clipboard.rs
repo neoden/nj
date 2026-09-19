@@ -112,19 +112,24 @@ impl Clipboard {
             true => selections.first_on_each_line(text, |selection| selection.head),
             false => vec![true; selections.len()],
         };
+        // Which cursors take a piece, and which piece: the pieces are handed
+        // out in order to those that do, the rest get none.
         let mut pieces = self
             .pieces_for(leading.iter().filter(|&&first| first).count())
             .into_iter();
-        let mut leading = leading.into_iter();
+        let takes: Vec<Option<String>> = leading
+            .into_iter()
+            .map(|first| first.then(|| pieces.next().unwrap_or_default()))
+            .collect();
 
         let cursor = match self.lines {
             true => CursorAfter::Displaced,
             false => CursorAfter::EndOfChange,
         };
-        Transaction::edit(selections, cursor, |selection| {
-            if !leading.next().unwrap_or(true) {
+        let changes = selections.iter().zip(takes).map(|(selection, piece)| {
+            let Some(piece) = piece else {
                 return (selection.head..selection.head, String::new());
-            }
+            };
             let range = match self.lines {
                 true => {
                     let start = text.line_start(text.line_of(selection.head));
@@ -132,8 +137,9 @@ impl Clipboard {
                 }
                 false => selection.range(),
             };
-            (range, pieces.next().unwrap_or_default())
-        })
+            (range, piece)
+        });
+        Transaction::over(selections, cursor, changes)
     }
 }
 
