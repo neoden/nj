@@ -1,7 +1,6 @@
 use std::ops::Range;
 
 use crate::movement::{self, Motion};
-use crate::selection::SelectionSet;
 use crate::text::Text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +17,11 @@ impl Purpose {
             Purpose::Search => &["Find:"],
             Purpose::Replace => &["Find:", "Replace:"],
         }
+    }
+
+    /// Whether the first field is a query that drives a search as it is typed.
+    pub fn searches(self) -> bool {
+        matches!(self, Purpose::Search | Purpose::Replace)
     }
 }
 
@@ -92,13 +96,10 @@ pub struct Prompt {
     pub purpose: Purpose,
     pub fields: Vec<Field>,
     pub active: usize,
-    /// Where the cursors were when it opened, so that an incremental search
-    /// can start over from there and `Esc` can put them back.
-    pub origin: SelectionSet,
 }
 
 impl Prompt {
-    pub fn new(purpose: Purpose, origin: SelectionSet) -> Self {
+    pub fn new(purpose: Purpose) -> Self {
         Self {
             purpose,
             fields: purpose
@@ -110,7 +111,6 @@ impl Prompt {
                 })
                 .collect(),
             active: 0,
-            origin,
         }
     }
 
@@ -155,7 +155,7 @@ mod tests {
     use crate::movement::Direction;
 
     fn prompt(purpose: Purpose, typed: &str) -> Prompt {
-        let mut prompt = Prompt::new(purpose, SelectionSet::single(0));
+        let mut prompt = Prompt::new(purpose);
         prompt.insert(typed);
         prompt
     }

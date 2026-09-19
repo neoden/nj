@@ -87,6 +87,46 @@ impl Text {
         }
     }
 
+    /// The last hit starting before `before`, walked chunk by chunk from
+    /// there towards the start. The mirror image of `find`.
+    pub fn rfind(&self, needle: &str, before: usize) -> Option<usize> {
+        if needle.is_empty() || before == 0 {
+            return None;
+        }
+
+        // A hit starting before `before` may run past it, so the window
+        // reaches that far — and no further, so that every hit found in it
+        // starts before `before` without a check.
+        let end = self
+            .rope
+            .floor_char_boundary((before + needle.len() - 1).min(self.len()));
+        let (mut chunks, chunk_start) = self.rope.chunks_at(end);
+        let mut window = match chunks.next() {
+            Some(chunk) => {
+                // Stepped over, so that `prev()` below yields the chunk before it.
+                chunks.prev();
+                chunk[..end - chunk_start].to_owned()
+            }
+            None => String::new(),
+        };
+        let mut window_start = end - window.len();
+
+        loop {
+            if let Some(at) = window.rfind(needle) {
+                return Some(window_start + at);
+            }
+            let chunk = chunks.prev()?;
+
+            let mut keep = (needle.len() - 1).min(window.len());
+            while !window.is_char_boundary(keep) {
+                keep += 1;
+            }
+            window.truncate(keep);
+            window.insert_str(0, chunk);
+            window_start -= chunk.len();
+        }
+    }
+
     /// Whether `needle` sits at `at`. The boundary check is what keeps the
     /// slice from splitting a character in half.
     pub fn matches_at(&self, at: usize, needle: &str) -> bool {
@@ -300,6 +340,44 @@ mod tests {
             assert_eq!(text.find("xyzzy", 0), Some(offset), "at {offset}");
             assert_eq!(text.find("xyzzy", offset), Some(offset), "at {offset}");
             assert_eq!(text.find("xyzzy", offset + 1), None, "at {offset}");
+        }
+    }
+
+    #[test]
+    fn finding_backwards_reports_the_last_hit_before_the_limit() {
+        let text = Text::from_str("one two one");
+        assert_eq!(text.rfind("one", text.len()), Some(8));
+        // Starting before the limit is enough; running past it is fine.
+        assert_eq!(text.rfind("one", 9), Some(8));
+        assert_eq!(text.rfind("one", 8), Some(0));
+        assert_eq!(text.rfind("one", 0), None);
+        assert_eq!(text.rfind("three", text.len()), None);
+        assert_eq!(text.rfind("", 5), None);
+    }
+
+    #[test]
+    fn a_hit_across_a_seam_is_found_backwards_too() {
+        for offset in 900..1_200 {
+            let mut content = "a".repeat(4_000);
+            content.replace_range(offset..offset + 5, "xyzzy");
+            let text = Text::from_str(&content);
+
+            assert_eq!(text.rfind("xyzzy", text.len()), Some(offset), "at {offset}");
+            assert_eq!(text.rfind("xyzzy", offset + 1), Some(offset), "at {offset}");
+            assert_eq!(text.rfind("xyzzy", offset), None, "at {offset}");
+        }
+    }
+
+    #[test]
+    fn multibyte_hits_survive_the_seams_backwards() {
+        for offset in (900..1_200).step_by(2) {
+            let mut content = "д".repeat(2_000);
+            content.replace_range(offset..offset + 6, "мир");
+            let text = Text::from_str(&content);
+
+            assert_eq!(text.rfind("мир", text.len()), Some(offset), "at {offset}");
+            // A limit inside a character is still a limit.
+            assert_eq!(text.rfind("мир", offset + 1), Some(offset), "at {offset}");
         }
     }
 

@@ -19,6 +19,7 @@ pub mod picker;
 pub mod prompt;
 pub mod render;
 pub mod screen;
+pub mod search;
 pub mod selection;
 pub mod terminal;
 pub mod text;

@@ -11,6 +11,7 @@ use crate::panel::{Confirm, Panel, Question};
 use crate::picker::{Pick, Picker};
 use crate::prompt::{Field, Prompt, Purpose};
 use crate::screen::Screen;
+use crate::search::{Query, Session};
 use crate::selection::{Selection, SelectionSet};
 use crate::text::Text;
 use crate::transaction::{self, Change, CursorAfter, Transaction};
@@ -29,15 +30,13 @@ pub struct Editor {
     panel: Option<Panel>,
     /// Shown on the status bar until the next command.
     message: Option<String>,
-    /// Every hit of the open query. Lives only while the prompt does, so
-    /// nothing has to remember to invalidate it.
-    matches: Vec<Range<usize>>,
-    /// The query `matches` holds the hits of, so that extending it can narrow
-    /// them rather than start over.
-    collected: String,
+    /// The search a prompt is typing. Lives only while the prompt does, so
+    /// nothing has to remember to invalidate its hits.
+    search: Option<Session>,
+    /// What `F3` repeats once the prompt has closed.
+    last: Option<Query>,
     quit: bool,
     occurrences: Option<Occurrences>,
-    last_search: Option<String>,
     system: Option<SystemClipboard>,
 }
 
@@ -49,11 +48,10 @@ impl Editor {
             clipboard: Clipboard::default(),
             panel: None,
             message: None,
-            matches: Vec::new(),
-            collected: String::new(),
+            search: None,
+            last: None,
             quit: false,
             occurrences: None,
-            last_search: None,
             system: None,
         }
     }
@@ -85,8 +83,9 @@ impl Editor {
         self.message.as_deref()
     }
 
+    /// The hits of the search being typed, for the renderer to underline.
     pub fn matches(&self) -> &[Range<usize>] {
-        &self.matches
+        self.search.as_ref().map_or(&[], Session::hits)
     }
 
     pub fn screen(&self) -> &Screen {
@@ -149,8 +148,8 @@ impl Editor {
                 },
                 |editor| editor.select_all(),
             ),
-            // Two searches still exist (S2); which one answers depends on
-            // whether the prompt that collected the hits is open.
+            // While a panel is up the hits are in hand and get walked; once
+            // it is gone the last query is run against the text again.
             Command::FindNext(direction) => match self.panel.is_some() {
                 true => self.go_to_match(direction),
                 false => self.search_next(direction),
@@ -282,16 +281,17 @@ impl Editor {
     }
 
     fn open_prompt(&mut self, purpose: Purpose) {
-        let mut prompt = Prompt::new(purpose, self.view().selections.clone());
+        let mut prompt = Prompt::new(purpose);
 
-        // A selection spanning lines means something else entirely, so only a
-        // fragment seeds the query. What is seeded stays selected, so typing
-        // replaces it instead of appending to it.
-        if matches!(purpose, Purpose::Search | Purpose::Replace)
-            && let Some(selected) = self.selected_text().filter(|text| !text.contains('\n'))
-        {
-            prompt.insert(&selected);
-            prompt.select_all();
+        if purpose.searches() {
+            self.search = Some(Session::new(self.view().selections.clone()));
+            // A selection spanning lines means something else entirely, so
+            // only a fragment seeds the query. What is seeded stays selected,
+            // so typing replaces it instead of appending to it.
+            if let Some(selected) = self.selected_text().filter(|text| !text.contains('\n')) {
+                prompt.insert(&selected);
+                prompt.select_all();
+            }
         }
 
         self.panel = Some(Panel::Prompt(prompt));
@@ -349,13 +349,9 @@ impl Editor {
 
     /// The situational half of the status bar belongs to whatever is open.
     pub fn panel_status(&self) -> String {
-        match &self.panel {
-            Some(Panel::Prompt(prompt))
-                if matches!(prompt.purpose, Purpose::Search | Purpose::Replace) =>
-            {
-                self.search_status()
-            }
-            Some(Panel::Picker(picker)) => format!("{}/{}", picker.len(), picker.total()),
+        match (&self.panel, &self.search) {
+            (Some(Panel::Picker(picker)), _) => format!("{}/{}", picker.len(), picker.total()),
+            (Some(_), Some(search)) => search.status(self.view().selections.primary().min()),
             _ => String::new(),
         }
     }
@@ -372,8 +368,7 @@ impl Editor {
     /// "accept", so leaving is how you keep what you found.
     fn close_panel(&mut self) {
         self.panel = None;
-        self.matches.clear();
-        self.collected.clear();
+        self.search = None;
     }
 
     /// `Enter` walks the hits while searching; for anything else it answers
@@ -398,198 +393,106 @@ impl Editor {
             },
             Purpose::Replace => {
                 let replacement = prompt.contents(1);
-                self.replace_all(&first, &replacement);
+                self.replace_all(&replacement);
             }
         }
 
         self.close_panel();
     }
 
-    /// Incremental search: every keystroke collects the hits afresh and lands
-    /// on the first one at or after where the cursor stood when the prompt
+    /// Incremental search: every keystroke retargets the session and lands
+    /// on the first hit at or after where the cursor stood when the prompt
     /// opened, so the match never drifts forward as the query grows.
     fn prompt_changed(&mut self) {
-        let Some(prompt) = self.prompt() else {
+        let Some(needle) = self.prompt().map(|prompt| prompt.contents(0)) else {
             return;
         };
-        if !matches!(prompt.purpose, Purpose::Search | Purpose::Replace) {
+        let Some(search) = &mut self.search else {
             return;
-        }
+        };
 
-        let needle = prompt.contents(0);
-        let origin = prompt.origin.clone();
-        self.collect_matches(&needle);
-        self.last_search = (!needle.is_empty()).then_some(needle);
+        let query = Query::literal(needle);
+        search.retarget(query.clone(), &self.workspace.focus().1.text);
+        self.last = (!query.is_empty()).then_some(query);
 
-        if self.matches.is_empty() {
-            self.view_mut().selections = origin;
-            return;
+        let origin = search.origin.clone();
+        match search.landing(origin.primary().min()) {
+            Some(hit) => self.select_hit(hit),
+            None => self.view_mut().selections = origin,
         }
-
-        let from = origin.primary().min();
-        let found = self
-            .matches
-            .iter()
-            .find(|found| found.start >= from)
-            .or_else(|| self.matches.first())
-            .cloned();
-        if let Some(found) = found {
-            self.select_match(found.start, found.len());
-        }
-    }
-
-    fn collect_matches(&mut self, needle: &str) {
-        if needle.is_empty() {
-            self.matches.clear();
-            self.collected.clear();
-            return;
-        }
-
-        let text = &self.workspace.focus().1.text;
-        // Hits of a longer query are a subset of the shorter one's, so typing
-        // sifts what is already there instead of reading the document again.
-        match !self.collected.is_empty() && needle.starts_with(&self.collected) {
-            true => self.matches.retain_mut(|found| {
-                let matched = text.matches_at(found.start, needle);
-                found.end = found.start + needle.len();
-                matched
-            }),
-            false => self.matches = text.matches(needle).collect(),
-        }
-        self.collected = needle.to_owned();
     }
 
     /// Turns the hits into cursors and hands the keyboard back to the text,
     /// which is the only reason anyone wants a cursor on every hit.
     fn select_all_matches(&mut self) {
-        if self.matches.is_empty() {
+        let Some(search) = &self.search else {
+            return;
+        };
+        if search.hits().is_empty() {
             return;
         }
 
-        let at = self.view().selections.primary().min();
-        let primary = self
-            .matches
-            .iter()
-            .position(|found| found.start == at)
-            .unwrap_or(0);
-        let selections = self
-            .matches
-            .iter()
-            .map(|found| Selection {
-                anchor: found.start,
-                head: found.end,
-                goal_column: None,
-            })
-            .collect();
-
+        let selections = search.selections(self.view().selections.primary().min());
         let (view, buffer) = self.workspace.focus_mut();
-        view.selections = SelectionSet::from_selections(selections, primary);
+        view.selections = selections;
         view.scroll_to_cursor(buffer);
         self.close_panel();
     }
 
+    /// Walks the hits the prompt has in hand.
     fn go_to_match(&mut self, direction: Direction) {
-        if self.matches.is_empty() {
-            self.message = Some("Not found".to_owned());
-            return;
-        }
-
-        let from = self.view().selections.primary().min();
-        let found = match direction {
-            Direction::Forward => self
-                .matches
-                .iter()
-                .find(|found| found.start > from)
-                .or_else(|| self.matches.first()),
-            Direction::Backward => self
-                .matches
-                .iter()
-                .rev()
-                .find(|found| found.start < from)
-                .or_else(|| self.matches.last()),
-        }
-        .cloned();
-
-        if let Some(found) = found {
-            self.select_match(found.start, found.len());
-        }
-    }
-
-    /// `found: 3/17`.
-    fn search_status(&self) -> String {
-        if self.matches.is_empty() {
-            return "Found: none".to_owned();
-        }
-        let at = self.view().selections.primary().min();
-        let current = self
-            .matches
-            .iter()
-            .position(|found| found.start == at)
-            .map_or(0, |index| index + 1);
-        format!("Found: {current}/{}", self.matches.len())
-    }
-
-    fn search_next(&mut self, direction: Direction) {
-        let Some(needle) = self.last_search.clone() else {
-            return;
-        };
-        let from = match direction {
-            Direction::Forward => self.view().selections.primary().max(),
-            Direction::Backward => self.view().selections.primary().min(),
-        };
-
-        match self.find(&needle, from, direction) {
-            Some(at) => self.select_match(at, needle.len()),
+        let from = self.from(direction);
+        let hit = self.search.as_ref().and_then(|search| search.next_hit(from, direction));
+        match hit {
+            Some(hit) => self.select_hit(hit),
             None => self.message = Some("Not found".to_owned()),
         }
     }
 
-    /// Both directions wrap, which is what every editor's find does.
-    fn find(&self, needle: &str, from: usize, direction: Direction) -> Option<usize> {
-        let text = &self.buffer().text;
-        match direction {
-            Direction::Forward => text.find(needle, from).or_else(|| text.find(needle, 0)),
-            Direction::Backward => {
-                last_match_before(text, needle, from).or_else(|| last_match_before(text, needle, text.len()))
-            }
+    /// Repeats the last search against the text, with the prompt gone.
+    fn search_next(&mut self, direction: Direction) {
+        let Some(query) = &self.last else {
+            return;
+        };
+        let from = self.from(direction);
+        match query.find(&self.buffer().text, from, direction) {
+            Some(hit) => self.select_hit(hit),
+            None => self.message = Some("Not found".to_owned()),
         }
     }
 
-    fn select_match(&mut self, at: usize, length: usize) {
-        let (view, buffer) = self.workspace.focus_mut();
-        view.selections = Selection {
-            anchor: at,
-            head: at + length,
-            goal_column: None,
+    /// Where the next hit is looked for: past the primary selection going
+    /// forward, before it going back — so the one selected is not found again.
+    fn from(&self, direction: Direction) -> usize {
+        let primary = self.view().selections.primary();
+        match direction {
+            Direction::Forward => primary.max(),
+            Direction::Backward => primary.min(),
         }
-        .into();
+    }
+
+    fn select_hit(&mut self, hit: Range<usize>) {
+        let (view, buffer) = self.workspace.focus_mut();
+        view.selections = Query::selection(hit).into();
         view.scroll_to_cursor(buffer);
     }
 
-    fn replace_all(&mut self, needle: &str, replacement: &str) {
-        if needle.is_empty() {
+    /// Every hit of the session becomes a cursor, and one insertion does the
+    /// rest — so a replacement is one undo step.
+    fn replace_all(&mut self, replacement: &str) {
+        let Some(search) = &self.search else {
             return;
-        }
-
-        let matches: Vec<Selection> = self
-            .buffer()
-            .text
-            .matches(needle)
-            .map(|found| Selection {
-                anchor: found.start,
-                head: found.end,
-                goal_column: None,
-            })
-            .collect();
-
-        if matches.is_empty() {
+        };
+        let hits = search.hits().len();
+        if hits == 0 {
             self.message = Some("Not found".to_owned());
             return;
         }
 
-        self.message = Some(format!("Replaced {}", matches.len()));
-        self.view_mut().selections = SelectionSet::from_selections(matches, 0);
+        let selections = search.selections(0);
+        self.view_mut().selections = selections;
         self.insert(replacement);
+        self.message = Some(format!("Replaced {hits}"));
     }
 
     fn goto_line(&mut self, line: usize) {
@@ -1154,56 +1057,39 @@ impl Editor {
     /// First press selects the word under each cursor; every press after that
     /// adds the next occurrence of it, wrapping around the document.
     fn select_next_occurrence(&mut self) {
-        let Some(search) = self.take_search() else {
+        let Some(query) = self.take_query() else {
             return;
         };
 
         let (view, buffer) = self.workspace.focus_mut();
-        let text = &buffer.text;
         let from = view.selections.primary().max();
-        let Some(at) = search
-            .find(text, from)
-            .or_else(|| search.find(text, 0))
-        else {
+        let Some(hit) = query.find(&buffer.text, from, Direction::Forward) else {
             return;
         };
-
-        let found = search.selection_at(at);
-        if view
-            .selections
-            .iter()
-            .any(|selection| selection.range() == found.range())
-        {
+        if view.selections.iter().any(|selection| selection.range() == hit) {
             return;
         }
 
-        view.selections.push(found);
+        view.selections.push(Query::selection(hit));
         view.scroll_to_cursor(buffer);
-        self.remember_occurrences(search.whole_word);
+        self.remember_occurrences(query.whole_word);
     }
 
     fn select_all_occurrences(&mut self) {
-        let Some(search) = self.take_search() else {
+        let Some(query) = self.take_query() else {
             return;
         };
 
         let (view, buffer) = self.workspace.focus_mut();
-        let text = &buffer.text;
-        let mut selections = Vec::new();
-        let mut at = 0;
-        while let Some(found) = search.find(text, at) {
-            at = found + search.needle.len();
-            selections.push(search.selection_at(found));
-        }
-
+        let selections = query.all(&buffer.text).map(Query::selection).collect();
         view.selections = SelectionSet::from_selections(selections, 0);
         view.scroll_to_cursor(buffer);
-        self.remember_occurrences(search.whole_word);
+        self.remember_occurrences(query.whole_word);
     }
 
     /// Bare cursors first expand to the word they touch; only once something
     /// is selected is there anything to search for.
-    fn take_search(&mut self) -> Option<Search> {
+    fn take_query(&mut self) -> Option<Query> {
         let (view, buffer) = self.workspace.focus_mut();
         let text = &buffer.text;
         if view.selections.iter().any(Selection::is_empty) {
@@ -1229,9 +1115,9 @@ impl Editor {
             .is_some_and(|hunt| hunt.whole_word && hunt.selections == self.view().selections);
 
         let range = self.view().selections.primary().range();
-        Some(Search {
-            whole_word,
+        Some(Query {
             needle: self.buffer().text.slice(range).to_string(),
+            whole_word,
         })
     }
 
@@ -1263,13 +1149,6 @@ impl Editor {
         view.selections = buffer.apply(transaction, kind);
         view.scroll_to_cursor(buffer);
     }
-}
-
-fn last_match_before(text: &Text, needle: &str, limit: usize) -> Option<usize> {
-    text.matches(needle)
-        .take_while(|found| found.start < limit)
-        .last()
-        .map(|found| found.start)
 }
 
 /// Backspace inside a run of leading spaces removes back to the previous tab
@@ -1319,41 +1198,6 @@ fn line_range(text: &Text, line: usize) -> Range<usize> {
 struct Occurrences {
     selections: SelectionSet,
     whole_word: bool,
-}
-
-struct Search {
-    needle: String,
-    /// Set when the run uncovered the word itself: renaming `i` leaves `if`
-    /// alone.
-    whole_word: bool,
-}
-
-impl Search {
-    fn find(&self, text: &Text, from: usize) -> Option<usize> {
-        let mut at = from;
-        loop {
-            let found = text.find(&self.needle, at)?;
-            if !self.whole_word || self.is_whole_word(text, found) {
-                return Some(found);
-            }
-            at = movement::grapheme(text, found, Direction::Forward);
-        }
-    }
-
-    fn is_whole_word(&self, text: &Text, at: usize) -> bool {
-        let before = movement::grapheme(text, at, Direction::Backward);
-        let word_before = before != at && text.char_at(before).map(Class::of) == Some(Class::Word);
-        let word_after = text.char_at(at + self.needle.len()).map(Class::of) == Some(Class::Word);
-        !word_before && !word_after
-    }
-
-    fn selection_at(&self, at: usize) -> Selection {
-        Selection {
-            anchor: at,
-            head: at + self.needle.len(),
-            goal_column: None,
-        }
-    }
 }
 
 /// Only single characters join a group; a paste or a line break stands alone.
@@ -2148,7 +1992,7 @@ mod tests {
 
         assert_eq!(editor.view().selections.primary().range(), 6..10);
         assert!(editor.panel.is_none());
-        assert!(editor.matches.is_empty());
+        assert!(editor.matches().is_empty());
     }
 
     #[test]
@@ -2178,7 +2022,7 @@ mod tests {
         editor.open_prompt(Purpose::Search);
         type_into_prompt(&mut editor, "x");
 
-        assert_eq!(editor.matches, [0..1, 4..5, 8..9]);
+        assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
         assert_eq!(editor.panel_status(), "Found: 1/3");
 
         editor.submit_prompt(false);
@@ -2209,17 +2053,17 @@ mod tests {
         editor.open_prompt(Purpose::Search);
 
         type_into_prompt(&mut editor, "a");
-        assert_eq!(editor.matches, [0..1, 3..4, 7..8]);
+        assert_eq!(editor.matches(), [0..1, 3..4, 7..8]);
 
         type_into_prompt(&mut editor, "b");
-        assert_eq!(editor.matches, [0..2, 3..5, 7..9]);
+        assert_eq!(editor.matches(), [0..2, 3..5, 7..9]);
 
         type_into_prompt(&mut editor, "cd");
-        assert_eq!(editor.matches, vec![7..11]);
+        assert_eq!(editor.matches(), vec![7..11]);
 
         // Backspace cannot narrow, so this one has to read the document again.
         editor.execute(Command::Edit(Edit::Delete(Motion::Grapheme(Direction::Backward))));
-        assert_eq!(editor.matches, [3..6, 7..10]);
+        assert_eq!(editor.matches(), [3..6, 7..10]);
     }
 
     #[test]
@@ -2228,10 +2072,10 @@ mod tests {
         editor.open_prompt(Purpose::Search);
 
         type_into_prompt(&mut editor, "а");
-        assert_eq!(editor.matches, [0..2, 5..7]);
+        assert_eq!(editor.matches(), [0..2, 5..7]);
 
         type_into_prompt(&mut editor, "бв");
-        assert_eq!(editor.matches, vec![5..11]);
+        assert_eq!(editor.matches(), vec![5..11]);
     }
 
     #[test]
@@ -2240,7 +2084,7 @@ mod tests {
         editor.open_prompt(Purpose::Search);
         type_into_prompt(&mut editor, "zzz");
 
-        assert!(editor.matches.is_empty());
+        assert!(editor.matches().is_empty());
         assert_eq!(editor.panel_status(), "Found: none");
     }
 
