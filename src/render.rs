@@ -36,14 +36,14 @@ fn end_row(out: &mut impl Write) -> Result<()> {
 /// Draws a whole frame. Every cell is rewritten, so the screen is never
 /// cleared first: clearing is what makes a terminal flicker.
 pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> Result<()> {
-    let (view, buffer) = editor.workspace.focus();
-    let screen = &editor.screen;
+    let (view, buffer) = (editor.view(), editor.buffer());
+    let screen = editor.screen();
     let margin = &" ".repeat(view.area.x);
     let mut drawn = view.area.y;
 
     for row in view.rows(buffer) {
         let text = buffer.text.line_str(row.line);
-        let highlight = view.highlight_line(buffer, row.line, &editor.matches);
+        let highlight = view.highlight_line(buffer, row.line, editor.matches());
         // Wrapped continuations leave the gutter empty: the number belongs to
         // the logical line, not to every row it spans.
         let number = match row.index {
@@ -109,7 +109,7 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
     // What the panel asked for is not what it got: only the screen knows how
     // much was left over, and it may have granted nothing at all.
     let body = screen.panel_height.saturating_sub(2);
-    if let Some(panel) = editor.panel.as_ref().filter(|_| body > 0) {
+    if let Some(panel) = editor.panel().filter(|_| body > 0) {
         let top = screen.panel_top() + 1;
         rule(out, margin, screen.panel_top(), width)?;
         match panel {

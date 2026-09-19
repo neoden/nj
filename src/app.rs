@@ -33,11 +33,11 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
         handle(event::read()?, editor);
         // Whatever else already arrived is processed before drawing again, so
         // a burst of input costs one frame rather than one frame per event.
-        while !editor.quit && event::poll(Duration::ZERO)? {
+        while !editor.should_quit() && event::poll(Duration::ZERO)? {
             handle(event::read()?, editor);
         }
 
-        if editor.quit {
+        if editor.should_quit() {
             return Ok(());
         }
     }
@@ -48,11 +48,8 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
 pub fn handle(event: Event, editor: &mut Editor) {
     let command = match event {
         Event::Key(event) => {
-            let Some(stroke) = Keystroke::from_event(&event) else {
-                return;
-            };
-            editor.message = None;
-            keymap::resolve(stroke, editor)
+            let stroke = Keystroke::from_event(&event);
+            stroke.and_then(|stroke| keymap::resolve(stroke, editor))
         }
         Event::Mouse(mouse) => mouse_command(mouse),
         // Bracketed paste: the terminal hands over the whole text at once
@@ -86,7 +83,7 @@ fn mouse_command(mouse: MouseEvent) -> Option<Command> {
 /// whatever is going on right now, so the eye only goes there when something
 /// is happening.
 fn status(editor: &Editor) -> (String, String) {
-    let (view, buffer) = editor.workspace.focus();
+    let (view, buffer) = (editor.view(), editor.buffer());
     let line = buffer.text.line_of(view.selections.primary().head);
     let column = editor.cursor_column();
 
@@ -100,8 +97,8 @@ fn status(editor: &Editor) -> (String, String) {
         column + 1,
     );
 
-    let left = match &editor.message {
-        Some(message) => message.clone(),
+    let left = match editor.message() {
+        Some(message) => message.to_owned(),
         None => {
             let cursors = view.selections.len();
             [

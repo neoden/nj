@@ -67,7 +67,7 @@ fn ctrl(editor: &mut Editor, character: char) {
 }
 
 fn query(editor: &Editor) -> String {
-    match &editor.panel {
+    match editor.panel() {
         Some(Panel::Picker(picker)) => picker.query.contents(),
         _ => panic!("a picker is open"),
     }
@@ -92,7 +92,7 @@ fn typing_reaches_the_buffer() {
 fn ctrl_q_on_a_clean_buffer_quits() {
     let mut editor = editor();
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::CONTROL);
-    assert!(editor.quit);
+    assert!(editor.should_quit());
 }
 
 #[test]
@@ -101,8 +101,8 @@ fn ctrl_q_on_a_dirty_buffer_asks_first() {
     typed(&mut editor, "x");
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::CONTROL);
 
-    assert!(!editor.quit);
-    assert!(editor.panel.is_some());
+    assert!(!editor.should_quit());
+    assert!(editor.panel().is_some());
 }
 
 /// D7. An open panel owns the keyboard (ADR 12), so `Ctrl+Q` is not an answer
@@ -114,7 +114,7 @@ fn ctrl_q_inside_a_panel_discards_nothing() {
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::CONTROL);
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::CONTROL);
 
-    assert!(!editor.quit);
+    assert!(!editor.should_quit());
     assert_eq!(content(&editor), "x");
 }
 
@@ -135,10 +135,10 @@ fn esc_closes_a_panel_and_leaves_the_text_alone() {
     let mut editor = editor();
     typed(&mut editor, "needle");
     ctrl(&mut editor, 'f');
-    assert!(editor.panel.is_some());
+    assert!(editor.panel().is_some());
 
     press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
-    assert!(editor.panel.is_none());
+    assert!(editor.panel().is_none());
     assert_eq!(content(&editor), "needle");
 }
 
@@ -149,7 +149,7 @@ fn enter_in_a_picker_takes_the_choice() {
     typed(&mut editor, "rust");
     press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
 
-    assert!(editor.panel.is_none());
+    assert!(editor.panel().is_none());
     assert_eq!(editor.buffer().language.name, "Rust");
 }
 
@@ -294,7 +294,7 @@ fn ctrl_shift_l_takes_every_match_of_the_query_or_of_the_word() {
         KeyCode::Char('l'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    assert!(editor.panel.is_none());
+    assert!(editor.panel().is_none());
     assert_eq!(ranges(&editor), [0..1, 2..3, 5..6]);
 
     // From a bare cursor the first press only uncovers the word, as `Ctrl+D`
@@ -397,7 +397,7 @@ fn an_unbound_combination_inserts_nothing() {
     press(&mut editor, KeyCode::Char('k'), KeyModifiers::ALT);
 
     assert_eq!(content(&editor), "x");
-    assert!(editor.panel.is_none());
+    assert!(editor.panel().is_none());
 }
 
 #[test]
@@ -407,7 +407,7 @@ fn enter_in_goto_line_jumps_and_closes_the_prompt() {
     typed(&mut editor, "3");
     press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
 
-    assert!(editor.panel.is_none());
+    assert!(editor.panel().is_none());
     assert_eq!(head(&editor), 6);
 }
 
@@ -419,17 +419,17 @@ fn a_confirm_takes_bare_letters_only_and_a_failed_save_cancels_the_quit() {
     let mut editor = editor_with("x");
     ctrl(&mut editor, 'q');
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::ALT);
-    assert!(!editor.quit);
-    assert!(editor.panel.is_some());
+    assert!(!editor.should_quit());
+    assert!(editor.panel().is_some());
 
     press(&mut editor, KeyCode::Char('s'), KeyModifiers::NONE);
-    assert!(!editor.quit);
-    assert!(editor.panel.is_none());
-    assert!(editor.message.is_some());
+    assert!(!editor.should_quit());
+    assert!(editor.panel().is_none());
+    assert!(editor.message().is_some());
 
     ctrl(&mut editor, 'q');
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::NONE);
-    assert!(editor.quit);
+    assert!(editor.should_quit());
 }
 
 /// The mouse speaks in screen cells: past the gutter, down from the view's

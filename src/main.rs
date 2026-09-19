@@ -21,7 +21,7 @@ fn main() -> Result<()> {
     let term = Terminal::enter()?;
     let mut editor = Editor::new(buffer).with_system_clipboard();
     if !term.keyboard_enhanced {
-        editor.message = Some("Legacy keyboard: some combinations are unavailable".to_owned());
+        editor.say("Legacy keyboard: some combinations are unavailable");
     }
 
     // The terminal is restored before anything else is printed, or it would

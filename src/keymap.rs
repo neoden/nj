@@ -33,14 +33,14 @@ impl Context {
     fn holds(self, editor: &Editor) -> bool {
         match self {
             Context::Any => true,
-            Context::Text => editor.panel.is_none(),
+            Context::Text => editor.panel().is_none(),
             Context::MultipleCursors => {
-                editor.panel.is_none() && editor.view().selections.len() > 1
+                editor.panel().is_none() && editor.view().selections.len() > 1
             }
-            Context::Panel => editor.panel.is_some(),
-            Context::Prompt => matches!(editor.panel, Some(Panel::Prompt(_))),
-            Context::Picker => matches!(editor.panel, Some(Panel::Picker(_))),
-            Context::Confirm => matches!(editor.panel, Some(Panel::Confirm(_))),
+            Context::Panel => editor.panel().is_some(),
+            Context::Prompt => matches!(editor.panel(), Some(Panel::Prompt(_))),
+            Context::Picker => matches!(editor.panel(), Some(Panel::Picker(_))),
+            Context::Confirm => matches!(editor.panel(), Some(Panel::Confirm(_))),
         }
     }
 }
@@ -65,7 +65,7 @@ pub fn resolve(stroke: Keystroke, editor: &Editor) -> Option<Command> {
 
     // An answer is read off the key rather than the text, so that a shifted
     // letter still answers and a layout the keymap does not know still works.
-    if let (Some(Panel::Confirm(_)), KeyCode::Char(answer)) = (&editor.panel, stroke.key.code) {
+    if let (Some(Panel::Confirm(_)), KeyCode::Char(answer)) = (editor.panel(), stroke.key.code) {
         let combination = stroke.key.mods.intersects(Mods::CTRL.union(Mods::ALT));
         return (!combination).then_some(Command::Panel(PanelCommand::Answer(answer)));
     }
