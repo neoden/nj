@@ -9,8 +9,8 @@ use crossterm::event::{self, Event};
 
 use super::input;
 use super::render::Renderer;
-use crate::editor::job::Message;
 use crate::editor::Editor;
+use crate::editor::job::Message;
 
 /// One queue, one thread that owns the editor (ADR 21). The terminal is read
 /// on a thread of its own, because `event::read` blocks and the queue is

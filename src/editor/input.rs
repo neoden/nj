@@ -5,7 +5,7 @@
 
 use super::command::{Command, Edit, Select};
 use super::key::{Keystroke, Mods};
-use super::{keymap, Editor};
+use super::{Editor, keymap};
 
 const MOUSE_SCROLL_LINES: isize = 3;
 

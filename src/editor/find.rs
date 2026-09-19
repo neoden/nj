@@ -74,7 +74,10 @@ impl Editor {
     /// Walks the hits the prompt has in hand.
     pub(super) fn go_to_match(&mut self, direction: Direction) {
         let from = self.from(direction);
-        let hit = self.search.as_ref().and_then(|search| search.next_hit(from, direction));
+        let hit = self
+            .search
+            .as_ref()
+            .and_then(|search| search.next_hit(from, direction));
         match hit {
             Some(hit) => self.select_hit(hit),
             None => self.message = Some("Not found".to_owned()),
@@ -139,7 +142,11 @@ impl Editor {
         let Some(hit) = query.find(buffer.text(), from, Direction::Forward) else {
             return;
         };
-        if view.selections.iter().any(|selection| selection.range() == hit) {
+        if view
+            .selections
+            .iter()
+            .any(|selection| selection.range() == hit)
+        {
             return;
         }
 

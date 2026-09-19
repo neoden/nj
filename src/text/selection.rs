@@ -206,7 +206,11 @@ fn overlap(a: &Selection, b: &Selection) -> bool {
 
 fn union(a: &Selection, b: &Selection) -> Selection {
     let (min, max) = (a.min().min(b.min()), a.max().max(b.max()));
-    let reversed = if a.is_empty() { b.is_reversed() } else { a.is_reversed() };
+    let reversed = if a.is_empty() {
+        b.is_reversed()
+    } else {
+        a.is_reversed()
+    };
     Selection {
         anchor: if reversed { max } else { min },
         head: if reversed { min } else { max },

@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use super::After;
-use crate::text::movement::{self, Motion};
 use crate::text::Text;
+use crate::text::movement::{self, Motion};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Purpose {

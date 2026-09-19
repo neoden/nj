@@ -8,9 +8,9 @@
 
 use std::path::PathBuf;
 
+use super::panel::After;
 use super::panel::picker::Pick;
 use super::panel::prompt::Purpose;
-use super::panel::After;
 use crate::text::movement::{Direction, Motion};
 use crate::text::selection::SelectionSet;
 
@@ -18,7 +18,10 @@ use crate::text::selection::SelectionSet;
 pub enum Command {
     /// Goes to the field of an open panel when there is one, to the text
     /// otherwise — like `Edit::Insert`, `Edit::Delete` and `Select::All`.
-    Move { motion: Motion, extend: bool },
+    Move {
+        motion: Motion,
+        extend: bool,
+    },
     /// Rows; the cursors stay where they are.
     Scroll(isize),
     /// The next hit of the open query, or of the last search once the
@@ -66,8 +69,15 @@ pub enum Select {
     /// at a line, and what a test uses to start from a known place.
     Set(SelectionSet),
     /// In screen cells. `add` keeps the existing cursors.
-    Click { row: usize, column: usize, add: bool },
-    Drag { row: usize, column: usize },
+    Click {
+        row: usize,
+        column: usize,
+        add: bool,
+    },
+    Drag {
+        row: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,7 +98,9 @@ pub enum PanelCommand {
     Picker(Pick),
     Close,
     /// Backwards for `Shift+Enter` while searching.
-    Submit { backwards: bool },
+    Submit {
+        backwards: bool,
+    },
     /// Takes the picker's highlighted candidate.
     Pick,
     /// A single-key answer to a question.
@@ -102,9 +114,15 @@ pub enum PanelCommand {
 /// Movement is not — nobody opens a palette to go left — and neither is
 /// anything that only makes sense inside a panel.
 pub const PALETTE: &[(&str, Command)] = &[
-    ("Open file", Command::Panel(PanelCommand::Prompt(Purpose::Open))),
+    (
+        "Open file",
+        Command::Panel(PanelCommand::Prompt(Purpose::Open)),
+    ),
     ("Save", Command::File(File::Save)),
-    ("Save as", Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay)))),
+    (
+        "Save as",
+        Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay))),
+    ),
     ("Quit", Command::Quit),
     ("Abort", Command::Abort),
     ("Undo", Command::Edit(Edit::Undo)),
@@ -115,16 +133,40 @@ pub const PALETTE: &[(&str, Command)] = &[
     ("Indent", Command::Edit(Edit::Indent)),
     ("Outdent", Command::Edit(Edit::Outdent)),
     ("Toggle comment", Command::Edit(Edit::ToggleComment)),
-    ("Find", Command::Panel(PanelCommand::Prompt(Purpose::Search))),
-    ("Replace", Command::Panel(PanelCommand::Prompt(Purpose::Replace))),
+    (
+        "Find",
+        Command::Panel(PanelCommand::Prompt(Purpose::Search)),
+    ),
+    (
+        "Replace",
+        Command::Panel(PanelCommand::Prompt(Purpose::Replace)),
+    ),
     ("Find next", Command::FindNext(Direction::Forward)),
     ("Find previous", Command::FindNext(Direction::Backward)),
-    ("Go to line", Command::Panel(PanelCommand::Prompt(Purpose::GotoLine))),
+    (
+        "Go to line",
+        Command::Panel(PanelCommand::Prompt(Purpose::GotoLine)),
+    ),
     ("Select all", Command::Select(Select::All)),
     ("Select line", Command::Select(Select::Line)),
-    ("Select next occurrence", Command::Select(Select::NextOccurrence)),
-    ("Select all occurrences", Command::Select(Select::AllOccurrences)),
-    ("Add cursor above", Command::Select(Select::AddCursor(Direction::Backward))),
-    ("Add cursor below", Command::Select(Select::AddCursor(Direction::Forward))),
-    ("Set language", Command::Panel(PanelCommand::Picker(Pick::Language))),
+    (
+        "Select next occurrence",
+        Command::Select(Select::NextOccurrence),
+    ),
+    (
+        "Select all occurrences",
+        Command::Select(Select::AllOccurrences),
+    ),
+    (
+        "Add cursor above",
+        Command::Select(Select::AddCursor(Direction::Backward)),
+    ),
+    (
+        "Add cursor below",
+        Command::Select(Select::AddCursor(Direction::Forward)),
+    ),
+    (
+        "Set language",
+        Command::Panel(PanelCommand::Picker(Pick::Language)),
+    ),
 ];

@@ -41,7 +41,11 @@ pub struct Key {
 /// `Ctrl+Shift+Z`, the way a menu would print it.
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (flag, name) in [(Mods::CTRL, "Ctrl"), (Mods::ALT, "Alt"), (Mods::SHIFT, "Shift")] {
+        for (flag, name) in [
+            (Mods::CTRL, "Ctrl"),
+            (Mods::ALT, "Alt"),
+            (Mods::SHIFT, "Shift"),
+        ] {
             if self.mods.contains(flag) {
                 write!(f, "{name}+")?;
             }
@@ -176,7 +180,10 @@ mod tests {
     #[test]
     fn a_key_prints_the_way_a_menu_would() {
         let shown = |code, mods| Key { code, mods }.to_string();
-        assert_eq!(shown(KeyCode::Char('z'), Mods::CTRL | Mods::SHIFT), "Ctrl+Shift+Z");
+        assert_eq!(
+            shown(KeyCode::Char('z'), Mods::CTRL | Mods::SHIFT),
+            "Ctrl+Shift+Z"
+        );
         assert_eq!(shown(KeyCode::F(3), Mods::SHIFT), "Shift+F3");
         assert_eq!(shown(KeyCode::Char('/'), Mods::CTRL), "Ctrl+/");
         assert_eq!(shown(KeyCode::Esc, Mods::empty()), "Esc");

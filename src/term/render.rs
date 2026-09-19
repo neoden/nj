@@ -7,13 +7,13 @@ use std::ops::Range;
 
 use anyhow::Result;
 
-use super::grid::{Grid, CONTROL_PLACEHOLDER};
+use super::grid::{CONTROL_PLACEHOLDER, Grid};
+use crate::editor::Editor;
+use crate::editor::panel::Panel;
 use crate::editor::panel::picker::Picker;
 use crate::editor::panel::prompt::{Field, Prompt};
-use crate::editor::panel::Panel;
 use crate::editor::style::CellStyle;
 use crate::editor::view::LineHighlight;
-use crate::editor::Editor;
 use crate::text::layout::{self, Glyph};
 
 /// Panels and the status bar hold one-line strings rather than code, so a tab
@@ -52,7 +52,10 @@ impl Renderer {
         compose(&mut self.scratch, editor);
         self.scratch.flush(out, self.previous.as_ref())?;
 
-        let spare = self.previous.take().unwrap_or_else(|| Grid::new(width, height));
+        let spare = self
+            .previous
+            .take()
+            .unwrap_or_else(|| Grid::new(width, height));
         self.previous = Some(std::mem::replace(&mut self.scratch, spare));
         Ok(())
     }
@@ -88,7 +91,15 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
         grid.put_str(x, y, &number, gutter);
         let left = row.start_column + view.left_column;
         let columns = left..left + view.width();
-        draw_row(grid, x + view.gutter, y, columns, &text, buffer.tab_width(), &highlight);
+        draw_row(
+            grid,
+            x + view.gutter,
+            y,
+            columns,
+            &text,
+            buffer.tab_width(),
+            &highlight,
+        );
     }
 
     // What the panel asked for is not what it got: only the screen knows how
@@ -110,7 +121,12 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
     }
 
     let (left, right) = status(editor);
-    grid.put_str(x, screen.status_row(), &status_line(&left, &right, width), CellStyle::Status);
+    grid.put_str(
+        x,
+        screen.status_row(),
+        &status_line(&left, &right, width),
+        CellStyle::Status,
+    );
 }
 
 /// The right side is the document, always in the same place. The left side is
@@ -164,8 +180,17 @@ fn draw_row(
     tab_width: usize,
     highlight: &LineHighlight,
 ) {
-    let Range { start: left, end: right } = columns;
-    let mut painter = Painter { grid, x, y, left, highlight };
+    let Range {
+        start: left,
+        end: right,
+    } = columns;
+    let mut painter = Painter {
+        grid,
+        x,
+        y,
+        left,
+        highlight,
+    };
     let mut column = left;
 
     for cell in layout::cells(line, tab_width) {
@@ -208,7 +233,8 @@ struct Painter<'a> {
 impl Painter<'_> {
     fn put(&mut self, column: usize, cluster: &str, width: usize) {
         let style = self.highlight.style_at(column);
-        self.grid.put(self.x + column - self.left, self.y, cluster, width, style);
+        self.grid
+            .put(self.x + column - self.left, self.y, cluster, width, style);
     }
 
     fn blanks(&mut self, columns: Range<usize>) {
@@ -221,7 +247,14 @@ impl Painter<'_> {
 /// The query sits at the bottom, right above the status bar, and the list
 /// grows upwards from it. That way neither the field nor the best candidate
 /// moves as the list changes size.
-fn draw_picker(grid: &mut Grid, x: usize, picker: &Picker, top: usize, width: usize, height: usize) {
+fn draw_picker(
+    grid: &mut Grid,
+    x: usize,
+    picker: &Picker,
+    top: usize,
+    width: usize,
+    height: usize,
+) {
     // The query keeps the bottom row; candidates take what is left of a strip
     // that may be shorter than the list, best matches nearest the query.
     let rows = picker.visible().count().min(height - 1);
@@ -294,7 +327,14 @@ fn tail(text: &str, columns: usize) -> String {
 
 /// Each field is a labelled line with the caret drawn on it, since the real
 /// terminal cursor stays hidden and we paint our own everywhere else.
-fn draw_prompt(grid: &mut Grid, x: usize, prompt: &Prompt, top: usize, width: usize, height: usize) {
+fn draw_prompt(
+    grid: &mut Grid,
+    x: usize,
+    prompt: &Prompt,
+    top: usize,
+    width: usize,
+    height: usize,
+) {
     for (index, field) in prompt.fields.iter().take(height).enumerate() {
         draw_field(grid, x, field, index == prompt.active, top + index, width);
     }
@@ -359,9 +399,9 @@ mod tests {
     use crate::buffer::Buffer;
     use crate::editor::command::{Command, Edit, PanelCommand, Select};
     use crate::editor::panel::prompt::Purpose;
+    use crate::text::Text;
     use crate::text::movement::{Direction, Motion};
     use crate::text::selection::Selection;
-    use crate::text::Text;
 
     fn editor_of(content: &str, width: usize, height: usize) -> Editor {
         let mut editor = Editor::new(Buffer::from_text(Text::from_str(content)));
@@ -444,7 +484,9 @@ mod tests {
         let grid = composed(&editor, 80, 5);
         let gutter = editor.view().gutter;
 
-        let styles: Vec<_> = (0..5).map(|column| style_at(&grid, gutter + column, 0)).collect();
+        let styles: Vec<_> = (0..5)
+            .map(|column| style_at(&grid, gutter + column, 0))
+            .collect();
         assert_eq!(
             styles,
             [
@@ -539,7 +581,12 @@ mod tests {
         // already was, so it is not among them. The status bar follows suit:
         // the modified mark pushes the name over, and the column advances.
         assert_eq!(visible(&second), "Hhelo[scratch]*2");
-        assert!(second.len() * 4 < first.len(), "{} vs {}", second.len(), first.len());
+        assert!(
+            second.len() * 4 < first.len(),
+            "{} vs {}",
+            second.len(),
+            first.len()
+        );
     }
 
     #[test]

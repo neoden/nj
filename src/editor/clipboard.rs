@@ -4,9 +4,9 @@
 
 use std::ops::Range;
 
+use crate::text::Text;
 use crate::text::selection::{Selection, SelectionSet};
 use crate::text::transaction::{self, Change, CursorAfter, Transaction};
-use crate::text::Text;
 
 /// The clipboard outside the editor, whatever reaches it. The editor writes
 /// every copy there and, before a paste, asks whether someone else has
@@ -84,9 +84,10 @@ impl Clipboard {
     /// it as well. `None` when there was nothing to remove.
     pub fn cut_from(&self, text: &Text, selections: &SelectionSet) -> Option<Transaction> {
         if !self.lines {
-            let transaction = Transaction::edit(selections, CursorAfter::EndOfChange, |selection| {
-                (selection.range(), String::new())
-            });
+            let transaction =
+                Transaction::edit(selections, CursorAfter::EndOfChange, |selection| {
+                    (selection.range(), String::new())
+                });
             return (!transaction.is_empty()).then_some(transaction);
         }
 
@@ -98,9 +99,8 @@ impl Clipboard {
                 text: String::new(),
             })
             .collect();
-        let after = selections.mapped(|selection| {
-            Selection::cursor(transaction::displace(selection.head, &changes))
-        });
+        let after = selections
+            .mapped(|selection| Selection::cursor(transaction::displace(selection.head, &changes)));
         Some(Transaction::over_lines(selections, changes, after))
     }
 
@@ -156,7 +156,10 @@ mod tests {
 
     fn clipboard(pieces: &[&str], lines: bool) -> Clipboard {
         let mut clipboard = Clipboard::default();
-        clipboard.set(pieces.iter().map(|&piece| piece.to_owned()).collect(), lines);
+        clipboard.set(
+            pieces.iter().map(|&piece| piece.to_owned()).collect(),
+            lines,
+        );
         clipboard
     }
 
@@ -175,7 +178,10 @@ mod tests {
     #[test]
     fn mismatched_counts_get_everything_each() {
         let clipboard = clipboard(&["one", "two"], false);
-        assert_eq!(clipboard.pieces_for(3), ["one\ntwo", "one\ntwo", "one\ntwo"]);
+        assert_eq!(
+            clipboard.pieces_for(3),
+            ["one\ntwo", "one\ntwo", "one\ntwo"]
+        );
     }
 
     #[test]

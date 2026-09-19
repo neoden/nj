@@ -285,7 +285,10 @@ fn tab_in_a_prompt_moves_to_the_next_field() {
     typed(&mut editor, "y");
 
     let prompt = editor.prompt().expect("the replace prompt is open");
-    assert_eq!((prompt.contents(0), prompt.contents(1)), ("x".into(), "y".into()));
+    assert_eq!(
+        (prompt.contents(0), prompt.contents(1)),
+        ("x".into(), "y".into())
+    );
     assert_eq!(content(&editor), "x");
 }
 
@@ -502,7 +505,13 @@ fn clicks_land_past_the_gutter_and_drags_extend() {
 #[test]
 fn the_wheel_scrolls_without_moving_the_cursor() {
     let mut editor = editor_with(&"line\n".repeat(100));
-    mouse(&mut editor, MouseEventKind::ScrollDown, 0, 0, KeyModifiers::NONE);
+    mouse(
+        &mut editor,
+        MouseEventKind::ScrollDown,
+        0,
+        0,
+        KeyModifiers::NONE,
+    );
     assert_eq!(editor.view().top_line, 3);
     assert_eq!(head(&editor), 0);
 }

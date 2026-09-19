@@ -6,7 +6,9 @@
 use std::io::Write;
 
 use anyhow::Result;
-use crossterm::style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor};
+use crossterm::style::{
+    Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor,
+};
 use crossterm::{cursor, queue};
 
 use crate::editor::style::CellStyle;
@@ -251,7 +253,10 @@ mod tests {
         let mut grid = Grid::new(3, 1);
         grid.put_str(0, 0, "e\u{301}x", CellStyle::Normal);
         assert_eq!(grid.row_text(0), "e\u{301}x ");
-        assert!(matches!(grid.cell(0, 0).unwrap().symbol, Symbol::Cluster(_)));
+        assert!(matches!(
+            grid.cell(0, 0).unwrap().symbol,
+            Symbol::Cluster(_)
+        ));
     }
 
     fn flushed(grid: &Grid, previous: Option<&Grid>) -> String {

@@ -100,7 +100,9 @@ pub fn word(text: &Text, offset: usize, direction: Direction) -> usize {
 pub fn word_around(text: &Text, offset: usize) -> Range<usize> {
     let solid = |class: Option<Class>| class.filter(|&class| class != Class::Whitespace);
     let class = solid(Class::at(text, offset)).or_else(|| {
-        solid(step(text, offset, Direction::Backward).and_then(|previous| Class::at(text, previous)))
+        solid(
+            step(text, offset, Direction::Backward).and_then(|previous| Class::at(text, previous)),
+        )
     });
     let Some(class) = class else {
         return offset..offset;

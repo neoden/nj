@@ -142,7 +142,8 @@ impl Picker {
                 fuzzy::score(&found.label, &query).map(|score| Match { candidate, score })
             })
             .collect();
-        self.matches.sort_by_key(|found| std::cmp::Reverse(found.score));
+        self.matches
+            .sort_by_key(|found| std::cmp::Reverse(found.score));
         self.selected = 0;
     }
 
@@ -189,7 +190,10 @@ mod tests {
     }
 
     fn shown(picker: &Picker) -> Vec<&str> {
-        picker.visible().map(|(_, item)| item.label.as_str()).collect()
+        picker
+            .visible()
+            .map(|(_, item)| item.label.as_str())
+            .collect()
     }
 
     #[test]
@@ -201,7 +205,9 @@ mod tests {
     #[test]
     fn a_source_is_streamed_in_batches_and_then_the_worker_ends() {
         let (mut jobs, rx) = Jobs::new();
-        let items: Vec<Candidate> = (0..BATCH + 1).map(|n| Candidate::plain(n.to_string())).collect();
+        let items: Vec<Candidate> = (0..BATCH + 1)
+            .map(|n| Candidate::plain(n.to_string()))
+            .collect();
         let id = jobs.spawn(move |worker| stream(items.into_iter(), &worker));
 
         let mut reports = Vec::new();

@@ -115,9 +115,9 @@ impl Workspace {
 mod tests {
     use super::*;
     use crate::buffer::EditKind;
+    use crate::text::Text;
     use crate::text::selection::SelectionSet;
     use crate::text::transaction::{CursorAfter, Transaction};
-    use crate::text::Text;
 
     /// Two views on one buffer keep their own cursors (ADR 9), and the one
     /// not in focus is carried along through the edits it did not see.
@@ -133,9 +133,10 @@ mod tests {
         // Back in the first view, insert at the very start.
         workspace.focus_on(first);
         let (view, buffer) = workspace.focus_edit();
-        let transaction = Transaction::edit(&SelectionSet::single(0), CursorAfter::EndOfChange, |_| {
-            (0..0, "___".to_owned())
-        });
+        let transaction =
+            Transaction::edit(&SelectionSet::single(0), CursorAfter::EndOfChange, |_| {
+                (0..0, "___".to_owned())
+            });
         view.selections = buffer.apply(transaction, EditKind::Other);
         view.mark_current(buffer);
         assert_eq!(view.selections.primary().head, 3);

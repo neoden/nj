@@ -471,7 +471,10 @@ mod tests {
             let text = Text::from_str(&content);
 
             let hits: Vec<_> = text.matches("xyz").collect();
-            let expected: Vec<_> = (0..5).map(|i| offset - 10 + i * 3).map(|s| s..s + 3).collect();
+            let expected: Vec<_> = (0..5)
+                .map(|i| offset - 10 + i * 3)
+                .map(|s| s..s + 3)
+                .collect();
             assert_eq!(hits, expected, "at {offset}");
             assert_eq!(text.matches("a").count(), 4_000 - 15, "at {offset}");
         }

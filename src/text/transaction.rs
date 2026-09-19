@@ -1,8 +1,8 @@
 use std::ops::Range;
 
+use super::Text;
 use super::anchor::{self, Bias, Splice};
 use super::selection::{Selection, SelectionSet};
-use super::Text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
@@ -90,7 +90,9 @@ impl Transaction {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.changes.iter().all(|change| change.range.is_empty() && change.text.is_empty())
+        self.changes
+            .iter()
+            .all(|change| change.range.is_empty() && change.text.is_empty())
     }
 
     /// The geometry of the edit, which is what the buffer's journal keeps.
@@ -234,9 +236,10 @@ mod tests {
     #[test]
     fn deleting_reports_what_it_removed() {
         let mut text = Text::from_str("abcd");
-        let transaction = Transaction::edit(&SelectionSet::single(0), CursorAfter::EndOfChange, |_| {
-            (1..3, String::new())
-        });
+        let transaction =
+            Transaction::edit(&SelectionSet::single(0), CursorAfter::EndOfChange, |_| {
+                (1..3, String::new())
+            });
 
         let undo = transaction.apply(&mut text);
         assert_eq!(text.to_string(), "ad");

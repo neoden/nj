@@ -23,12 +23,12 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use crate::buffer::language::{self, Language};
 use crate::buffer::{Buffer, EditKind};
+use crate::text::Text;
 use crate::text::layout;
 use crate::text::movement::{self, Class, Direction, Motion};
 use crate::text::search::{Query, Session};
 use crate::text::selection::{Selection, SelectionSet};
 use crate::text::transaction::{CursorAfter, Transaction};
-use crate::text::Text;
 use clipboard::{Clipboard, Desktop};
 use command::{Command, Edit, File, PanelCommand, Select};
 use find::Occurrences;
@@ -204,7 +204,12 @@ impl Editor {
         let panel = self.panel_height();
         let (view, buffer) = self.workspace.focus_mut();
         let line_count = buffer.text().line_count();
-        self.screen = Screen::divide(term_width, term_height, view::gutter_width(line_count), panel);
+        self.screen = Screen::divide(
+            term_width,
+            term_height,
+            view::gutter_width(line_count),
+            panel,
+        );
         view.resize(self.screen.text, line_count);
     }
 
@@ -253,11 +258,13 @@ impl Editor {
                 (false, false) => self.search_next(direction),
                 (false, true) => {}
             },
-            Command::Select(Select::AllOccurrences) => match (self.search.is_some(), self.panel.is_some()) {
-                (true, _) => self.select_all_matches(),
-                (false, false) => self.select_all_occurrences(),
-                (false, true) => {}
-            },
+            Command::Select(Select::AllOccurrences) => {
+                match (self.search.is_some(), self.panel.is_some()) {
+                    (true, _) => self.select_all_matches(),
+                    (false, false) => self.select_all_occurrences(),
+                    (false, true) => {}
+                }
+            }
 
             Command::Scroll(rows) => self.scroll(rows),
             Command::Quit => self.request_quit(),
@@ -350,9 +357,7 @@ impl Editor {
     fn cell_in_view(&self, row: usize, column: usize) -> Option<(usize, usize)> {
         let view = self.view();
         let row = row.checked_sub(view.area.y)?;
-        (row < view.height()).then(|| {
-            (row, column.saturating_sub(view.area.x + view.gutter))
-        })
+        (row < view.height()).then(|| (row, column.saturating_sub(view.area.x + view.gutter)))
     }
 
     fn click(&mut self, row: usize, column: usize, add: bool) {
@@ -507,7 +512,7 @@ impl Editor {
                 return self.go_to_match(match backwards {
                     true => Direction::Backward,
                     false => Direction::Forward,
-                })
+                });
             }
             Purpose::GotoLine => match parse_line_number(&first) {
                 Some(line) => self.goto_line(line),
@@ -614,7 +619,10 @@ impl Editor {
     /// moves every cursor to the next tab stop from where it stands.
     fn indent(&mut self) {
         let (view, buffer) = self.workspace.focus();
-        let selecting = view.selections.iter().any(|selection| !selection.is_empty());
+        let selecting = view
+            .selections
+            .iter()
+            .any(|selection| !selection.is_empty());
         let transaction = match selecting {
             true => lines::indent(buffer.text(), &view.selections, buffer.indent),
             false => {
@@ -648,7 +656,11 @@ impl Editor {
 
     pub fn cursor_column(&self) -> usize {
         let (view, buffer) = self.workspace.focus();
-        column_at(buffer.text(), view.selections.primary().head, buffer.tab_width())
+        column_at(
+            buffer.text(),
+            view.selections.primary().head,
+            buffer.tab_width(),
+        )
     }
 
     /// A cursor with nothing selected eats the neighbouring text instead.
@@ -662,7 +674,8 @@ impl Editor {
                 let head = selection.head;
                 let range = if !selection.is_empty() {
                     selection.range()
-                } else if let Some(range) = lines::deletion_to_tab_stop(text, indent, motion, head) {
+                } else if let Some(range) = lines::deletion_to_tab_stop(text, indent, motion, head)
+                {
                     range
                 } else {
                     let target = match motion {
@@ -770,7 +783,11 @@ impl Editor {
 /// The display column an offset sits in on its line.
 fn column_at(text: &Text, offset: usize, tab_width: usize) -> usize {
     let line = text.line_of(offset);
-    layout::column_of_byte(&text.line_str(line), offset - text.line_start(line), tab_width)
+    layout::column_of_byte(
+        &text.line_str(line),
+        offset - text.line_start(line),
+        tab_width,
+    )
 }
 
 /// Line numbers are what people count from one.

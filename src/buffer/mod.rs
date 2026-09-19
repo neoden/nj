@@ -186,9 +186,13 @@ impl Buffer {
             return None;
         }
         let since = self.journal.len() - steps;
-        Some(self.journal.range(since..).fold(anchor.offset, |offset, step| {
-            anchor::displace(offset, step.iter().cloned(), anchor.bias)
-        }))
+        Some(
+            self.journal
+                .range(since..)
+                .fold(anchor.offset, |offset, step| {
+                    anchor::displace(offset, step.iter().cloned(), anchor.bias)
+                }),
+        )
     }
 
     /// The one place the text changes: whatever is applied is journaled, and
@@ -323,7 +327,9 @@ impl Buffer {
         let Some((last_kind, last_selections)) = &self.last_edit else {
             return false;
         };
-        kind != EditKind::Other && *last_kind == kind && last_selections == transaction.selections_before()
+        kind != EditKind::Other
+            && *last_kind == kind
+            && last_selections == transaction.selections_before()
     }
 
     pub fn undo(&mut self) -> Option<SelectionSet> {
@@ -532,7 +538,10 @@ fn write_atomically(path: &Path, contents: &str) -> Result<()> {
     // it is.
     let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let path = resolved.as_path();
-    let name = path.file_name().context("path names no file")?.to_string_lossy();
+    let name = path
+        .file_name()
+        .context("path names no file")?
+        .to_string_lossy();
     let directory = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -643,7 +652,11 @@ mod tests {
             let whole = Buffer::parse(content);
             let dribbled = Buffer::read(Trickle(content.as_bytes())).unwrap();
 
-            assert_eq!(dribbled.text.to_string(), whole.text.to_string(), "{content:?}");
+            assert_eq!(
+                dribbled.text.to_string(),
+                whole.text.to_string(),
+                "{content:?}"
+            );
             assert_eq!(dribbled.framing, whole.framing, "{content:?}");
         }
     }
@@ -661,11 +674,10 @@ mod tests {
     /// An edit the way the editor makes them: as a transaction, so that the
     /// history and the journal see it.
     fn insert(buffer: &mut Buffer, at: usize, text: &str) {
-        let transaction = Transaction::edit(
-            &SelectionSet::single(at),
-            CursorAfter::EndOfChange,
-            |_| (at..at, text.to_owned()),
-        );
+        let transaction =
+            Transaction::edit(&SelectionSet::single(at), CursorAfter::EndOfChange, |_| {
+                (at..at, text.to_owned())
+            });
         buffer.apply(transaction, EditKind::Other);
     }
 
@@ -690,12 +702,21 @@ mod tests {
         let _ = fs::remove_file(&path);
 
         let mut buffer = Buffer::open(&path).unwrap();
-        assert!(matches!(buffer.backing, Backing::File { on_disk: None, .. }));
+        assert!(matches!(
+            buffer.backing,
+            Backing::File { on_disk: None, .. }
+        ));
         insert(&mut buffer, 0, "fresh\n");
         buffer.save().unwrap();
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "fresh\n");
-        assert!(matches!(buffer.backing, Backing::File { on_disk: Some(_), .. }));
+        assert!(matches!(
+            buffer.backing,
+            Backing::File {
+                on_disk: Some(_),
+                ..
+            }
+        ));
 
         let _ = fs::remove_file(&path);
     }
@@ -794,10 +815,7 @@ mod tests {
         insert(&mut buffer, 0, "x");
         assert_eq!(buffer.resolve(old), None);
         // The one after it is still in reach.
-        let next = Anchor {
-            version: 1,
-            ..old
-        };
+        let next = Anchor { version: 1, ..old };
         assert_eq!(buffer.resolve(next), Some(JOURNAL_LIMIT));
     }
 

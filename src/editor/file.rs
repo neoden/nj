@@ -12,7 +12,7 @@ use super::job::Report;
 use super::panel::prompt::Purpose;
 use super::panel::{After, Answer, Confirm, Panel};
 use super::workspace::BufferId;
-use super::{key, Editor, Exit};
+use super::{Editor, Exit, key};
 use crate::buffer::{Backing, Buffer, Stamp};
 
 /// How often the file behind a buffer is looked at. Seconds are plenty: the

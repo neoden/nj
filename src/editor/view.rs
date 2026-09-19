@@ -142,8 +142,7 @@ impl View {
     /// Rows filling the screen, top to bottom.
     pub fn rows<'a>(&'a self, buffer: &'a Buffer) -> impl Iterator<Item = Row> + 'a {
         let text = buffer.text();
-        let first =
-            (self.top_line < text.line_count()).then(|| self.row(buffer, self.top_line, 0));
+        let first = (self.top_line < text.line_count()).then(|| self.row(buffer, self.top_line, 0));
         std::iter::successors(first, move |row| self.next_row(buffer, *row)).take(self.height())
     }
 
@@ -232,9 +231,13 @@ impl View {
                 let rows = self.height().saturating_sub(1).max(1);
                 self.move_by_rows(buffer, &selection, direction, rows)
             }
-            Motion::Grapheme(direction) => (movement::grapheme(text, selection.head, direction), None),
+            Motion::Grapheme(direction) => {
+                (movement::grapheme(text, selection.head, direction), None)
+            }
             Motion::Word(direction) => (movement::word(text, selection.head, direction), None),
-            Motion::LineEdge(direction) => (movement::line_edge(text, selection.head, direction), None),
+            Motion::LineEdge(direction) => {
+                (movement::line_edge(text, selection.head, direction), None)
+            }
             Motion::Document(direction) => (movement::document_edge(text, direction), None),
         };
 
@@ -260,9 +263,7 @@ impl View {
             selection.head - text.line_start(row.line),
             buffer.tab_width(),
         );
-        let goal = selection
-            .goal_column
-            .unwrap_or(column - row.start_column);
+        let goal = selection.goal_column.unwrap_or(column - row.start_column);
 
         let mut target = row;
         for _ in 0..rows {
@@ -421,8 +422,8 @@ fn digits(n: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::screen::Screen;
+    use super::*;
     use crate::text::Text;
 
     fn buf(content: &str) -> Buffer {
@@ -493,7 +494,6 @@ mod tests {
         view.scroll_lines(99, &buffer);
         assert_eq!(view.top_line, 6);
         assert_eq!(visible_lines(&view, &buffer), 6..10);
-
     }
 
     #[test]
@@ -526,7 +526,10 @@ mod tests {
 
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[1].line, 1);
-        assert!(rows.iter().all(|row| row.index == 0 && row.start_column == 0));
+        assert!(
+            rows.iter()
+                .all(|row| row.index == 0 && row.start_column == 0)
+        );
     }
 
     #[test]
@@ -630,7 +633,10 @@ mod tests {
         fit(&mut view, 80, 11, buffer.text().line_count());
 
         view.move_selections(&buffer, Motion::Page(Direction::Forward), false);
-        assert_eq!(buffer.text().line_of(view.selections.primary().head), view.height() - 1);
+        assert_eq!(
+            buffer.text().line_of(view.selections.primary().head),
+            view.height() - 1
+        );
 
         view.move_selections(&buffer, Motion::Page(Direction::Backward), false);
         assert_eq!(view.selections.primary().head, 0);

@@ -6,10 +6,10 @@
 use std::ops::Range;
 
 use crate::buffer::language::Indent;
+use crate::text::Text;
 use crate::text::movement::{Direction, Motion};
 use crate::text::selection::{Selection, SelectionSet};
 use crate::text::transaction::{self, Change, CursorAfter, Transaction};
-use crate::text::Text;
 
 /// A new line starts where the current one starts. Nothing language-aware
 /// happens here: opening a block deepens the indent only once there is a

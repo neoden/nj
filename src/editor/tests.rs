@@ -2,13 +2,13 @@
 //! methods that implement it. What a key means is `tests/dispatch.rs`.
 
 use super::*;
-use crate::buffer::language::Indent;
 use crate::buffer::Backing;
-use find::MAX_CURSORS;
-use panel::Answer;
+use crate::buffer::language::Indent;
+use crate::text::Text;
 use crate::text::movement::Direction;
 use crate::text::selection::{Selection, SelectionSet};
-use crate::text::Text;
+use find::MAX_CURSORS;
+use panel::Answer;
 
 fn editor(content: &str, offset: usize) -> Editor {
     let mut editor = Editor::new(Buffer::from_text(Text::from_str(content)));
@@ -594,7 +594,10 @@ fn a_file_changed_elsewhere_is_not_overwritten_unasked() {
 
     editor.execute(Command::File(File::Save));
     assert_eq!(confirm(&editor), Some(vec![Answer::Overwrite(After::Stay)]));
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs, and longer\n");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "theirs, and longer\n"
+    );
     assert!(editor.buffer().is_modified());
 
     editor.execute(Command::Panel(PanelCommand::Answer('o')));
@@ -694,7 +697,10 @@ fn save_and_quit_still_quits_after_agreeing_to_overwrite() {
     // Declining leaves everything as it was: not written, not quit.
     editor.execute(Command::Panel(PanelCommand::Close));
     assert_eq!(editor.exit(), None);
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs, and longer\n");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "theirs, and longer\n"
+    );
 
     editor.execute(Command::Quit);
     editor.execute(Command::Panel(PanelCommand::Answer('s')));
@@ -713,9 +719,13 @@ fn scratch_path(name: &str) -> std::path::PathBuf {
 /// nothing is being asked.
 fn confirm(editor: &Editor) -> Option<Vec<Answer>> {
     match &editor.panel {
-        Some(Panel::Confirm(confirm)) => {
-            Some(confirm.choices.iter().map(|choice| choice.answer.clone()).collect())
-        }
+        Some(Panel::Confirm(confirm)) => Some(
+            confirm
+                .choices
+                .iter()
+                .map(|choice| choice.answer.clone())
+                .collect(),
+        ),
         _ => None,
     }
 }
@@ -814,7 +824,10 @@ fn a_question_ignores_keys_that_answer_nothing() {
     editor.insert("!");
     editor.execute(Command::Quit);
     editor.execute(Command::Panel(PanelCommand::Answer('d')));
-    assert_eq!(confirm(&editor), Some(vec![Answer::Save(After::Quit), Answer::Quit]));
+    assert_eq!(
+        confirm(&editor),
+        Some(vec![Answer::Save(After::Quit), Answer::Quit])
+    );
     assert_eq!(editor.exit(), None);
 }
 
@@ -854,7 +867,10 @@ fn saving_as_names_a_scratch_buffer_and_asks_before_taking_a_file_that_exists() 
     assert_eq!(editor.buffer().name(), fresh.display().to_string());
 
     editor.execute(Command::File(File::SaveAs(taken.clone())));
-    assert_eq!(confirm(&editor), Some(vec![Answer::Replace(taken.clone(), After::Stay)]));
+    assert_eq!(
+        confirm(&editor),
+        Some(vec![Answer::Replace(taken.clone(), After::Stay)])
+    );
     // Not renamed until agreed to.
     assert_eq!(editor.buffer().name(), fresh.display().to_string());
     editor.execute(Command::Panel(PanelCommand::Answer('o')));
@@ -1004,7 +1020,9 @@ fn a_save_that_fails_cancels_the_quit() {
 
     // Saving under another name that cannot be written either changes
     // nothing: the buffer keeps its name and its changes.
-    editor.execute(Command::File(File::SaveAs(scratch_path("unwritable").join("other"))));
+    editor.execute(Command::File(File::SaveAs(
+        scratch_path("unwritable").join("other"),
+    )));
     assert!(editor.message().unwrap().starts_with("cannot write"));
     assert_eq!(editor.buffer().name(), path.display().to_string());
     assert!(editor.buffer().is_modified());
@@ -1025,8 +1043,13 @@ fn the_path_prompts_open_and_save_what_is_typed() {
     editor.submit_prompt(false);
     assert_eq!(content(&editor), "first\n");
 
-    editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay))));
-    assert_eq!(editor.prompt().unwrap().contents(0), first.display().to_string());
+    editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(
+        After::Stay,
+    ))));
+    assert_eq!(
+        editor.prompt().unwrap().contents(0),
+        first.display().to_string()
+    );
     editor.execute(Command::Select(Select::All));
     type_into_prompt(&mut editor, &second.display().to_string());
     editor.submit_prompt(false);
@@ -1237,7 +1260,9 @@ fn narrowing_a_query_finds_what_scanning_would() {
     assert_eq!(editor.matches(), vec![7..11]);
 
     // Backspace cannot narrow, so this one has to read the document again.
-    editor.execute(Command::Edit(Edit::Delete(Motion::Grapheme(Direction::Backward))));
+    editor.execute(Command::Edit(Edit::Delete(Motion::Grapheme(
+        Direction::Backward,
+    ))));
     assert_eq!(editor.matches(), [3..6, 7..10]);
 }
 

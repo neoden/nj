@@ -94,7 +94,10 @@ mod tests {
     #[test]
     fn a_key_arrives_with_its_modifiers() {
         assert_eq!(
-            pressed(key(TermKeyCode::Char('K'), KeyModifiers::CONTROL | KeyModifiers::SHIFT)),
+            pressed(key(
+                TermKeyCode::Char('K'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            )),
             Some(Key::new(KeyCode::Char('k'), Mods::CTRL | Mods::SHIFT))
         );
         assert_eq!(
@@ -139,9 +142,15 @@ mod tests {
         );
         assert!(matches!(
             translate(event(MouseEventKind::ScrollUp)),
-            Some(Input::Mouse(Mouse { kind: MouseKind::ScrollUp, .. }))
+            Some(Input::Mouse(Mouse {
+                kind: MouseKind::ScrollUp,
+                ..
+            }))
         ));
-        assert_eq!(translate(event(MouseEventKind::Down(MouseButton::Right))), None);
+        assert_eq!(
+            translate(event(MouseEventKind::Down(MouseButton::Right))),
+            None
+        );
         assert_eq!(translate(event(MouseEventKind::Moved)), None);
     }
 }

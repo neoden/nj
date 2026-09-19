@@ -6,9 +6,9 @@
 
 use std::ops::Range;
 
+use super::Text;
 use super::movement::{Class, Direction};
 use super::selection::{Selection, SelectionSet};
-use super::Text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Query {
@@ -249,7 +249,10 @@ mod tests {
         let query = Query::word("a");
         assert_eq!(query.find(&text, 0, Direction::Forward), Some(3..4));
         assert_eq!(query.find(&text, 7, Direction::Backward), Some(3..4));
-        assert_eq!(Query::word("ab").find(&text, 1, Direction::Forward), Some(5..7));
+        assert_eq!(
+            Query::word("ab").find(&text, 1, Direction::Forward),
+            Some(5..7)
+        );
     }
 
     #[test]

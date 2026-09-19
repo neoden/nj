@@ -7,12 +7,12 @@
 //! this table: commands that act on the text are bound in `Context::Text`,
 //! and in a panel they simply do not match.
 
+use super::Editor;
 use super::command::{Command, Edit, File, PanelCommand, Select};
 use super::key::{Key, KeyCode, Keystroke, Mods};
 use super::panel::picker::{self, Pick};
 use super::panel::prompt::Purpose;
 use super::panel::{After, Panel};
-use super::Editor;
 use crate::text::movement::{Direction, Motion};
 
 /// Where a binding applies.
@@ -126,30 +126,69 @@ const fn mv(code: KeyCode, mods: Mods, motion: Motion) -> Binding {
     )
 }
 
-use Context::{Any, MultipleCursors, Panel as InPanel, Picker as InPicker, Prompt as InPrompt, Text};
+use Context::{
+    Any, MultipleCursors, Panel as InPanel, Picker as InPicker, Prompt as InPrompt, Text,
+};
 use Direction::{Backward, Forward};
-use KeyCode::{Backspace, Char, Delete, Down, End, Enter, Esc, Home, Left, PageDown, PageUp, Right, Tab, Up, F};
+use KeyCode::{
+    Backspace, Char, Delete, Down, End, Enter, Esc, F, Home, Left, PageDown, PageUp, Right, Tab, Up,
+};
 use Motion::{Document, Grapheme, LineEdge, Page, Row, Word};
 
 pub static KEYMAP: &[Binding] = &[
     // Panels. `Esc` always means "never mind".
     bind(Esc, NONE, InPanel, Command::Panel(PanelCommand::Close)),
-    bind(Enter, NONE, InPrompt, Command::Panel(PanelCommand::Submit { backwards: false })),
-    bind(Enter, SHIFT, InPrompt, Command::Panel(PanelCommand::Submit { backwards: true })),
+    bind(
+        Enter,
+        NONE,
+        InPrompt,
+        Command::Panel(PanelCommand::Submit { backwards: false }),
+    ),
+    bind(
+        Enter,
+        SHIFT,
+        InPrompt,
+        Command::Panel(PanelCommand::Submit { backwards: true }),
+    ),
     bind(Tab, NONE, InPrompt, Command::Panel(PanelCommand::NextField)),
     bind(Enter, NONE, InPicker, Command::Panel(PanelCommand::Pick)),
     // The list grows upwards from the query, so moving up the screen means
     // moving away from the best match.
-    bind(Up, NONE, InPicker, Command::Panel(PanelCommand::MoveChoice(1))),
-    bind(Down, NONE, InPicker, Command::Panel(PanelCommand::MoveChoice(-1))),
-    bind(PageUp, NONE, InPicker, Command::Panel(PanelCommand::MoveChoice(picker::VISIBLE as isize))),
-    bind(PageDown, NONE, InPicker, Command::Panel(PanelCommand::MoveChoice(-(picker::VISIBLE as isize)))),
+    bind(
+        Up,
+        NONE,
+        InPicker,
+        Command::Panel(PanelCommand::MoveChoice(1)),
+    ),
+    bind(
+        Down,
+        NONE,
+        InPicker,
+        Command::Panel(PanelCommand::MoveChoice(-1)),
+    ),
+    bind(
+        PageUp,
+        NONE,
+        InPicker,
+        Command::Panel(PanelCommand::MoveChoice(picker::VISIBLE as isize)),
+    ),
+    bind(
+        PageDown,
+        NONE,
+        InPicker,
+        Command::Panel(PanelCommand::MoveChoice(-(picker::VISIBLE as isize))),
+    ),
     // A question is answered by a bare letter, which `resolve` handles; no
     // binding is needed, and `Ctrl+Q` in particular must not match (D7).
     // The text.
     bind(Char('q'), CTRL, Text, Command::Quit),
     bind(Char('q'), CTRL_SHIFT, Text, Command::Abort),
-    bind(Esc, NONE, MultipleCursors, Command::Select(Select::RemoveSecondary)),
+    bind(
+        Esc,
+        NONE,
+        MultipleCursors,
+        Command::Select(Select::RemoveSecondary),
+    ),
     bind(Esc, NONE, Text, Command::Select(Select::Cancel)),
     bind(Enter, NONE, Text, Command::Edit(Edit::Newline)),
     bind(Tab, SHIFT, Text, Command::Edit(Edit::Outdent)),
@@ -158,31 +197,101 @@ pub static KEYMAP: &[Binding] = &[
     bind(Char('y'), CTRL, Text, Command::Edit(Edit::Redo)),
     bind(Char('z'), CTRL, Text, Command::Edit(Edit::Undo)),
     bind(Char('s'), CTRL, Text, Command::File(File::Save)),
-    bind(Char('s'), CTRL_SHIFT, Text, Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay)))),
-    bind(Char('o'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::Open))),
-    bind(Char('g'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::GotoLine))),
-    bind(Char('f'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::Search))),
-    bind(Char('h'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::Replace))),
-    bind(Char('p'), CTRL_SHIFT, Text, Command::Panel(PanelCommand::Picker(Pick::Command))),
+    bind(
+        Char('s'),
+        CTRL_SHIFT,
+        Text,
+        Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay))),
+    ),
+    bind(
+        Char('o'),
+        CTRL,
+        Text,
+        Command::Panel(PanelCommand::Prompt(Purpose::Open)),
+    ),
+    bind(
+        Char('g'),
+        CTRL,
+        Text,
+        Command::Panel(PanelCommand::Prompt(Purpose::GotoLine)),
+    ),
+    bind(
+        Char('f'),
+        CTRL,
+        Text,
+        Command::Panel(PanelCommand::Prompt(Purpose::Search)),
+    ),
+    bind(
+        Char('h'),
+        CTRL,
+        Text,
+        Command::Panel(PanelCommand::Prompt(Purpose::Replace)),
+    ),
+    bind(
+        Char('p'),
+        CTRL_SHIFT,
+        Text,
+        Command::Panel(PanelCommand::Picker(Pick::Command)),
+    ),
     bind(Char('c'), CTRL, Text, Command::Edit(Edit::Copy)),
     bind(Char('x'), CTRL, Text, Command::Edit(Edit::Cut)),
     bind(Char('v'), CTRL, Text, Command::Edit(Edit::Paste)),
-    bind(Char('d'), CTRL, Text, Command::Select(Select::NextOccurrence)),
+    bind(
+        Char('d'),
+        CTRL,
+        Text,
+        Command::Select(Select::NextOccurrence),
+    ),
     bind(Char('l'), CTRL, Text, Command::Select(Select::Line)),
     bind(Char('/'), CTRL, Text, Command::Edit(Edit::ToggleComment)),
-    bind(Up, CTRL_ALT, Text, Command::Select(Select::AddCursor(Backward))),
-    bind(Down, CTRL_ALT, Text, Command::Select(Select::AddCursor(Forward))),
+    bind(
+        Up,
+        CTRL_ALT,
+        Text,
+        Command::Select(Select::AddCursor(Backward)),
+    ),
+    bind(
+        Down,
+        CTRL_ALT,
+        Text,
+        Command::Select(Select::AddCursor(Forward)),
+    ),
     bind(Up, CTRL, Text, Command::Scroll(-1)),
     bind(Down, CTRL, Text, Command::Scroll(1)),
     // Wherever the keyboard is: the field of a panel, or the text.
     bind(F(3), SHIFT, Any, Command::FindNext(Backward)),
     bind(F(3), NONE, Any, Command::FindNext(Forward)),
-    bind(Char('l'), CTRL_SHIFT, Any, Command::Select(Select::AllOccurrences)),
+    bind(
+        Char('l'),
+        CTRL_SHIFT,
+        Any,
+        Command::Select(Select::AllOccurrences),
+    ),
     bind(Char('a'), CTRL, Any, Command::Select(Select::All)),
-    bind(Backspace, CTRL, Any, Command::Edit(Edit::Delete(Word(Backward)))),
-    bind(Delete, CTRL, Any, Command::Edit(Edit::Delete(Word(Forward)))),
-    bind(Backspace, NONE, Any, Command::Edit(Edit::Delete(Grapheme(Backward)))),
-    bind(Delete, NONE, Any, Command::Edit(Edit::Delete(Grapheme(Forward)))),
+    bind(
+        Backspace,
+        CTRL,
+        Any,
+        Command::Edit(Edit::Delete(Word(Backward))),
+    ),
+    bind(
+        Delete,
+        CTRL,
+        Any,
+        Command::Edit(Edit::Delete(Word(Forward))),
+    ),
+    bind(
+        Backspace,
+        NONE,
+        Any,
+        Command::Edit(Edit::Delete(Grapheme(Backward))),
+    ),
+    bind(
+        Delete,
+        NONE,
+        Any,
+        Command::Edit(Edit::Delete(Grapheme(Forward))),
+    ),
     mv(Left, CTRL, Word(Backward)),
     mv(Left, CTRL_SHIFT, Word(Backward)),
     mv(Right, CTRL, Word(Forward)),
@@ -220,9 +329,9 @@ mod tests {
     #[test]
     fn no_binding_is_shadowed_by_an_earlier_one() {
         for (later, binding) in KEYMAP.iter().enumerate() {
-            let shadow = KEYMAP[..later]
-                .iter()
-                .find(|earlier| earlier.key == binding.key && earlier.context.covers(binding.context));
+            let shadow = KEYMAP[..later].iter().find(|earlier| {
+                earlier.key == binding.key && earlier.context.covers(binding.context)
+            });
             assert!(
                 shadow.is_none(),
                 "{:?} in {:?} is unreachable behind {:?}",

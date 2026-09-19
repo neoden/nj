@@ -77,7 +77,11 @@ impl Confirm {
         Self::new(
             "Unsaved changes",
             vec![
-                ('s', "Save and open", Answer::Save(After::Open(path.clone()))),
+                (
+                    's',
+                    "Save and open",
+                    Answer::Save(After::Open(path.clone())),
+                ),
                 ('d', "Discard and open", Answer::Open(path)),
             ],
         )
@@ -86,17 +90,26 @@ impl Confirm {
     /// The file changed on disk since it was read. Asked on the way out as
     /// well, when "save and quit" runs into it.
     pub fn overwrite(after: After) -> Self {
-        Self::new("File changed on disk", vec![('o', "Overwrite", Answer::Overwrite(after))])
+        Self::new(
+            "File changed on disk",
+            vec![('o', "Overwrite", Answer::Overwrite(after))],
+        )
     }
 
     /// Saving as a file that exists.
     pub fn replace(path: PathBuf, after: After) -> Self {
-        Self::new("File exists", vec![('o', "Overwrite", Answer::Replace(path, after))])
+        Self::new(
+            "File exists",
+            vec![('o', "Overwrite", Answer::Replace(path, after))],
+        )
     }
 
     /// Unsaved changes would go with the abort.
     pub fn abort() -> Self {
-        Self::new("Unsaved changes", vec![('a', "Abort anyway", Answer::Abort)])
+        Self::new(
+            "Unsaved changes",
+            vec![('a', "Abort anyway", Answer::Abort)],
+        )
     }
 
     /// What `key` answers, if it answers anything.
