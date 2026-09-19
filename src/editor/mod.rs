@@ -52,6 +52,14 @@ fn too_many_hits() -> String {
     format!("More than {MAX_CURSORS} occurrences; select fewer")
 }
 
+/// How the editor is leaving: the usual way, handing on what was saved, or
+/// aborting — nothing written, and a failure code for whoever is waiting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exit {
+    Quit,
+    Abort,
+}
+
 /// The editor behind its boundary (ADR 16): commands go in through
 /// `execute`, reports from its own workers through `receive`, and what comes
 /// out is read-only. No `&mut` to anything inside leaves this type, and no
@@ -70,7 +78,8 @@ pub struct Editor {
     search: Option<Session>,
     /// What `F3` repeats once the prompt has closed.
     last: Option<Query>,
-    quit: bool,
+    /// Set once the loop should stop; how says what the process ends with.
+    exit: Option<Exit>,
     occurrences: Option<Occurrences>,
     /// The clipboard outside the process, when there is one to talk to.
     desktop: Option<Box<dyn Desktop>>,
@@ -94,7 +103,7 @@ impl Editor {
             message: None,
             search: None,
             last: None,
-            quit: false,
+            exit: None,
             occurrences: None,
             desktop: None,
             jobs,
@@ -219,7 +228,11 @@ impl Editor {
     }
 
     pub fn should_quit(&self) -> bool {
-        self.quit
+        self.exit.is_some()
+    }
+
+    pub fn exit(&self) -> Option<Exit> {
+        self.exit
     }
 
     /// Something the process wants the user to know, from outside any
@@ -287,6 +300,7 @@ impl Editor {
 
             Command::Scroll(rows) => self.scroll(rows),
             Command::Quit => self.request_quit(),
+            Command::Abort => self.request_abort(),
 
             Command::Edit(Edit::Newline) => self.insert_newline(),
             Command::Edit(Edit::Indent) => self.indent(),
@@ -701,7 +715,7 @@ impl Editor {
     fn proceed(&mut self, after: After) {
         match after {
             After::Stay => {}
-            After::Quit => self.quit = true,
+            After::Quit => self.exit = Some(Exit::Quit),
             After::Open(path) => self.replace(path),
         }
     }
@@ -735,8 +749,17 @@ impl Editor {
     /// Nothing is ever discarded without being asked about first.
     fn request_quit(&mut self) {
         match self.buffer().is_modified() {
-            false => self.quit = true,
+            false => self.exit = Some(Exit::Quit),
             true => self.panel = Some(Panel::Confirm(Confirm::leave(After::Quit))),
+        }
+    }
+
+    /// Nothing is written and the process fails — on purpose, so it is
+    /// still asked about when there is something to lose.
+    fn request_abort(&mut self) {
+        match self.buffer().is_modified() {
+            false => self.exit = Some(Exit::Abort),
+            true => self.panel = Some(Panel::Confirm(Confirm::abort())),
         }
     }
 
@@ -787,7 +810,8 @@ impl Editor {
 
         match (about, answer) {
             (Question::Leave(after), 's') => self.save(after),
-            (Question::Leave(After::Quit), 'q') => self.quit = true,
+            (Question::Leave(After::Quit), 'q') => self.exit = Some(Exit::Quit),
+            (Question::Abort, 'a') => self.exit = Some(Exit::Abort),
             (Question::Leave(After::Open(path)), 'd') => self.replace(path),
             (Question::Overwrite(after), 'o') => {
                 if self.write() {

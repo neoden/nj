@@ -1,14 +1,15 @@
 use std::io::{self, IsTerminal};
+use std::process::ExitCode;
 
 use anyhow::Result;
 
 use ned::buffer::Buffer;
-use ned::editor::Editor;
+use ned::editor::{Editor, Exit};
 use ned::term::app;
 use ned::term::system_clipboard::SystemClipboard;
 use ned::term::terminal::{self, Terminal};
 
-fn main() -> Result<()> {
+fn main() -> Result<ExitCode> {
     terminal::install_panic_hook();
 
     // A path wins over a pipe: `ned file < input` edits the file.
@@ -31,8 +32,13 @@ fn main() -> Result<()> {
     drop(term);
     result?;
 
+    // An abort hands nothing on and fails, so that a pipeline or a commit
+    // waiting on the editor stops here.
+    if editor.exit() == Some(Exit::Abort) {
+        return Ok(ExitCode::FAILURE);
+    }
     if let Some(mut downstream) = downstream {
         editor.buffer().finish(&mut downstream)?;
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }

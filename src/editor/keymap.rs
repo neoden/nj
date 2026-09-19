@@ -148,6 +148,7 @@ pub static KEYMAP: &[Binding] = &[
     // binding is needed, and `Ctrl+Q` in particular must not match (D7).
     // The text.
     bind(Char('q'), CTRL, Text, Command::Quit),
+    bind(Char('q'), CTRL_SHIFT, Text, Command::Abort),
     bind(Esc, NONE, MultipleCursors, Command::Select(Select::RemoveSecondary)),
     bind(Esc, NONE, Text, Command::Select(Select::Cancel)),
     bind(Enter, NONE, Text, Command::Edit(Edit::Newline)),

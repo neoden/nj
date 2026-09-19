@@ -29,6 +29,9 @@ pub enum Command {
     File(File),
     Panel(PanelCommand),
     Quit,
+    /// Leaves with a failure code and writes nothing, so that whatever is
+    /// waiting on the editor — a commit, a pipeline — does not go on.
+    Abort,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +106,7 @@ pub const PALETTE: &[(&str, Command)] = &[
     ("Save", Command::File(File::Save)),
     ("Save as", Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay)))),
     ("Quit", Command::Quit),
+    ("Abort", Command::Abort),
     ("Undo", Command::Edit(Edit::Undo)),
     ("Redo", Command::Edit(Edit::Redo)),
     ("Cut", Command::Edit(Edit::Cut)),

@@ -25,6 +25,8 @@ pub enum Question {
     Overwrite(After),
     /// Saving as a file that exists.
     Replace(PathBuf, After),
+    /// Unsaved changes would go with the abort.
+    Abort,
 }
 
 /// What a save was in aid of, to be carried on with once it has gone
@@ -56,6 +58,14 @@ impl Confirm {
             question: "File changed on disk",
             answers: &[('o', "Overwrite")],
             about: Question::Overwrite(after),
+        }
+    }
+
+    pub fn abort() -> Self {
+        Self {
+            question: "Unsaved changes",
+            answers: &[('a', "Abort anyway")],
+            about: Question::Abort,
         }
     }
 
