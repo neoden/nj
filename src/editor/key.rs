@@ -1,7 +1,6 @@
 use std::fmt;
 
 use bitflags::bitflags;
-use crossterm::event::{KeyCode as TermKeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,6 +67,22 @@ impl fmt::Display for Key {
     }
 }
 
+impl Key {
+    /// Normalized for a keymap: a character is lowercased, its case being in
+    /// the SHIFT flag, and under CTRL or ALT mapped to its physical position
+    /// (ADR 7). Only combinations can be layout-dependent; plain text never is.
+    pub fn new(code: KeyCode, mods: Mods) -> Self {
+        let code = match code {
+            KeyCode::Char(c) if mods.intersects(Mods::CTRL | Mods::ALT) => {
+                KeyCode::Char(physical_key(lowercase(c)))
+            }
+            KeyCode::Char(c) => KeyCode::Char(lowercase(c)),
+            other => other,
+        };
+        Self { code, mods }
+    }
+}
+
 /// What arrived from the keyboard: the key a keymap matches on, and the
 /// character it inserts if it inserts one. The two are kept apart because
 /// the key is normalized — lowercased, mapped to the physical position —
@@ -79,75 +94,17 @@ pub struct Keystroke {
 }
 
 impl Keystroke {
-    /// `None` for a release, which no binding is interested in.
-    pub fn from_event(event: &KeyEvent) -> Option<Self> {
-        Some(Self {
-            key: Key::from_event(event)?,
-            text: text_char(event),
-        })
-    }
-}
-
-impl Key {
-    pub fn from_event(event: &KeyEvent) -> Option<Self> {
-        if event.kind == KeyEventKind::Release {
-            return None;
-        }
-
-        let mut mods = Mods::empty();
-        mods.set(Mods::CTRL, event.modifiers.contains(KeyModifiers::CONTROL));
-        mods.set(Mods::ALT, event.modifiers.contains(KeyModifiers::ALT));
-        mods.set(Mods::SHIFT, event.modifiers.contains(KeyModifiers::SHIFT));
-
-        let code = match event.code {
-            TermKeyCode::Char(c) => {
-                let c = lowercase(c);
-                // Only combinations can be layout-dependent; plain text never is.
-                let c = if mods.intersects(Mods::CTRL | Mods::ALT) {
-                    physical_key(c)
-                } else {
-                    c
-                };
-                KeyCode::Char(c)
-            }
-            TermKeyCode::BackTab => {
-                mods |= Mods::SHIFT;
-                KeyCode::Tab
-            }
-            TermKeyCode::Enter => KeyCode::Enter,
-            TermKeyCode::Tab => KeyCode::Tab,
-            TermKeyCode::Backspace => KeyCode::Backspace,
-            TermKeyCode::Delete => KeyCode::Delete,
-            TermKeyCode::Insert => KeyCode::Insert,
-            TermKeyCode::Esc => KeyCode::Esc,
-            TermKeyCode::Left => KeyCode::Left,
-            TermKeyCode::Right => KeyCode::Right,
-            TermKeyCode::Up => KeyCode::Up,
-            TermKeyCode::Down => KeyCode::Down,
-            TermKeyCode::Home => KeyCode::Home,
-            TermKeyCode::End => KeyCode::End,
-            TermKeyCode::PageUp => KeyCode::PageUp,
-            TermKeyCode::PageDown => KeyCode::PageDown,
-            TermKeyCode::F(n) => KeyCode::F(n),
-            _ => return None,
+    /// From the key as the terminal reported it. A combination with CTRL or
+    /// ALT inserts nothing, whatever character it came with.
+    pub fn new(code: KeyCode, mods: Mods) -> Self {
+        let text = match code {
+            KeyCode::Char(c) if !mods.intersects(Mods::CTRL | Mods::ALT) => Some(c),
+            _ => None,
         };
-
-        Some(Self { code, mods })
-    }
-}
-
-/// The character a keystroke should insert, if any.
-fn text_char(event: &KeyEvent) -> Option<char> {
-    if event.kind == KeyEventKind::Release
-        || event
-            .modifiers
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-    {
-        return None;
-    }
-    match event.code {
-        TermKeyCode::Char(c) => Some(c),
-        _ => None,
+        Self {
+            key: Key::new(code, mods),
+            text,
+        }
     }
 }
 
@@ -171,12 +128,8 @@ fn lowercase(c: char) -> char {
 mod tests {
     use super::*;
 
-    fn key(code: TermKeyCode, modifiers: KeyModifiers) -> KeyEvent {
-        KeyEvent::new(code, modifiers)
-    }
-
-    fn expected(code: KeyCode, mods: Mods) -> Option<Key> {
-        Some(Key { code, mods })
+    fn expected(code: KeyCode, mods: Mods) -> Key {
+        Key { code, mods }
     }
 
     #[test]
@@ -186,56 +139,38 @@ mod tests {
 
     #[test]
     fn combination_uses_physical_key() {
-        let event = key(TermKeyCode::Char('ф'), KeyModifiers::CONTROL);
         assert_eq!(
-            Key::from_event(&event),
+            Key::new(KeyCode::Char('ф'), Mods::CTRL),
             expected(KeyCode::Char('a'), Mods::CTRL)
         );
     }
 
     #[test]
     fn plain_text_keeps_its_character() {
-        let event = key(TermKeyCode::Char('ф'), KeyModifiers::NONE);
-        assert_eq!(
-            Key::from_event(&event),
-            expected(KeyCode::Char('ф'), Mods::empty())
-        );
-        assert_eq!(Keystroke::from_event(&event).and_then(|s| s.text), Some('ф'));
+        let stroke = Keystroke::new(KeyCode::Char('ф'), Mods::empty());
+        assert_eq!(stroke.key, expected(KeyCode::Char('ф'), Mods::empty()));
+        assert_eq!(stroke.text, Some('ф'));
     }
 
     #[test]
     fn the_key_is_normalized_and_the_text_is_not() {
-        let event = key(TermKeyCode::Char('K'), KeyModifiers::SHIFT);
-        let stroke = Keystroke::from_event(&event).unwrap();
+        let stroke = Keystroke::new(KeyCode::Char('K'), Mods::SHIFT);
         assert_eq!(stroke.key.code, KeyCode::Char('k'));
         assert_eq!(stroke.text, Some('K'));
     }
 
     #[test]
     fn case_lives_in_the_shift_flag() {
-        let event = key(
-            TermKeyCode::Char('K'),
-            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-        );
         assert_eq!(
-            Key::from_event(&event),
+            Key::new(KeyCode::Char('K'), Mods::CTRL | Mods::SHIFT),
             expected(KeyCode::Char('k'), Mods::CTRL | Mods::SHIFT)
         );
     }
 
     #[test]
-    fn back_tab_is_shift_tab() {
-        let event = key(TermKeyCode::BackTab, KeyModifiers::SHIFT);
-        assert_eq!(
-            Key::from_event(&event),
-            expected(KeyCode::Tab, Mods::SHIFT)
-        );
-    }
-
-    #[test]
     fn combinations_insert_nothing() {
-        let event = key(TermKeyCode::Char('a'), KeyModifiers::CONTROL);
-        assert_eq!(Keystroke::from_event(&event).and_then(|s| s.text), None);
+        let stroke = Keystroke::new(KeyCode::Char('a'), Mods::CTRL);
+        assert_eq!(stroke.text, None);
     }
 
     #[test]

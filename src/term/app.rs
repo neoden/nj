@@ -5,15 +5,12 @@ use std::io::Write;
 use std::thread;
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{self, Event};
 
+use super::input;
 use super::render::Renderer;
-use crate::editor::command::{Command, Edit, Select};
 use crate::editor::job::Message;
-use crate::editor::key::Keystroke;
-use crate::editor::{keymap, Editor};
-
-const MOUSE_SCROLL_LINES: isize = 3;
+use crate::editor::Editor;
 
 /// One queue, one thread that owns the editor (ADR 21). The terminal is read
 /// on a thread of its own, because `event::read` blocks and the queue is
@@ -23,10 +20,12 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
 
     // Started only now: the terminal has been set up, and its answer to the
     // keyboard-protocol query has been read by whoever asked.
-    let input = editor.sender();
+    let queue = editor.sender();
     thread::spawn(move || {
         while let Ok(event) = event::read() {
-            if input.send(Message::Input(event)).is_err() {
+            if let Some(input) = input::translate(event)
+                && queue.send(Message::Input(input)).is_err()
+            {
                 return;
             }
         }
@@ -55,8 +54,10 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
             sort(message);
         }
 
-        for event in inputs {
-            handle(event, editor);
+        for input in inputs {
+            if let Some(command) = input.into_command(editor) {
+                editor.execute(command);
+            }
             if editor.should_quit() {
                 return Ok(());
             }
@@ -67,38 +68,11 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
     }
 }
 
-/// Turns an event into a command and hands it over. Public so that a test
-/// can drive the editor with events and never open a terminal.
+/// What the loop does with one event, for a test that drives the editor with
+/// events and never opens a terminal.
 pub fn handle(event: Event, editor: &mut Editor) {
-    let command = match event {
-        Event::Key(event) => {
-            let stroke = Keystroke::from_event(&event);
-            stroke.and_then(|stroke| keymap::resolve(stroke, editor))
-        }
-        Event::Mouse(mouse) => mouse_command(mouse),
-        // Bracketed paste: the terminal hands over the whole text at once
-        // instead of replaying it as keystrokes.
-        Event::Paste(text) => Some(Command::Edit(Edit::Insert(text))),
-        _ => None,
-    };
-
+    let command = input::translate(event).and_then(|input| input.into_command(editor));
     if let Some(command) = command {
         editor.execute(command);
     }
-}
-
-/// The mouse speaks in screen cells; the editor knows which view they fall in.
-fn mouse_command(mouse: MouseEvent) -> Option<Command> {
-    let (row, column) = (mouse.row as usize, mouse.column as usize);
-    Some(match mouse.kind {
-        MouseEventKind::ScrollUp => Command::Scroll(-MOUSE_SCROLL_LINES),
-        MouseEventKind::ScrollDown => Command::Scroll(MOUSE_SCROLL_LINES),
-        MouseEventKind::Down(MouseButton::Left) => Command::Select(Select::Click {
-            row,
-            column,
-            add: mouse.modifiers.contains(KeyModifiers::ALT),
-        }),
-        MouseEventKind::Drag(MouseButton::Left) => Command::Select(Select::Drag { row, column }),
-        _ => return None,
-    })
 }

@@ -9,8 +9,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use crossterm::event::Event;
-
+use super::input::Input;
 use super::panel::picker::Candidate;
 use super::workspace::BufferId;
 
@@ -18,7 +17,7 @@ use super::workspace::BufferId;
 /// terminal, or something a worker has to say.
 #[derive(Debug)]
 pub enum Message {
-    Input(Event),
+    Input(Input),
     Report(Report),
 }
 

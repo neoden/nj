@@ -3,6 +3,7 @@
 
 pub mod clipboard;
 pub mod command;
+pub mod input;
 pub mod job;
 pub mod key;
 pub mod keymap;
