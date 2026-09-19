@@ -130,12 +130,26 @@ fn step(text: &Text, offset: usize, direction: Direction) -> Option<usize> {
     (next != offset).then_some(next)
 }
 
+/// Backward goes where the line's text begins, past its indentation, and
+/// only from there to the very start — so `Home` lands on the code first and
+/// on column zero when pressed again.
 pub fn line_edge(text: &Text, offset: usize, direction: Direction) -> usize {
     let line = text.line_of(offset);
     match direction {
-        Direction::Backward => text.line_start(line),
+        Direction::Backward => match first_nonblank(text, line) {
+            first if first == offset => text.line_start(line),
+            first => first,
+        },
         Direction::Forward => line_end(text, line),
     }
+}
+
+/// The first byte of a line that is not a space or a tab, or the line's end
+/// when it is nothing but.
+fn first_nonblank(text: &Text, line: usize) -> usize {
+    let content = text.line_str(line);
+    let indent = content.len() - content.trim_start_matches([' ', '\t']).len();
+    text.line_start(line) + indent
 }
 
 pub fn document_edge(text: &Text, direction: Direction) -> usize {
@@ -236,6 +250,24 @@ mod tests {
         let text = Text::from_str("ab\ncdef\n");
         assert_eq!(line_edge(&text, 5, Backward), 3);
         assert_eq!(line_edge(&text, 5, Forward), 7);
+    }
+
+    #[test]
+    fn home_lands_past_the_indent_first_and_on_the_start_second() {
+        let text = Text::from_str("x\n  \tcode\n\t\t\n");
+        let line = 2;
+        // From inside the code, from inside the indent, and from the start.
+        assert_eq!(line_edge(&text, line + 7, Backward), line + 3);
+        assert_eq!(line_edge(&text, line + 1, Backward), line + 3);
+        assert_eq!(line_edge(&text, line, Backward), line + 3);
+        // Already there: on to column zero.
+        assert_eq!(line_edge(&text, line + 3, Backward), line);
+
+        // A line of nothing but indent toggles between its ends.
+        let blank = 10;
+        assert_eq!(line_edge(&text, blank, Backward), blank + 2);
+        assert_eq!(line_edge(&text, blank + 2, Backward), blank);
+        assert_eq!(line_edge(&text, blank + 1, Backward), blank + 2);
     }
 
     #[test]
