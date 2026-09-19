@@ -94,7 +94,8 @@ impl Picker {
         self.candidates.len()
     }
 
-    pub fn len(&self) -> usize {
+    /// How many candidates the query matches, of `total`.
+    pub fn matched(&self) -> usize {
         self.matches.len()
     }
 
@@ -194,7 +195,7 @@ mod tests {
     #[test]
     fn everything_shows_until_something_is_typed() {
         let picker = picker(&["rust", "python", "go"]);
-        assert_eq!(picker.len(), 3);
+        assert_eq!(picker.matched(), 3);
     }
 
     #[test]
@@ -236,7 +237,7 @@ mod tests {
         picker.query.insert("zzz");
         picker.refilter();
 
-        assert_eq!(picker.len(), 0);
+        assert_eq!(picker.matched(), 0);
         assert_eq!(picker.selection(), None);
     }
 

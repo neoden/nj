@@ -255,6 +255,25 @@ impl Buffer {
         self.language.tab_width
     }
 
+    /// The file behind the buffer, when a file is what it has.
+    pub fn path(&self) -> Option<&Path> {
+        match &self.backing {
+            Backing::File { path, .. } => Some(path),
+            _ => None,
+        }
+    }
+
+    /// Created empty and never saved: a save has to ask for a name first.
+    pub fn is_unnamed(&self) -> bool {
+        matches!(self.backing, Backing::Scratch)
+    }
+
+    /// Read from standard input and owed to standard output: neither
+    /// replaced by another file nor renamed to one.
+    pub fn is_pipeline(&self) -> bool {
+        matches!(self.backing, Backing::Stdio { .. })
+    }
+
     /// What the status bar calls this buffer.
     pub fn name(&self) -> String {
         match &self.backing {

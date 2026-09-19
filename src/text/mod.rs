@@ -33,7 +33,9 @@ pub struct Text {
 }
 
 impl Text {
+    /// Not the trait: that one returns a `Result`, and this cannot fail.
     #[cfg(test)]
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(text: &str) -> Self {
         Self {
             rope: Rope::from_str(text),
@@ -42,6 +44,10 @@ impl Text {
 
     pub fn len(&self) -> usize {
         self.rope.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rope.len() == 0
     }
 
     /// A trailing break opens a new empty last line, the way editors count.

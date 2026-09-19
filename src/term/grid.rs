@@ -202,6 +202,28 @@ fn set_style(out: &mut impl Write, style: CellStyle) -> Result<()> {
     Ok(())
 }
 
+/// What was sent to the terminal, with the escape sequences taken out, for
+/// a test to read what a frame drew.
+#[cfg(test)]
+pub(crate) fn visible(sent: &[u8]) -> String {
+    let mut text = String::new();
+    let sent = String::from_utf8_lossy(sent);
+    let mut chars = sent.chars();
+    while let Some(character) = chars.next() {
+        if character != '\x1b' {
+            text.push(character);
+            continue;
+        }
+        // A CSI sequence runs to its final byte, a letter.
+        for byte in chars.by_ref() {
+            if byte.is_ascii_alphabetic() {
+                break;
+            }
+        }
+    }
+    text
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,25 +260,6 @@ mod tests {
         String::from_utf8(out).unwrap()
     }
 
-    /// What was sent, with the escape sequences taken out.
-    fn visible(sent: &str) -> String {
-        let mut text = String::new();
-        let mut chars = sent.chars();
-        while let Some(character) = chars.next() {
-            if character != '\x1b' {
-                text.push(character);
-                continue;
-            }
-            // A CSI sequence runs to its final byte, a letter.
-            for byte in chars.by_ref() {
-                if byte.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-        }
-        text
-    }
-
     #[test]
     fn only_what_changed_is_sent() {
         let mut before = Grid::new(10, 2);
@@ -270,7 +273,7 @@ mod tests {
         assert!(sent.contains("\x1b[1;2H"));
         assert!(sent.contains("\x1b[2;1H"));
         assert_eq!(sent.matches('H').count(), 2);
-        assert_eq!(visible(&sent), "ax");
+        assert_eq!(visible(sent.as_bytes()), "ax");
     }
 
     #[test]

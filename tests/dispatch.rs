@@ -2,6 +2,9 @@
 //! unchecked surface in the crate. From here it needs no terminal — an event
 //! goes in, the editor is asked what came of it.
 
+// A selection compared to `[0..1]` means exactly that array.
+#![allow(clippy::single_range_in_vec_init)]
+
 use std::ops::Range;
 
 use crossterm::event::{
@@ -10,7 +13,7 @@ use crossterm::event::{
 
 use ned::buffer::Buffer;
 use ned::editor::panel::Panel;
-use ned::editor::Editor;
+use ned::editor::{Editor, Exit};
 use ned::term::app;
 
 fn editor() -> Editor {
@@ -103,7 +106,7 @@ fn typing_reaches_the_buffer() {
 fn ctrl_q_on_a_clean_buffer_quits() {
     let mut editor = editor();
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::CONTROL);
-    assert!(editor.should_quit());
+    assert_eq!(editor.exit(), Some(Exit::Quit));
 }
 
 #[test]
@@ -112,7 +115,7 @@ fn ctrl_q_on_a_dirty_buffer_asks_first() {
     typed(&mut editor, "x");
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::CONTROL);
 
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert!(editor.panel().is_some());
 }
 
@@ -125,7 +128,7 @@ fn ctrl_q_inside_a_panel_discards_nothing() {
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::CONTROL);
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::CONTROL);
 
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert_eq!(content(&editor), "x");
 }
 
@@ -460,20 +463,20 @@ fn a_confirm_takes_bare_letters_only_and_a_nameless_save_asks_for_a_name() {
     let mut editor = editor_with("x");
     ctrl(&mut editor, 'q');
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::ALT);
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert!(matches!(editor.panel(), Some(Panel::Confirm(_))));
 
     press(&mut editor, KeyCode::Char('s'), KeyModifiers::NONE);
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert!(matches!(editor.panel(), Some(Panel::Prompt(_))));
 
     press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert!(editor.panel().is_none());
 
     ctrl(&mut editor, 'q');
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::NONE);
-    assert!(editor.should_quit());
+    assert_eq!(editor.exit(), Some(Exit::Quit));
 }
 
 /// The mouse speaks in screen cells: past the gutter, down from the view's

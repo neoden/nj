@@ -8,6 +8,9 @@
 //! views, panels, the one boundary; `term` — the terminal and the process
 //! around the editor.
 
+// A test comparing hits to `[0..1]` means exactly that array.
+#![cfg_attr(test, allow(clippy::single_range_in_vec_init))]
+
 pub mod buffer;
 pub mod editor;
 pub mod term;

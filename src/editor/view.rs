@@ -141,7 +141,7 @@ impl View {
 
     /// Rows filling the screen, top to bottom.
     pub fn rows<'a>(&'a self, buffer: &'a Buffer) -> impl Iterator<Item = Row> + 'a {
-        let text = &buffer.text();
+        let text = buffer.text();
         let first =
             (self.top_line < text.line_count()).then(|| self.row(buffer, self.top_line, 0));
         std::iter::successors(first, move |row| self.next_row(buffer, *row)).take(self.height())
@@ -165,7 +165,7 @@ impl View {
 
     /// The row an offset falls on.
     pub fn row_of(&self, buffer: &Buffer, offset: usize) -> Row {
-        let text = &buffer.text();
+        let text = buffer.text();
         let line = text.line_of(offset);
         let content = text.line_str(line);
         let column =
@@ -225,7 +225,7 @@ impl View {
         motion: Motion,
         extend: bool,
     ) -> Selection {
-        let text = &buffer.text();
+        let text = buffer.text();
         let (head, goal_column) = match motion {
             Motion::Row(direction) => self.move_by_rows(buffer, &selection, direction, 1),
             Motion::Page(direction) => {
@@ -252,7 +252,7 @@ impl View {
         direction: Direction,
         rows: usize,
     ) -> (usize, Option<usize>) {
-        let text = &buffer.text();
+        let text = buffer.text();
         let row = self.row_of(buffer, selection.head);
         let content = text.line_str(row.line);
         let column = layout::column_of_byte(
@@ -284,7 +284,7 @@ impl View {
 
     /// Grows the column of cursors from whichever end is being extended.
     pub fn add_cursor(&mut self, buffer: &Buffer, direction: Direction) {
-        let text = &buffer.text();
+        let text = buffer.text();
         let edge = match direction {
             Direction::Backward => self.selections.iter().next(),
             Direction::Forward => self.selections.iter().last(),
@@ -325,7 +325,7 @@ impl View {
     /// Brings the primary cursor back on screen, keeping a margin above and
     /// below it where the document allows.
     pub fn scroll_to_cursor(&mut self, buffer: &Buffer) {
-        let text = &buffer.text();
+        let text = buffer.text();
         let head = self.selections.primary().head;
         let line = text.line_of(head);
         let margin = SCROLL_MARGIN.min(self.height().saturating_sub(1) / 2);
@@ -358,7 +358,7 @@ impl View {
         line: usize,
         matches: &[Range<usize>],
     ) -> LineHighlight {
-        let text = &buffer.text();
+        let text = buffer.text();
         let tab_width = buffer.tab_width();
         let start = text.line_start(line);
         let content = text.line_str(line);
@@ -404,7 +404,7 @@ impl View {
     /// Translates a click into a byte offset. Rows past the last one land on
     /// the last row, as they do in any editor.
     pub fn offset_at_screen(&self, buffer: &Buffer, row: usize, column: usize) -> usize {
-        let text = &buffer.text();
+        let text = buffer.text();
         let rows: Vec<Row> = self.rows(buffer).collect();
         let Some(row) = rows.get(row).or(rows.last()) else {
             return 0;

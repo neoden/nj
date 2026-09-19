@@ -58,7 +58,7 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
             if let Some(command) = input.into_command(editor) {
                 editor.execute(command);
             }
-            if editor.should_quit() {
+            if editor.exit().is_some() {
                 return Ok(());
             }
         }

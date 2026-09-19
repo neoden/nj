@@ -3,6 +3,9 @@
 
 use super::*;
 use crate::buffer::language::Indent;
+use crate::buffer::Backing;
+use find::MAX_CURSORS;
+use panel::Answer;
 use crate::text::movement::Direction;
 use crate::text::selection::{Selection, SelectionSet};
 use crate::text::Text;
@@ -598,7 +601,7 @@ fn a_file_changed_elsewhere_is_not_overwritten_unasked() {
     assert!(editor.panel.is_none());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "!mine\n");
     assert!(!editor.buffer().is_modified());
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
 
     let _ = std::fs::remove_file(&path);
 }
@@ -685,18 +688,18 @@ fn save_and_quit_still_quits_after_agreeing_to_overwrite() {
 
     editor.execute(Command::Quit);
     editor.execute(Command::Panel(PanelCommand::Answer('s')));
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert_eq!(confirm(&editor), Some(vec![Answer::Overwrite(After::Quit)]));
 
     // Declining leaves everything as it was: not written, not quit.
     editor.execute(Command::Panel(PanelCommand::Close));
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs, and longer\n");
 
     editor.execute(Command::Quit);
     editor.execute(Command::Panel(PanelCommand::Answer('s')));
     editor.execute(Command::Panel(PanelCommand::Answer('o')));
-    assert!(editor.should_quit());
+    assert_eq!(editor.exit(), Some(Exit::Quit));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "!mine\n");
 
     let _ = std::fs::remove_file(&path);
@@ -812,7 +815,7 @@ fn a_question_ignores_keys_that_answer_nothing() {
     editor.execute(Command::Quit);
     editor.execute(Command::Panel(PanelCommand::Answer('d')));
     assert_eq!(confirm(&editor), Some(vec![Answer::Save(After::Quit), Answer::Quit]));
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
 }
 
 #[test]
@@ -905,10 +908,10 @@ fn an_abort_leaves_with_a_failure_and_asks_about_changes_first() {
     dirty.insert("!");
     dirty.execute(Command::Abort);
     assert_eq!(confirm(&dirty), Some(vec![Answer::Abort]));
-    assert!(!dirty.should_quit());
+    assert_eq!(dirty.exit(), None);
 
     dirty.execute(Command::Panel(PanelCommand::Close));
-    assert!(!dirty.should_quit());
+    assert_eq!(dirty.exit(), None);
 
     dirty.execute(Command::Abort);
     dirty.execute(Command::Panel(PanelCommand::Answer('a')));
@@ -921,7 +924,7 @@ fn unsaved_changes_ask_first() {
     editor.insert("!");
     editor.request_quit();
 
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert!(matches!(editor.panel, Some(Panel::Confirm(_))));
 }
 
@@ -932,11 +935,11 @@ fn the_question_can_be_answered_or_dropped() {
 
     editor.request_quit();
     editor.close_panel();
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
 
     editor.request_quit();
     editor.answer('q');
-    assert!(editor.should_quit());
+    assert_eq!(editor.exit(), Some(Exit::Quit));
     assert!(editor.panel.is_none());
 }
 
@@ -948,7 +951,7 @@ fn the_answer_key_is_the_physical_one() {
 
     // `й` sits where `q` does on a US keyboard.
     editor.answer('й');
-    assert!(editor.should_quit());
+    assert_eq!(editor.exit(), Some(Exit::Quit));
 }
 
 /// A scratch buffer has nowhere to be written to, so "save and quit" asks
@@ -962,7 +965,7 @@ fn saving_a_nameless_buffer_asks_for_a_name_and_carries_on() {
     editor.insert("!");
     editor.request_quit();
     editor.answer('s');
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert_eq!(
         editor.prompt().map(|prompt| prompt.purpose.clone()),
         Some(Purpose::SaveAs(After::Quit))
@@ -972,7 +975,7 @@ fn saving_a_nameless_buffer_asks_for_a_name_and_carries_on() {
     // the prompt.
     editor.submit_prompt(false);
     assert!(editor.panel.is_none());
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert!(editor.buffer().is_modified());
 
     editor.request_quit();
@@ -980,7 +983,7 @@ fn saving_a_nameless_buffer_asks_for_a_name_and_carries_on() {
     type_into_prompt(&mut editor, &path.display().to_string());
     editor.submit_prompt(false);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "!text");
-    assert!(editor.should_quit());
+    assert_eq!(editor.exit(), Some(Exit::Quit));
 
     let _ = std::fs::remove_file(&path);
 }
@@ -996,7 +999,7 @@ fn a_save_that_fails_cancels_the_quit() {
     editor.request_quit();
     editor.answer('s');
 
-    assert!(!editor.should_quit());
+    assert_eq!(editor.exit(), None);
     assert!(editor.message().unwrap().starts_with("cannot write"));
 
     // Saving under another name that cannot be written either changes

@@ -354,6 +354,7 @@ fn pad(text: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::grid::visible;
     use super::*;
     use crate::buffer::Buffer;
     use crate::editor::command::{Command, Edit, PanelCommand, Select};
@@ -520,26 +521,6 @@ mod tests {
 
         // The hit the search landed on is selected in the text above.
         assert_eq!(style_at(&grid, 2, 1), CellStyle::Selected);
-    }
-
-    /// What was sent, with the escape sequences taken out.
-    fn visible(sent: &[u8]) -> String {
-        let mut text = String::new();
-        let sent = String::from_utf8_lossy(sent);
-        let mut chars = sent.chars();
-        while let Some(character) = chars.next() {
-            if character != '\x1b' {
-                text.push(character);
-                continue;
-            }
-            // A CSI sequence runs to its final byte, a letter.
-            for byte in chars.by_ref() {
-                if byte.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-        }
-        text
     }
 
     #[test]

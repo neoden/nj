@@ -82,6 +82,9 @@ impl SelectionSet {
         set
     }
 
+    /// Never zero: a set always holds at least one selection, so there is
+    /// no `is_empty` to go with this.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.selections.len()
     }
