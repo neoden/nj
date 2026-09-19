@@ -41,15 +41,13 @@ impl Renderer {
         out: &mut impl Write,
         editor: &Editor,
         (width, height): (usize, usize),
-        left: &str,
-        right: &str,
     ) -> Result<()> {
         if self.scratch.width() != width || self.scratch.height() != height {
             self.scratch = Grid::new(width, height);
             self.previous = None;
         }
         self.scratch.clear();
-        compose(&mut self.scratch, editor, left, right);
+        compose(&mut self.scratch, editor);
         self.scratch.flush(out, self.previous.as_ref())?;
 
         let spare = self.previous.take().unwrap_or_else(|| Grid::new(width, height));
@@ -66,7 +64,7 @@ impl Default for Renderer {
 
 /// Lays the whole screen out on the grid: the text with its gutter, a panel
 /// if one is open, and the status bar on the last row.
-pub fn compose(grid: &mut Grid, editor: &Editor, left: &str, right: &str) {
+pub fn compose(grid: &mut Grid, editor: &Editor) {
     let (view, buffer) = (editor.view(), editor.buffer());
     let screen = editor.screen();
     let x = view.area.x;
@@ -111,7 +109,47 @@ pub fn compose(grid: &mut Grid, editor: &Editor, left: &str, right: &str) {
         rule(grid, x, screen.status_row() - 1, width);
     }
 
-    grid.put_str(x, screen.status_row(), &status_line(left, right, width), CellStyle::Status);
+    let (left, right) = status(editor);
+    grid.put_str(x, screen.status_row(), &status_line(&left, &right, width), CellStyle::Status);
+}
+
+/// The right side is the document, always in the same place. The left side is
+/// whatever is going on right now, so the eye only goes there when something
+/// is happening.
+fn status(editor: &Editor) -> (String, String) {
+    let (view, buffer) = (editor.view(), editor.buffer());
+    let line = buffer.text().line_of(view.selections.primary().head);
+    let column = editor.cursor_column();
+
+    let right = format!(
+        "{}{} · {} · {} lines · {}:{}",
+        buffer.name(),
+        if buffer.is_modified() { "*" } else { "" },
+        buffer.language.name,
+        buffer.text().line_count(),
+        line + 1,
+        column + 1,
+    );
+
+    let left = match editor.message() {
+        Some(message) => message.to_owned(),
+        None => {
+            let cursors = view.selections.len();
+            [
+                editor.panel_status(),
+                match cursors {
+                    1 => String::new(),
+                    count => format!("{count} cursors"),
+                },
+            ]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
+        }
+    };
+
+    (format!(" {left}"), right)
 }
 
 /// The query sits at the bottom, right above the status bar, and the list
@@ -264,7 +302,7 @@ mod tests {
 
     fn composed(editor: &Editor, width: usize, height: usize) -> Grid {
         let mut grid = Grid::new(width, height);
-        compose(&mut grid, editor, " left", "right");
+        compose(&mut grid, editor);
         grid
     }
 
@@ -284,8 +322,7 @@ mod tests {
         assert!(row[margin..].starts_with("1 hello"));
         assert!(grid.row_text(1)[margin..].starts_with("2 "));
         assert_eq!(grid.row_text(2).trim(), "");
-        assert!(grid.row_text(3)[margin..].starts_with(" left"));
-        assert!(grid.row_text(3).trim_end().ends_with("right"));
+        assert!(grid.row_text(3).trim_end().ends_with("2 lines · 1:1"));
         assert_eq!(style_at(&grid, margin, 3), CellStyle::Status);
 
         // A terminal narrower than the cap keeps the editor at the left edge.
@@ -319,7 +356,9 @@ mod tests {
         assert!(grid.row_text(5).starts_with(" Find: tw"));
         assert_eq!(style_at(&grid, 9, 5), CellStyle::Cursor);
         assert!(grid.row_text(6).starts_with("───"));
-        assert!(grid.row_text(7).starts_with(" left"));
+        // The status bar is composed from the editor as well: the search
+        // reports there, in the left half, while it is open.
+        assert!(grid.row_text(7).starts_with(" Found: 1/1"));
         assert_eq!(style_at(&grid, 0, 7), CellStyle::Status);
 
         // The hit the search landed on is selected in the text above.
@@ -351,16 +390,17 @@ mod tests {
         let mut editor = editor_of("hello\n", 80, 5);
         let mut renderer = Renderer::new();
         let mut first = Vec::new();
-        renderer.draw(&mut first, &editor, (80, 5), "", "").unwrap();
+        renderer.draw(&mut first, &editor, (80, 5)).unwrap();
         assert!(visible(&first).contains("1 hello"));
 
         editor.execute(Command::Edit(Edit::Insert("H".to_owned())));
         let mut second = Vec::new();
-        renderer.draw(&mut second, &editor, (80, 5), "", "").unwrap();
+        renderer.draw(&mut second, &editor, (80, 5)).unwrap();
 
         // Only the cells that changed: the second `l` landed where an `l`
-        // already was, so it is not among them.
-        assert_eq!(visible(&second), "Hhelo");
+        // already was, so it is not among them. The status bar follows suit:
+        // the modified mark pushes the name over, and the column advances.
+        assert_eq!(visible(&second), "Hhelo[scratch]*2");
         assert!(second.len() * 4 < first.len(), "{} vs {}", second.len(), first.len());
     }
 

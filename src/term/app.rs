@@ -36,9 +36,7 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
         let (width, height) = crossterm::terminal::size()?;
         let size = (width as usize, height as usize);
         editor.resize(size.0, size.1);
-
-        let (left, right) = status(editor);
-        renderer.draw(out, editor, size, &left, &right)?;
+        renderer.draw(out, editor, size)?;
 
         // Whatever has arrived by the time the loop wakes is handled before
         // the next frame, input first: a keystroke never queues behind the
@@ -103,43 +101,4 @@ fn mouse_command(mouse: MouseEvent) -> Option<Command> {
         MouseEventKind::Drag(MouseButton::Left) => Command::Select(Select::Drag { row, column }),
         _ => return None,
     })
-}
-
-/// The right side is the document, always in the same place. The left side is
-/// whatever is going on right now, so the eye only goes there when something
-/// is happening.
-fn status(editor: &Editor) -> (String, String) {
-    let (view, buffer) = (editor.view(), editor.buffer());
-    let line = buffer.text().line_of(view.selections.primary().head);
-    let column = editor.cursor_column();
-
-    let right = format!(
-        "{}{} · {} · {} lines · {}:{}",
-        buffer.name(),
-        if buffer.is_modified() { "*" } else { "" },
-        buffer.language.name,
-        buffer.text().line_count(),
-        line + 1,
-        column + 1,
-    );
-
-    let left = match editor.message() {
-        Some(message) => message.to_owned(),
-        None => {
-            let cursors = view.selections.len();
-            [
-                editor.panel_status(),
-                match cursors {
-                    1 => String::new(),
-                    count => format!("{count} cursors"),
-                },
-            ]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" · ")
-        }
-    };
-
-    (format!(" {left}"), right)
 }
