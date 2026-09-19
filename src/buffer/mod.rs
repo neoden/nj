@@ -381,6 +381,23 @@ impl Buffer {
         Ok(())
     }
 
+    /// Makes `path` the file behind the buffer and writes it there. The
+    /// language follows the new name, as it would have on opening. A
+    /// pipeline buffer is not rebound: its text is owed to standard output,
+    /// so it gets a copy written and stays what it is.
+    pub fn save_as(&mut self, path: PathBuf) -> Result<()> {
+        if matches!(self.backing, Backing::Stdio { .. }) {
+            return write_atomically(&path, &self.framing.encode(&self.text))
+                .with_context(|| format!("cannot write {}", path.display()));
+        }
+        self.set_language(language::detect(&path));
+        self.backing = Backing::File {
+            path,
+            on_disk: None,
+        };
+        self.save()
+    }
+
     /// What a pipeline downstream receives once the editor has exited: the
     /// last saved text, or the input itself when nothing was saved.
     pub fn finish(&self, out: &mut impl Write) -> io::Result<()> {
@@ -758,6 +775,48 @@ mod tests {
         let mut buffer = Buffer::default();
         assert_eq!(buffer.name(), "[scratch]");
         assert!(buffer.save().is_err());
+    }
+
+    #[test]
+    fn saving_as_gives_a_buffer_its_file_and_its_language() {
+        let path = scratch("save-as.rs");
+        let _ = fs::remove_file(&path);
+
+        let mut buffer = Buffer::default();
+        insert(&mut buffer, 0, "fn main() {}\n");
+        buffer.save_as(path.clone()).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "fn main() {}\n");
+        assert_eq!(buffer.name(), path.display().to_string());
+        assert_eq!(buffer.language.name, "Rust");
+        assert!(!buffer.is_modified());
+        // Watched from here on, like a file that was opened.
+        assert!(!buffer.changed_on_disk());
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_pipeline_saved_as_writes_a_copy_and_stays_a_pipeline() {
+        let path = scratch("pipeline-copy");
+        let _ = fs::remove_file(&path);
+
+        let mut buffer = Buffer::parse("in\n");
+        buffer.backing = Backing::Stdio {
+            committed: buffer.text.clone(),
+        };
+        insert(&mut buffer, 0, "edited ");
+        buffer.save_as(path.clone()).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "edited in\n");
+        assert_eq!(buffer.name(), "[stdin]");
+        // Not committed: what goes downstream is still the input.
+        assert!(buffer.is_modified());
+        let mut out = Vec::new();
+        buffer.finish(&mut out).unwrap();
+        assert_eq!(out, b"in\n");
+
+        let _ = fs::remove_file(&path);
     }
 
     #[test]

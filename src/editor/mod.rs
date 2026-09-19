@@ -14,9 +14,13 @@ pub mod style;
 pub mod view;
 pub mod workspace;
 
+use std::collections::HashMap;
 use std::ops::Range;
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
+
+use anyhow::Result;
 
 use crate::buffer::language::{self, Language};
 use crate::buffer::{Backing, Buffer, EditKind, Stamp};
@@ -27,10 +31,10 @@ use crate::text::selection::{Selection, SelectionSet};
 use crate::text::transaction::{CursorAfter, Transaction};
 use clipboard::{Clipboard, Desktop};
 use command::{Command, Edit, File, PanelCommand, Select};
-use job::{Jobs, Message, Report};
+use job::{JobId, Jobs, Message, Report};
 use panel::picker::{self, Candidate, Pick, Picker};
 use panel::prompt::{Field, Prompt, Purpose};
-use panel::{Confirm, Panel, Question};
+use panel::{After, Confirm, Panel, Question};
 use screen::Screen;
 use view::View;
 use workspace::{BufferId, Workspace};
@@ -71,6 +75,9 @@ pub struct Editor {
     /// The clipboard outside the process, when there is one to talk to.
     desktop: Option<Box<dyn Desktop>>,
     jobs: Jobs,
+    /// The job keeping an eye on each buffer's file, to be cancelled when
+    /// the buffer gets another.
+    watchers: HashMap<BufferId, JobId>,
     /// Where everything arrives: input forwarded from the terminal, and the
     /// reports of the jobs.
     inbox: Receiver<Message>,
@@ -91,6 +98,7 @@ impl Editor {
             occurrences: None,
             desktop: None,
             jobs,
+            watchers: HashMap::new(),
             inbox,
         };
         editor.watch(editor.workspace.focused_buffer());
@@ -151,11 +159,15 @@ impl Editor {
     /// noticed before `Ctrl+S` runs into them (F1). The worker only says
     /// that the stamp moved; whether it matters is checked on arrival.
     fn watch(&mut self, id: BufferId) {
+        // Whatever file the buffer had before is no longer its concern.
+        if let Some(job) = self.watchers.remove(&id) {
+            self.jobs.cancel(job);
+        }
         let Backing::File { path, on_disk } = &self.workspace.buffer(id).backing else {
             return;
         };
         let (path, mut seen) = (path.clone(), *on_disk);
-        self.jobs.spawn_forever(move |worker| {
+        let job = self.jobs.spawn_forever(move |worker| {
             while !worker.cancelled() {
                 std::thread::sleep(WATCH_INTERVAL);
                 let now = Stamp::of(&path);
@@ -167,6 +179,7 @@ impl Editor {
                 }
             }
         });
+        self.watchers.insert(id, job);
     }
 
     /// The buffer and the view in focus, which is what nearly every command
@@ -294,9 +307,9 @@ impl Editor {
             Command::Select(Select::Click { row, column, add }) => self.click(row, column, add),
             Command::Select(Select::Drag { row, column }) => self.drag(row, column),
 
-            Command::File(File::Save) => {
-                self.save(false);
-            }
+            Command::File(File::Save) => self.save(After::Stay),
+            Command::File(File::SaveAs(path)) => self.save_as(path, After::Stay),
+            Command::File(File::Open(path)) => self.open(path),
             Command::File(File::SetLanguage(name)) => match language::by_name(&name) {
                 Some(language) => self.set_language(language),
                 None => self.message = Some(format!("No language called {name}")),
@@ -394,7 +407,7 @@ impl Editor {
     }
 
     fn open_prompt(&mut self, purpose: Purpose) {
-        let mut prompt = Prompt::new(purpose);
+        let mut prompt = Prompt::new(purpose.clone());
 
         if purpose.searches() {
             self.search = Some(Session::new(self.view().selections.clone()));
@@ -405,6 +418,10 @@ impl Editor {
                 prompt.insert(&selected);
                 prompt.select_all();
             }
+        }
+        // A file's own name is the likeliest start of the new one.
+        if let (Purpose::SaveAs(_), Backing::File { path, .. }) = (&purpose, &self.buffer().backing) {
+            prompt.insert(&path.display().to_string());
         }
 
         self.panel = Some(Panel::Prompt(prompt));
@@ -506,7 +523,7 @@ impl Editor {
         let Some(prompt) = self.prompt() else {
             return;
         };
-        let purpose = prompt.purpose;
+        let purpose = prompt.purpose.clone();
         let first = prompt.contents(0);
 
         match purpose {
@@ -523,6 +540,16 @@ impl Editor {
             Purpose::Replace => {
                 let replacement = prompt.contents(1);
                 self.replace_all(&replacement);
+            }
+            // Empty means nothing to do; the panel closes all the same.
+            Purpose::Open | Purpose::SaveAs(_) if first.trim().is_empty() => {}
+            Purpose::Open => {
+                self.close_panel();
+                return self.open(PathBuf::from(first.trim()));
+            }
+            Purpose::SaveAs(after) => {
+                self.close_panel();
+                return self.save_as(PathBuf::from(first.trim()), after);
             }
         }
 
@@ -637,18 +664,32 @@ impl Editor {
     }
 
     /// Saves unless another writer got there first, in which case it asks
-    /// rather than overwriting their work blindly (ADR 20). Returns whether
-    /// the text reached the disk; a question pending counts as no.
-    fn save(&mut self, then_quit: bool) -> bool {
-        if self.buffer().changed_on_disk() {
-            self.panel = Some(Panel::Confirm(Confirm::overwrite(then_quit)));
-            return false;
+    /// rather than overwriting their work blindly (ADR 20). What the save
+    /// was for is carried on with only once the text has reached the disk.
+    fn save(&mut self, after: After) {
+        // A buffer with no name yet is asked for one; what the save was for
+        // rides along.
+        if matches!(self.buffer().backing, Backing::Scratch) {
+            return self.open_prompt(Purpose::SaveAs(after));
         }
-        self.write()
+        if self.buffer().changed_on_disk() {
+            self.panel = Some(Panel::Confirm(Confirm::overwrite(after)));
+            return;
+        }
+        if self.write() {
+            self.proceed(after);
+        }
     }
 
     fn write(&mut self) -> bool {
-        match self.buffer_mut().save() {
+        let outcome = self.buffer_mut().save();
+        self.report(outcome)
+    }
+
+    /// A failed save says why and goes no further, rather than losing the
+    /// text that could not be written.
+    fn report(&mut self, outcome: Result<()>) -> bool {
+        match outcome {
             Ok(()) => true,
             Err(error) => {
                 self.message = Some(format!("{error:#}"));
@@ -657,17 +698,79 @@ impl Editor {
         }
     }
 
+    fn proceed(&mut self, after: After) {
+        match after {
+            After::Stay => {}
+            After::Quit => self.quit = true,
+            After::Open(path) => self.replace(path),
+        }
+    }
+
+    /// Asks before saving over a file that is already there — before the
+    /// buffer is renamed, so that declining leaves nothing half done.
+    fn save_as(&mut self, path: PathBuf, after: After) {
+        let ours = matches!(&self.buffer().backing, Backing::File { path: current, .. } if *current == path);
+        if path.exists() && !ours {
+            self.panel = Some(Panel::Confirm(Confirm::replace(path, after)));
+            return;
+        }
+        self.save_under(path, after);
+    }
+
+    fn save_under(&mut self, path: PathBuf, after: After) {
+        let copy = matches!(self.buffer().backing, Backing::Stdio { .. });
+        let name = path.display().to_string();
+        let outcome = self.buffer_mut().save_as(path);
+        if !self.report(outcome) {
+            return;
+        }
+        let id = self.workspace.focused_buffer();
+        self.watch(id);
+        if copy {
+            self.message = Some(format!("Copied to {name}"));
+        }
+        self.proceed(after);
+    }
+
     /// Nothing is ever discarded without being asked about first.
     fn request_quit(&mut self) {
         match self.buffer().is_modified() {
             false => self.quit = true,
-            true => self.panel = Some(Panel::Confirm(Confirm::quit())),
+            true => self.panel = Some(Panel::Confirm(Confirm::leave(After::Quit))),
         }
     }
 
-    /// A failed save cancels the quit and says why, rather than losing the
-    /// file that could not be written. Saving may raise a question of its
-    /// own, which then replaces this one.
+    /// Another file in place of this one. A pipeline buffer stays: its text
+    /// is owed to standard output and has no other copy.
+    fn open(&mut self, path: PathBuf) {
+        if matches!(self.buffer().backing, Backing::Stdio { .. }) {
+            self.message = Some("A pipeline buffer cannot be replaced".to_owned());
+            return;
+        }
+        match self.buffer().is_modified() {
+            false => self.replace(path),
+            true => self.panel = Some(Panel::Confirm(Confirm::leave(After::Open(path)))),
+        }
+    }
+
+    /// Whatever referred to the old text goes with it.
+    fn replace(&mut self, path: PathBuf) {
+        let buffer = match Buffer::open(&path) {
+            Ok(buffer) => buffer,
+            Err(error) => {
+                self.message = Some(format!("{error:#}"));
+                return;
+            }
+        };
+        self.close_panel();
+        self.search = None;
+        self.occurrences = None;
+        self.message = None;
+        let id = self.workspace.replace(buffer);
+        self.watch(id);
+    }
+
+    /// Saving may raise a question of its own, which then replaces this one.
     fn answer(&mut self, answer: char) {
         let Some(Panel::Confirm(confirm)) = &self.panel else {
             return;
@@ -675,19 +778,23 @@ impl Editor {
 
         // The letters are commands, not text, so they are read off the
         // physical key rather than the current keyboard layout.
-        match (confirm.about, key::physical_key(answer)) {
-            (Question::Quit, 's') => {
-                self.close_panel();
-                self.quit = self.save(true);
+        let answer = key::physical_key(answer);
+        if !confirm.answers.iter().any(|&(key, _)| key == answer) {
+            return;
+        }
+        let about = confirm.about.clone();
+        self.close_panel();
+
+        match (about, answer) {
+            (Question::Leave(after), 's') => self.save(after),
+            (Question::Leave(After::Quit), 'q') => self.quit = true,
+            (Question::Leave(After::Open(path)), 'd') => self.replace(path),
+            (Question::Overwrite(after), 'o') => {
+                if self.write() {
+                    self.proceed(after);
+                }
             }
-            (Question::Quit, 'q') => {
-                self.close_panel();
-                self.quit = true;
-            }
-            (Question::Overwrite { then_quit }, 'o') => {
-                self.close_panel();
-                self.quit = self.write() && then_quit;
-            }
+            (Question::Replace(path, after), 'o') => self.save_under(path, after),
             _ => {}
         }
     }

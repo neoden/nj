@@ -11,7 +11,7 @@ use super::command::{Command, Edit, File, PanelCommand, Select};
 use super::key::{Key, KeyCode, Keystroke, Mods};
 use super::panel::picker::{self, Pick};
 use super::panel::prompt::Purpose;
-use super::panel::Panel;
+use super::panel::{After, Panel};
 use super::Editor;
 use crate::text::movement::{Direction, Motion};
 
@@ -157,6 +157,8 @@ pub static KEYMAP: &[Binding] = &[
     bind(Char('y'), CTRL, Text, Command::Edit(Edit::Redo)),
     bind(Char('z'), CTRL, Text, Command::Edit(Edit::Undo)),
     bind(Char('s'), CTRL, Text, Command::File(File::Save)),
+    bind(Char('s'), CTRL_SHIFT, Text, Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay)))),
+    bind(Char('o'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::Open))),
     bind(Char('g'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::GotoLine))),
     bind(Char('f'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::Search))),
     bind(Char('h'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::Replace))),

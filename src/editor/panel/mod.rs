@@ -3,6 +3,8 @@
 pub mod picker;
 pub mod prompt;
 
+use std::path::PathBuf;
+
 use picker::Picker;
 use prompt::{Field, Prompt};
 
@@ -14,28 +16,54 @@ pub struct Confirm {
     pub about: Question,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Question {
-    Quit,
+    /// Unsaved changes stand in the way of leaving the buffer behind.
+    Leave(After),
     /// The file changed on disk since it was read. Asked on the way out as
     /// well, when "save and quit" runs into it.
-    Overwrite { then_quit: bool },
+    Overwrite(After),
+    /// Saving as a file that exists.
+    Replace(PathBuf, After),
+}
+
+/// What a save was in aid of, to be carried on with once it has gone
+/// through — and not before, since it may raise a question of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum After {
+    Stay,
+    Quit,
+    Open(PathBuf),
 }
 
 impl Confirm {
-    pub fn quit() -> Self {
+    /// `after` says what the answer leads to; `Stay` has nothing to leave
+    /// for and is not asked about.
+    pub fn leave(after: After) -> Self {
+        let answers: &'static [(char, &'static str)] = match after {
+            After::Stay | After::Quit => &[('s', "Save and quit"), ('q', "Quit anyway")],
+            After::Open(_) => &[('s', "Save and open"), ('d', "Discard and open")],
+        };
         Self {
             question: "Unsaved changes",
-            answers: &[('s', "Save and quit"), ('q', "Quit anyway")],
-            about: Question::Quit,
+            answers,
+            about: Question::Leave(after),
         }
     }
 
-    pub fn overwrite(then_quit: bool) -> Self {
+    pub fn overwrite(after: After) -> Self {
         Self {
             question: "File changed on disk",
             answers: &[('o', "Overwrite")],
-            about: Question::Overwrite { then_quit },
+            about: Question::Overwrite(after),
+        }
+    }
+
+    pub fn replace(path: PathBuf, after: After) -> Self {
+        Self {
+            question: "File exists",
+            answers: &[('o', "Overwrite")],
+            about: Question::Replace(path, after),
         }
     }
 

@@ -453,20 +453,23 @@ fn enter_in_goto_line_jumps_and_closes_the_prompt() {
 }
 
 /// A question is answered by a bare letter only; the same letter with a
-/// modifier is a combination, not an answer. Saving a buffer that has
-/// nowhere to go fails, and a failed save cancels the quit.
+/// modifier is a combination, not an answer. Saving a buffer that has no
+/// name asks for one, and backing out of that cancels the quit.
 #[test]
-fn a_confirm_takes_bare_letters_only_and_a_failed_save_cancels_the_quit() {
+fn a_confirm_takes_bare_letters_only_and_a_nameless_save_asks_for_a_name() {
     let mut editor = editor_with("x");
     ctrl(&mut editor, 'q');
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::ALT);
     assert!(!editor.should_quit());
-    assert!(editor.panel().is_some());
+    assert!(matches!(editor.panel(), Some(Panel::Confirm(_))));
 
     press(&mut editor, KeyCode::Char('s'), KeyModifiers::NONE);
     assert!(!editor.should_quit());
+    assert!(matches!(editor.panel(), Some(Panel::Prompt(_))));
+
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(!editor.should_quit());
     assert!(editor.panel().is_none());
-    assert!(editor.message().is_some());
 
     ctrl(&mut editor, 'q');
     press(&mut editor, KeyCode::Char('q'), KeyModifiers::NONE);

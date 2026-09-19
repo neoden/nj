@@ -38,6 +38,19 @@ impl Workspace {
         }
     }
 
+    /// Puts another buffer behind the view in focus, in place of the one it
+    /// showed. The view starts over — cursors, scrolling — but keeps its
+    /// place on the screen. The buffer replaced is gone.
+    pub fn replace(&mut self, buffer: Buffer) -> BufferId {
+        let id = self.focused_buffer();
+        let area = self.views[self.focused.0].area;
+        let mut view = View::new(id, buffer.version());
+        view.resize(area, buffer.text().line_count());
+        self.buffers[id.0] = buffer;
+        self.views[self.focused.0] = view;
+        id
+    }
+
     /// Another window onto a buffer, with its own cursors (ADR 9).
     pub fn open_view(&mut self, buffer: BufferId) -> ViewId {
         self.views.push(View::new(buffer, self.buffers[buffer.0].version()));

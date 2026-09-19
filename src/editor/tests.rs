@@ -520,7 +520,7 @@ fn undoing_back_to_what_was_saved_is_not_a_change() {
     editor.insert("!");
     assert!(editor.buffer().is_modified());
 
-    editor.save(false);
+    editor.save(After::Stay);
     assert!(!editor.buffer().is_modified());
 
     // Back to what the file holds, so there is nothing to warn about.
@@ -545,7 +545,7 @@ fn typing_after_a_save_starts_its_own_revision() {
 
     let mut editor = Editor::new(Buffer::open(&path).unwrap());
     type_text(&mut editor, "wor");
-    editor.save(false);
+    editor.save(After::Stay);
 
     // The same word carries on, but it must not join the group that was
     // written to disk.
@@ -570,7 +570,7 @@ fn a_file_changed_elsewhere_is_not_overwritten_unasked() {
     assert!(matches!(
         editor.panel,
         Some(Panel::Confirm(Confirm {
-            about: Question::Overwrite { then_quit: false },
+            about: Question::Overwrite(After::Stay),
             ..
         }))
     ));
@@ -656,7 +656,7 @@ fn save_and_quit_still_quits_after_agreeing_to_overwrite() {
     assert!(matches!(
         editor.panel,
         Some(Panel::Confirm(Confirm {
-            about: Question::Overwrite { then_quit: true },
+            about: Question::Overwrite(After::Quit),
             ..
         }))
     ));
@@ -671,6 +671,163 @@ fn save_and_quit_still_quits_after_agreeing_to_overwrite() {
     editor.execute(Command::Panel(PanelCommand::Answer('o')));
     assert!(editor.quit);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "!mine\n");
+
+    let _ = std::fs::remove_file(&path);
+}
+
+fn scratch_path(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("ned-{}-{name}", std::process::id()))
+}
+
+fn confirm(editor: &Editor) -> Option<&Question> {
+    match &editor.panel {
+        Some(Panel::Confirm(confirm)) => Some(&confirm.about),
+        _ => None,
+    }
+}
+
+/// F4: another file takes the place of the one in focus, and everything
+/// that referred to the old text goes with it.
+#[test]
+fn opening_replaces_the_buffer_and_starts_the_view_over() {
+    let path = scratch_path("open");
+    std::fs::write(&path, "one\ntwo\n").unwrap();
+
+    let mut editor = editor("scratch text", 8);
+    editor.open_prompt(Purpose::Search);
+    type_into_prompt(&mut editor, "text");
+    editor.submit_prompt(false);
+    assert!(editor.search.is_some());
+
+    editor.execute(Command::File(File::Open(path.clone())));
+    assert_eq!(content(&editor), "one\ntwo\n");
+    assert_eq!(editor.buffer().name(), path.display().to_string());
+    assert_eq!(ranges(&editor), [0..0]);
+    assert!(editor.search.is_none());
+    assert!(editor.panel.is_none());
+    // The view keeps its place on the screen: it can still be drawn into.
+    assert!(editor.view().width() > 0);
+
+    // The file is watched from now on, and opening another lets go of it.
+    let id = editor.workspace.focused_buffer();
+    let watcher = editor.watchers[&id];
+    assert!(editor.jobs.is_live(watcher));
+    editor.execute(Command::File(File::Open(scratch_path("open-other"))));
+    assert!(!editor.jobs.is_live(watcher));
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_path_with_no_file_opens_empty() {
+    let path = scratch_path("open-new");
+    let _ = std::fs::remove_file(&path);
+
+    let mut editor = editor("old", 0);
+    editor.execute(Command::File(File::Open(path.clone())));
+    assert_eq!(content(&editor), "");
+    assert_eq!(editor.buffer().name(), path.display().to_string());
+    assert!(!path.exists());
+}
+
+/// Unsaved changes are asked about, and "save first" carries on to open
+/// once the save has gone through.
+#[test]
+fn opening_over_unsaved_changes_asks_first() {
+    let mine = scratch_path("open-mine");
+    let theirs = scratch_path("open-theirs");
+    std::fs::write(&mine, "mine\n").unwrap();
+    std::fs::write(&theirs, "theirs\n").unwrap();
+
+    let mut editor = Editor::new(Buffer::open(&mine).unwrap());
+    editor.insert("!");
+    editor.execute(Command::File(File::Open(theirs.clone())));
+    assert_eq!(confirm(&editor), Some(&Question::Leave(After::Open(theirs.clone()))));
+    assert_eq!(content(&editor), "!mine\n");
+
+    // Declining leaves everything as it was.
+    editor.execute(Command::Panel(PanelCommand::Close));
+    assert_eq!(content(&editor), "!mine\n");
+    assert!(editor.buffer().is_modified());
+
+    editor.execute(Command::File(File::Open(theirs.clone())));
+    editor.execute(Command::Panel(PanelCommand::Answer('s')));
+    assert_eq!(std::fs::read_to_string(&mine).unwrap(), "!mine\n");
+    assert_eq!(content(&editor), "theirs\n");
+
+    // Or the changes are dropped on purpose.
+    editor.insert("?");
+    editor.execute(Command::File(File::Open(mine.clone())));
+    editor.execute(Command::Panel(PanelCommand::Answer('d')));
+    assert_eq!(content(&editor), "!mine\n");
+    assert_eq!(std::fs::read_to_string(&theirs).unwrap(), "theirs\n");
+
+    let _ = std::fs::remove_file(&mine);
+    let _ = std::fs::remove_file(&theirs);
+}
+
+/// A key that is not one of the answers changes nothing, the question
+/// included.
+#[test]
+fn a_question_ignores_keys_that_answer_nothing() {
+    let mut editor = editor("x", 0);
+    editor.insert("!");
+    editor.execute(Command::Quit);
+    editor.execute(Command::Panel(PanelCommand::Answer('d')));
+    assert_eq!(confirm(&editor), Some(&Question::Leave(After::Quit)));
+    assert!(!editor.quit);
+}
+
+#[test]
+fn saving_as_names_a_scratch_buffer_and_asks_before_taking_a_file_that_exists() {
+    let fresh = scratch_path("save-as-fresh");
+    let taken = scratch_path("save-as-taken");
+    let _ = std::fs::remove_file(&fresh);
+    std::fs::write(&taken, "taken\n").unwrap();
+
+    let mut editor = editor("", 0);
+    editor.insert("text");
+    editor.execute(Command::File(File::SaveAs(fresh.clone())));
+    assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "text");
+    assert_eq!(editor.buffer().name(), fresh.display().to_string());
+    assert!(!editor.buffer().is_modified());
+
+    // Saving under the name it already has asks nothing.
+    editor.insert("!");
+    editor.execute(Command::File(File::SaveAs(fresh.clone())));
+    assert!(editor.panel.is_none());
+    assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "text!");
+
+    editor.execute(Command::File(File::SaveAs(taken.clone())));
+    assert_eq!(confirm(&editor), Some(&Question::Replace(taken.clone(), After::Stay)));
+    // Not renamed until agreed to.
+    assert_eq!(editor.buffer().name(), fresh.display().to_string());
+    editor.execute(Command::Panel(PanelCommand::Answer('o')));
+    assert_eq!(std::fs::read_to_string(&taken).unwrap(), "text!");
+    assert_eq!(editor.buffer().name(), taken.display().to_string());
+
+    let _ = std::fs::remove_file(&fresh);
+    let _ = std::fs::remove_file(&taken);
+}
+
+#[test]
+fn a_pipeline_buffer_is_not_replaced_and_saves_a_copy() {
+    let path = scratch_path("pipeline-open");
+    let _ = std::fs::remove_file(&path);
+
+    let mut editor = editor("in", 0);
+    editor.buffer_mut().backing = Backing::Stdio {
+        committed: editor.buffer().text().clone(),
+    };
+
+    editor.execute(Command::File(File::Open(path.clone())));
+    assert_eq!(content(&editor), "in");
+    assert!(editor.message().is_some());
+
+    editor.execute(Command::File(File::SaveAs(path.clone())));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "in");
+    assert_eq!(editor.buffer().name(), "[stdin]");
+    assert!(editor.message().unwrap().starts_with("Copied to"));
 
     let _ = std::fs::remove_file(&path);
 }
@@ -720,16 +877,79 @@ fn the_answer_key_is_the_physical_one() {
     assert!(editor.quit);
 }
 
+/// A scratch buffer has nowhere to be written to, so "save and quit" asks
+/// for a name first and quits once the file is there.
 #[test]
-fn a_save_that_fails_cancels_the_quit() {
-    // A scratch buffer has nowhere to be written to.
+fn saving_a_nameless_buffer_asks_for_a_name_and_carries_on() {
+    let path = scratch_path("named-on-the-way-out");
+    let _ = std::fs::remove_file(&path);
+
     let mut editor = editor("text", 0);
     editor.insert("!");
     editor.request_quit();
     editor.answer('s');
+    assert!(!editor.quit);
+    assert_eq!(
+        editor.prompt().map(|prompt| prompt.purpose.clone()),
+        Some(Purpose::SaveAs(After::Quit))
+    );
+
+    // Nothing typed: nothing happens, and the intention is dropped with
+    // the prompt.
+    editor.submit_prompt(false);
+    assert!(editor.panel.is_none());
+    assert!(!editor.quit);
+    assert!(editor.buffer().is_modified());
+
+    editor.request_quit();
+    editor.answer('s');
+    type_into_prompt(&mut editor, &path.display().to_string());
+    editor.submit_prompt(false);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "!text");
+    assert!(editor.quit);
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// A save that fails says why and goes no further.
+#[test]
+fn a_save_that_fails_cancels_the_quit() {
+    let path = scratch_path("unwritable").join("below");
+    let mut editor = editor("text", 0);
+    editor.insert("!");
+    editor.execute(Command::File(File::SaveAs(path)));
+    editor.request_quit();
+    editor.answer('s');
 
     assert!(!editor.quit);
-    assert!(editor.message.is_some());
+    assert!(editor.message().unwrap().starts_with("cannot write"));
+}
+
+/// The prompts behind `Ctrl+O` and `Ctrl+Shift+S`: a path typed in becomes
+/// the command, and "save as" starts from the name the file has.
+#[test]
+fn the_path_prompts_open_and_save_what_is_typed() {
+    let first = scratch_path("prompt-first");
+    let second = scratch_path("prompt-second");
+    std::fs::write(&first, "first\n").unwrap();
+    let _ = std::fs::remove_file(&second);
+
+    let mut editor = editor("", 0);
+    editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::Open)));
+    type_into_prompt(&mut editor, &format!(" {} ", first.display()));
+    editor.submit_prompt(false);
+    assert_eq!(content(&editor), "first\n");
+
+    editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay))));
+    assert_eq!(editor.prompt().unwrap().contents(0), first.display().to_string());
+    editor.execute(Command::Select(Select::All));
+    type_into_prompt(&mut editor, &second.display().to_string());
+    editor.submit_prompt(false);
+    assert_eq!(std::fs::read_to_string(&second).unwrap(), "first\n");
+    assert_eq!(editor.buffer().name(), second.display().to_string());
+
+    let _ = std::fs::remove_file(&first);
+    let _ = std::fs::remove_file(&second);
 }
 
 #[test]

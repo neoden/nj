@@ -1,26 +1,33 @@
 use std::ops::Range;
 
+use super::After;
 use crate::text::movement::{self, Motion};
 use crate::text::Text;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Purpose {
     GotoLine,
     Search,
     Replace,
+    Open,
+    /// Carries what the save is for, since a buffer with no name yet may be
+    /// asked for one on the way out.
+    SaveAs(After),
 }
 
 impl Purpose {
-    fn labels(self) -> &'static [&'static str] {
+    fn labels(&self) -> &'static [&'static str] {
         match self {
             Purpose::GotoLine => &["Line:"],
             Purpose::Search => &["Find:"],
             Purpose::Replace => &["Find:", "Replace:"],
+            Purpose::Open => &["Open:"],
+            Purpose::SaveAs(_) => &["Save as:"],
         }
     }
 
     /// Whether the first field is a query that drives a search as it is typed.
-    pub fn searches(self) -> bool {
+    pub fn searches(&self) -> bool {
         matches!(self, Purpose::Search | Purpose::Replace)
     }
 }
@@ -100,16 +107,17 @@ pub struct Prompt {
 
 impl Prompt {
     pub fn new(purpose: Purpose) -> Self {
+        let fields = purpose
+            .labels()
+            .iter()
+            .map(|&label| Field {
+                label,
+                ..Field::default()
+            })
+            .collect();
         Self {
             purpose,
-            fields: purpose
-                .labels()
-                .iter()
-                .map(|&label| Field {
-                    label,
-                    ..Field::default()
-                })
-                .collect(),
+            fields,
             active: 0,
         }
     }

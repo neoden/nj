@@ -6,8 +6,11 @@
 //! work. Nothing here borrows: a command is plain data that can be stored,
 //! sent and later parsed from a configuration file.
 
+use std::path::PathBuf;
+
 use super::panel::picker::Pick;
 use super::panel::prompt::Purpose;
+use super::panel::After;
 use crate::text::movement::{Direction, Motion};
 use crate::text::selection::SelectionSet;
 
@@ -67,6 +70,11 @@ pub enum Select {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum File {
     Save,
+    /// Under this name from now on. A pipeline buffer writes a copy instead.
+    SaveAs(PathBuf),
+    /// In place of the buffer in focus, which asks first if it has unsaved
+    /// changes. A path with no file behind it opens empty, like `ned newfile`.
+    Open(PathBuf),
     /// By name, since a language is a table entry rather than a value.
     SetLanguage(String),
 }
@@ -91,7 +99,9 @@ pub enum PanelCommand {
 /// Movement is not — nobody opens a palette to go left — and neither is
 /// anything that only makes sense inside a panel.
 pub const PALETTE: &[(&str, Command)] = &[
+    ("Open file", Command::Panel(PanelCommand::Prompt(Purpose::Open))),
     ("Save", Command::File(File::Save)),
+    ("Save as", Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay)))),
     ("Quit", Command::Quit),
     ("Undo", Command::Edit(Edit::Undo)),
     ("Redo", Command::Edit(Edit::Redo)),
