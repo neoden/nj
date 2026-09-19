@@ -1,0 +1,5 @@
+# rustfmt's own defaults. The file exists so that the choice is on record:
+# there is no house width, no small-heuristics override, and `cargo fmt`
+# is the whole style guide.
+edition = "2024"
+style_edition = "2024"
