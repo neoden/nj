@@ -21,12 +21,7 @@ const MOUSE_SCROLL_LINES: isize = 3;
 pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
     loop {
         let (width, height) = crossterm::terminal::size()?;
-        editor.view.fit(
-            width as usize,
-            height as usize,
-            editor.buffer.text.line_count(),
-            editor.panel_height(),
-        );
+        editor.resize(width as usize, height as usize);
 
         let (left, right) = status(editor);
         render::draw(out, editor, &left, &right)?;
@@ -160,7 +155,7 @@ fn handle_key(stroke: Keystroke, editor: &mut Editor) {
         KeyCode::PageUp => editor.move_selections(Motion::Page(Backward), extend),
         KeyCode::PageDown => editor.move_selections(Motion::Page(Forward), extend),
 
-        KeyCode::Esc if editor.view.selections.len() > 1 => editor.remove_secondary_cursors(),
+        KeyCode::Esc if editor.view().selections.len() > 1 => editor.remove_secondary_cursors(),
         KeyCode::Esc => editor.cancel_selection(),
         _ => {
             if let Some(character) = stroke.text {
@@ -171,29 +166,30 @@ fn handle_key(stroke: Keystroke, editor: &mut Editor) {
 }
 
 fn handle_mouse(mouse: MouseEvent, editor: &mut Editor) {
-    let view = &mut editor.view;
-    let text = &editor.buffer.text;
-    let column = (mouse.column as usize).saturating_sub(view.margin + view.gutter);
-    let row = mouse.row as usize;
+    let (view, buffer) = editor.workspace.focus_mut();
+    // Into the view's own coordinates: past its gutter, down from its top.
+    let column = (mouse.column as usize).saturating_sub(view.area.x + view.gutter);
+    let row = (mouse.row as usize).saturating_sub(view.area.y);
+    let inside = row < view.height();
 
     match mouse.kind {
-        MouseEventKind::ScrollUp => view.scroll_lines(-MOUSE_SCROLL_LINES, text),
-        MouseEventKind::ScrollDown => view.scroll_lines(MOUSE_SCROLL_LINES, text),
-        MouseEventKind::Down(MouseButton::Left) if row < view.height => {
-            let offset = view.offset_at_screen(text, row, column);
+        MouseEventKind::ScrollUp => view.scroll_lines(-MOUSE_SCROLL_LINES, buffer),
+        MouseEventKind::ScrollDown => view.scroll_lines(MOUSE_SCROLL_LINES, buffer),
+        MouseEventKind::Down(MouseButton::Left) if inside => {
+            let offset = view.offset_at_screen(buffer, row, column);
             match mouse.modifiers.contains(KeyModifiers::ALT) {
                 true => view.selections.push(Selection::cursor(offset)),
                 false => view.selections = SelectionSet::single(offset),
             }
         }
-        MouseEventKind::Drag(MouseButton::Left) if row < view.height => {
+        MouseEventKind::Drag(MouseButton::Left) if inside => {
             view.selections = Selection {
                 anchor: view.selections.primary().anchor,
-                head: view.offset_at_screen(text, row, column),
+                head: view.offset_at_screen(buffer, row, column),
                 goal_column: None,
             }
             .into();
-            view.scroll_to_cursor(text);
+            view.scroll_to_cursor(buffer);
         }
         _ => {}
     }
@@ -203,8 +199,8 @@ fn handle_mouse(mouse: MouseEvent, editor: &mut Editor) {
 /// whatever is going on right now, so the eye only goes there when something
 /// is happening.
 fn status(editor: &Editor) -> (String, String) {
-    let buffer = &editor.buffer;
-    let line = buffer.text.line_of(editor.view.selections.primary().head);
+    let (view, buffer) = editor.workspace.focus();
+    let line = buffer.text.line_of(view.selections.primary().head);
     let column = editor.cursor_column();
 
     let right = format!(
@@ -220,7 +216,7 @@ fn status(editor: &Editor) -> (String, String) {
     let left = match &editor.message {
         Some(message) => message.clone(),
         None => {
-            let cursors = editor.view.selections.len();
+            let cursors = view.selections.len();
             [
                 editor.panel_status(),
                 match cursors {

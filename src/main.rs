@@ -31,7 +31,7 @@ fn main() -> Result<()> {
     result?;
 
     if let Some(mut downstream) = downstream {
-        editor.buffer.finish(&mut downstream)?;
+        editor.buffer().finish(&mut downstream)?;
     }
     Ok(())
 }

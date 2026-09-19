@@ -36,14 +36,14 @@ fn end_row(out: &mut impl Write) -> Result<()> {
 /// Draws a whole frame. Every cell is rewritten, so the screen is never
 /// cleared first: clearing is what makes a terminal flicker.
 pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> Result<()> {
-    let buffer = &editor.buffer;
-    let view = &editor.view;
-    let margin = &" ".repeat(view.margin);
-    let mut drawn = 0;
+    let (view, buffer) = editor.workspace.focus();
+    let screen = &editor.screen;
+    let margin = &" ".repeat(view.area.x);
+    let mut drawn = view.area.y;
 
-    for row in view.rows(&buffer.text) {
+    for row in view.rows(buffer) {
         let text = buffer.text.line_str(row.line);
-        let highlight = view.highlight_line(&buffer.text, row.line, &editor.matches);
+        let highlight = view.highlight_line(buffer, row.line, &editor.matches);
         // Wrapped continuations leave the gutter empty: the number belongs to
         // the logical line, not to every row it spans.
         let number = match row.index {
@@ -64,7 +64,8 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
             Print(number),
             ResetColor,
         )?;
-        for (text, style) in view.visible_runs(&text, row.start_column, &highlight) {
+        let runs = view.visible_runs(&text, buffer.tab_width(), row.start_column, &highlight);
+        for (text, style) in runs {
             match style {
                 CellStyle::Normal => queue!(out, Print(text))?,
                 CellStyle::CurrentLine => queue!(
@@ -99,18 +100,18 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
         drawn += 1;
     }
 
-    for row in drawn..view.height {
+    for row in drawn..screen.panel_top() {
         start_row(out, margin, row)?;
         end_row(out)?;
     }
 
-    let width = view.gutter + view.width;
-    // What the panel asked for is not what it got: only the view knows how much
-    // of the screen was left over, and it may have granted nothing at all.
-    let body = view.panel_height.saturating_sub(2);
+    let width = view.area.width;
+    // What the panel asked for is not what it got: only the screen knows how
+    // much was left over, and it may have granted nothing at all.
+    let body = screen.panel_height.saturating_sub(2);
     if let Some(panel) = editor.panel.as_ref().filter(|_| body > 0) {
-        let top = view.height + 1;
-        rule(out, margin, view.height, width)?;
+        let top = screen.panel_top() + 1;
+        rule(out, margin, screen.panel_top(), width)?;
         match panel {
             Panel::Prompt(prompt) => draw_prompt(out, margin, prompt, top, width, body)?,
             Panel::Picker(picker) => draw_picker(out, margin, picker, top, width, body)?,
@@ -122,12 +123,10 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
                 }
             }
         }
-        rule(out, margin, view.height + view.panel_height - 1, width)?;
+        rule(out, margin, screen.status_row() - 1, width)?;
     }
 
-    // The status bar is nailed to the last row so that it never moves when a
-    // panel opens or changes height.
-    start_row(out, margin, view.height + view.panel_height)?;
+    start_row(out, margin, screen.status_row())?;
     queue!(
         out,
         SetAttribute(Attribute::Reverse),
@@ -295,11 +294,11 @@ mod tests {
 
     fn drawn(term_width: usize) -> (String, usize) {
         let mut editor = Editor::new(Buffer::from_text(Text::from_str("hello\n")));
-        editor.view.fit(term_width, 4, 2, 0);
+        editor.resize(term_width, 4);
 
         let mut out = Vec::new();
         draw(&mut out, &editor, "", "").unwrap();
-        (String::from_utf8(out).unwrap(), editor.view.margin)
+        (String::from_utf8(out).unwrap(), editor.view().area.x)
     }
 
     #[test]

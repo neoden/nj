@@ -11,7 +11,7 @@ use ned::panel::Panel;
 
 fn editor() -> Editor {
     let mut editor = Editor::new(Buffer::default());
-    editor.view.fit(80, 24, 1, 0);
+    editor.resize(80, 24);
     editor
 }
 
@@ -26,7 +26,7 @@ fn typed(editor: &mut Editor, text: &str) {
 }
 
 fn content(editor: &Editor) -> String {
-    editor.buffer.text.to_string()
+    editor.buffer().text.to_string()
 }
 
 fn ctrl(editor: &mut Editor, character: char) {
@@ -117,7 +117,7 @@ fn enter_in_a_picker_takes_the_choice() {
     press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(editor.panel.is_none());
-    assert_eq!(editor.buffer.language.name, "Rust");
+    assert_eq!(editor.buffer().language.name, "Rust");
 }
 
 /// S3: the picker's query and a prompt's fields were near-identical copies
@@ -155,5 +155,5 @@ fn a_cyrillic_layout_still_finds_the_command() {
     // `ф` sits where `a` does, so this is the Ctrl+A binding.
     press(&mut editor, KeyCode::Char('ф'), KeyModifiers::CONTROL);
 
-    assert_eq!(editor.view.selections.primary().range(), 0..3);
+    assert_eq!(editor.view().selections.primary().range(), 0..3);
 }

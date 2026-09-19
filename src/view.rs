@@ -1,23 +1,16 @@
 use std::ops::Range;
 
-use crate::layout::{self, Glyph, DEFAULT_TAB_WIDTH};
+use crate::buffer::Buffer;
+use crate::layout::{self, Glyph};
 use crate::movement::{self, Direction, Motion};
+use crate::screen::Area;
 use crate::selection::{Selection, SelectionSet};
-use crate::text::Text;
+use crate::workspace::BufferId;
 
 pub const CONTROL_PLACEHOLDER: char = '·';
 
 /// Rows kept between the cursor and the edge of the screen while scrolling.
 const SCROLL_MARGIN: usize = 2;
-
-/// Capped and centred, so a wide terminal does not leave the editor at one edge.
-const MAX_TEXT_WIDTH: usize = 100;
-
-const STATUS_ROWS: usize = 1;
-/// Rows of text the panel may never take.
-const MIN_TEXT_ROWS: usize = 1;
-/// A panel is its two rules and a row of its own; less than that is no panel.
-const MIN_PANEL_ROWS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellStyle {
@@ -73,149 +66,144 @@ pub struct Row {
     pub start_column: usize,
 }
 
-/// A window onto a document: which part of it is on screen, and how wide the
-/// screen is. Cursors will live here too.
+/// A window onto a buffer: the cursors in it, which part of it is on screen,
+/// and the area of the screen it was given. Whatever is derived from the
+/// buffer — the tab width, say — is read from the buffer, not kept here.
 #[derive(Debug)]
 pub struct View {
+    pub buffer: BufferId,
     pub selections: SelectionSet,
     pub top_line: usize,
     pub left_column: usize,
-    /// Width of the text area, excluding the gutter.
-    pub width: usize,
-    /// Screen column the editor starts at; the rest of the terminal is blank.
-    pub margin: usize,
-    /// Rows of text, excluding the status line.
-    pub height: usize,
-    /// Rows the panel got, which is not always what it asked for.
-    pub panel_height: usize,
+    /// Assigned from outside; the gutter is carved out of it.
+    pub area: Area,
     pub gutter: usize,
-    pub tab_width: usize,
 }
 
-impl Default for View {
-    fn default() -> Self {
-        Self {
-            selections: SelectionSet::single(0),
-            top_line: 0,
-            left_column: 0,
-            width: 0,
-            margin: 0,
-            height: 0,
-            panel_height: 0,
-            gutter: 0,
-            tab_width: DEFAULT_TAB_WIDTH,
-        }
-    }
+/// The gutter holds the line number and a space after it.
+pub fn gutter_width(line_count: usize) -> usize {
+    digits(line_count) + 1
 }
 
 impl View {
-    /// Divides the terminal into a gutter, a text area, the rows a panel asked
-    /// for and the status bar on the last one. A panel is cut down to what is
-    /// left rather than pushing the status bar off the screen, and a screen too
-    /// short to draw one in gets none at all. A terminal wider than the cap
-    /// gets a band of that width, centred.
-    pub fn fit(&mut self, term_width: usize, term_height: usize, line_count: usize, panel: usize) {
-        self.gutter = digits(line_count) + 1;
-        let band = term_width.min(self.gutter + MAX_TEXT_WIDTH);
-        self.margin = (term_width - band) / 2;
-        self.width = band.saturating_sub(self.gutter);
+    pub fn new(buffer: BufferId) -> Self {
+        Self {
+            buffer,
+            selections: SelectionSet::single(0),
+            top_line: 0,
+            left_column: 0,
+            area: Area::default(),
+            gutter: 0,
+        }
+    }
 
-        let spare = term_height.saturating_sub(STATUS_ROWS + MIN_TEXT_ROWS);
-        self.panel_height = match panel.min(spare) {
-            height if height >= MIN_PANEL_ROWS => height,
-            _ => 0,
-        };
-        self.height = term_height.saturating_sub(self.panel_height + STATUS_ROWS);
+    pub fn resize(&mut self, area: Area, line_count: usize) {
+        self.area = area;
+        self.gutter = gutter_width(line_count);
+    }
+
+    /// Columns of text, excluding the gutter.
+    pub fn width(&self) -> usize {
+        self.area.width.saturating_sub(self.gutter)
+    }
+
+    /// Rows of text.
+    pub fn height(&self) -> usize {
+        self.area.height
     }
 
     /// Rows filling the screen, top to bottom.
-    pub fn rows<'a>(&'a self, text: &'a Text) -> impl Iterator<Item = Row> + 'a {
-        let first = (self.top_line < text.line_count()).then(|| self.row(text, self.top_line, 0));
-        std::iter::successors(first, move |row| self.next_row(text, *row)).take(self.height)
+    pub fn rows<'a>(&'a self, buffer: &'a Buffer) -> impl Iterator<Item = Row> + 'a {
+        let text = &buffer.text;
+        let first =
+            (self.top_line < text.line_count()).then(|| self.row(buffer, self.top_line, 0));
+        std::iter::successors(first, move |row| self.next_row(buffer, *row)).take(self.height())
     }
 
-    pub fn next_row(&self, text: &Text, row: Row) -> Option<Row> {
-        if row.index + 1 < self.rows_in_line(text, row.line) {
-            return Some(self.row(text, row.line, row.index + 1));
+    pub fn next_row(&self, buffer: &Buffer, row: Row) -> Option<Row> {
+        if row.index + 1 < self.rows_in_line(buffer, row.line) {
+            return Some(self.row(buffer, row.line, row.index + 1));
         }
         let line = row.line + 1;
-        (line < text.line_count()).then(|| self.row(text, line, 0))
+        (line < buffer.text.line_count()).then(|| self.row(buffer, line, 0))
     }
 
-    pub fn previous_row(&self, text: &Text, row: Row) -> Option<Row> {
+    pub fn previous_row(&self, buffer: &Buffer, row: Row) -> Option<Row> {
         if row.index > 0 {
-            return Some(self.row(text, row.line, row.index - 1));
+            return Some(self.row(buffer, row.line, row.index - 1));
         }
         let line = row.line.checked_sub(1)?;
-        Some(self.row(text, line, self.rows_in_line(text, line) - 1))
+        Some(self.row(buffer, line, self.rows_in_line(buffer, line) - 1))
     }
 
     /// The row an offset falls on.
-    pub fn row_of(&self, text: &Text, offset: usize) -> Row {
+    pub fn row_of(&self, buffer: &Buffer, offset: usize) -> Row {
+        let text = &buffer.text;
         let line = text.line_of(offset);
         let content = text.line_str(line);
         let column =
-            layout::column_of_byte(&content, offset - text.line_start(line), self.tab_width);
-        let index = (0..self.rows_in_line(text, line))
+            layout::column_of_byte(&content, offset - text.line_start(line), buffer.tab_width());
+        let index = (0..self.rows_in_line(buffer, line))
             .rev()
-            .find(|&index| self.row_start_column(text, line, index) <= column)
+            .find(|&index| self.row_start_column(buffer, line, index) <= column)
             .unwrap_or(0);
-        self.row(text, line, index)
+        self.row(buffer, line, index)
     }
 
-    fn row(&self, text: &Text, line: usize, index: usize) -> Row {
+    fn row(&self, buffer: &Buffer, line: usize, index: usize) -> Row {
         Row {
             line,
             index,
-            start_column: self.row_start_column(text, line, index),
+            start_column: self.row_start_column(buffer, line, index),
         }
     }
 
     /// Soft wrap will make this depend on the line and the width. Until then,
     /// one line is one row.
-    fn rows_in_line(&self, _text: &Text, _line: usize) -> usize {
+    fn rows_in_line(&self, _buffer: &Buffer, _line: usize) -> usize {
         1
     }
 
     /// Zero without soft wrap. Horizontal scrolling is deliberately kept out
     /// of this: it belongs to the window, not to the layout of the line.
-    fn row_start_column(&self, _text: &Text, _line: usize, _index: usize) -> usize {
+    fn row_start_column(&self, _buffer: &Buffer, _line: usize, _index: usize) -> usize {
         0
     }
 
     /// Scrolling stops with the last line at the bottom of the screen; there
     /// is no empty space past the end of the document.
-    pub fn max_top_line(&self, text: &Text) -> usize {
-        text.line_count().saturating_sub(self.height)
+    pub fn max_top_line(&self, buffer: &Buffer) -> usize {
+        buffer.text.line_count().saturating_sub(self.height())
     }
 
-    pub fn scroll_lines(&mut self, delta: isize, text: &Text) {
+    pub fn scroll_lines(&mut self, delta: isize, buffer: &Buffer) {
         self.top_line = self
             .top_line
             .saturating_add_signed(delta)
-            .min(self.max_top_line(text));
+            .min(self.max_top_line(buffer));
     }
 
-    pub fn move_selections(&mut self, text: &Text, motion: Motion, extend: bool) {
+    pub fn move_selections(&mut self, buffer: &Buffer, motion: Motion, extend: bool) {
         let moved = self
             .selections
-            .mapped(|selection| self.move_selection(text, selection, motion, extend));
+            .mapped(|selection| self.move_selection(buffer, selection, motion, extend));
         self.selections = moved;
-        self.scroll_to_cursor(text);
+        self.scroll_to_cursor(buffer);
     }
 
     fn move_selection(
         &self,
-        text: &Text,
+        buffer: &Buffer,
         selection: Selection,
         motion: Motion,
         extend: bool,
     ) -> Selection {
+        let text = &buffer.text;
         let (head, goal_column) = match motion {
-            Motion::Row(direction) => self.move_by_rows(text, &selection, direction, 1),
+            Motion::Row(direction) => self.move_by_rows(buffer, &selection, direction, 1),
             Motion::Page(direction) => {
-                let rows = self.height.saturating_sub(1).max(1);
-                self.move_by_rows(text, &selection, direction, rows)
+                let rows = self.height().saturating_sub(1).max(1);
+                self.move_by_rows(buffer, &selection, direction, rows)
             }
             Motion::Grapheme(direction) => (movement::grapheme(text, selection.head, direction), None),
             Motion::Word(direction) => (movement::word(text, selection.head, direction), None),
@@ -232,17 +220,18 @@ impl View {
 
     fn move_by_rows(
         &self,
-        text: &Text,
+        buffer: &Buffer,
         selection: &Selection,
         direction: Direction,
         rows: usize,
     ) -> (usize, Option<usize>) {
-        let row = self.row_of(text, selection.head);
+        let text = &buffer.text;
+        let row = self.row_of(buffer, selection.head);
         let content = text.line_str(row.line);
         let column = layout::column_of_byte(
             &content,
             selection.head - text.line_start(row.line),
-            self.tab_width,
+            buffer.tab_width(),
         );
         let goal = selection
             .goal_column
@@ -251,8 +240,8 @@ impl View {
         let mut target = row;
         for _ in 0..rows {
             let next = match direction {
-                Direction::Backward => self.previous_row(text, target),
-                Direction::Forward => self.next_row(text, target),
+                Direction::Backward => self.previous_row(buffer, target),
+                Direction::Forward => self.next_row(buffer, target),
             };
             match next {
                 Some(next) => target = next,
@@ -262,12 +251,13 @@ impl View {
 
         let content = text.line_str(target.line);
         let head = text.line_start(target.line)
-            + layout::byte_at_column(&content, target.start_column + goal, self.tab_width);
+            + layout::byte_at_column(&content, target.start_column + goal, buffer.tab_width());
         (head, Some(goal))
     }
 
     /// Grows the column of cursors from whichever end is being extended.
-    pub fn add_cursor(&mut self, text: &Text, direction: Direction) {
+    pub fn add_cursor(&mut self, buffer: &Buffer, direction: Direction) {
+        let text = &buffer.text;
         let edge = match direction {
             Direction::Backward => self.selections.iter().next(),
             Direction::Forward => self.selections.iter().last(),
@@ -276,54 +266,59 @@ impl View {
             return;
         };
 
-        let row = self.row_of(text, edge.head);
+        let row = self.row_of(buffer, edge.head);
         let target = match direction {
-            Direction::Backward => self.previous_row(text, row),
-            Direction::Forward => self.next_row(text, row),
+            Direction::Backward => self.previous_row(buffer, row),
+            Direction::Forward => self.next_row(buffer, row),
         };
         let Some(target) = target else {
             return;
         };
 
         let content = text.line_str(row.line);
-        let column =
-            layout::column_of_byte(&content, edge.head - text.line_start(row.line), self.tab_width);
+        let column = layout::column_of_byte(
+            &content,
+            edge.head - text.line_start(row.line),
+            buffer.tab_width(),
+        );
         let goal = edge.goal_column.unwrap_or(column - row.start_column);
 
         let content = text.line_str(target.line);
         let head = text.line_start(target.line)
-            + layout::byte_at_column(&content, target.start_column + goal, self.tab_width);
+            + layout::byte_at_column(&content, target.start_column + goal, buffer.tab_width());
 
         self.selections.push(Selection {
             anchor: head,
             head,
             goal_column: Some(goal),
         });
-        self.scroll_to_cursor(text);
+        self.scroll_to_cursor(buffer);
     }
 
     /// Brings the primary cursor back on screen, keeping a margin above and
     /// below it where the document allows.
-    pub fn scroll_to_cursor(&mut self, text: &Text) {
+    pub fn scroll_to_cursor(&mut self, buffer: &Buffer) {
+        let text = &buffer.text;
         let head = self.selections.primary().head;
         let line = text.line_of(head);
-        let margin = SCROLL_MARGIN.min(self.height.saturating_sub(1) / 2);
+        let margin = SCROLL_MARGIN.min(self.height().saturating_sub(1) / 2);
 
         if line < self.top_line + margin {
             self.top_line = line.saturating_sub(margin);
         }
-        if line + margin >= self.top_line + self.height {
-            self.top_line = (line + margin + 1).saturating_sub(self.height);
+        if line + margin >= self.top_line + self.height() {
+            self.top_line = (line + margin + 1).saturating_sub(self.height());
         }
-        self.top_line = self.top_line.min(self.max_top_line(text));
+        self.top_line = self.top_line.min(self.max_top_line(buffer));
 
         let content = text.line_str(line);
-        let column = layout::column_of_byte(&content, head - text.line_start(line), self.tab_width);
+        let column =
+            layout::column_of_byte(&content, head - text.line_start(line), buffer.tab_width());
         if column < self.left_column {
             self.left_column = column;
         }
-        if column >= self.left_column + self.width {
-            self.left_column = column + 1 - self.width;
+        if column >= self.left_column + self.width() {
+            self.left_column = column + 1 - self.width();
         }
     }
 
@@ -332,16 +327,17 @@ impl View {
     /// that the line break itself is selected.
     pub fn highlight_line(
         &self,
-        text: &Text,
+        buffer: &Buffer,
         line: usize,
         matches: &[Range<usize>],
     ) -> LineHighlight {
+        let text = &buffer.text;
+        let tab_width = buffer.tab_width();
         let start = text.line_start(line);
         let content = text.line_str(line);
         let end = start + content.len();
 
-        let column_of =
-            |offset: usize| layout::column_of_byte(&content, offset - start, self.tab_width);
+        let column_of = |offset: usize| layout::column_of_byte(&content, offset - start, tab_width);
 
         let cursor = self.selections.primary();
         let mut highlight = LineHighlight {
@@ -366,7 +362,7 @@ impl View {
             if !selection.is_empty() {
                 let from = column_of(range.start.max(start));
                 let to = match range.end > end {
-                    true => layout::line_width(&content, self.tab_width) + 1,
+                    true => layout::line_width(&content, tab_width) + 1,
                     false => column_of(range.end),
                 };
                 highlight.selected.push(from..to);
@@ -380,14 +376,15 @@ impl View {
 
     /// Translates a click into a byte offset. Rows past the last one land on
     /// the last row, as they do in any editor.
-    pub fn offset_at_screen(&self, text: &Text, row: usize, column: usize) -> usize {
-        let rows: Vec<Row> = self.rows(text).collect();
+    pub fn offset_at_screen(&self, buffer: &Buffer, row: usize, column: usize) -> usize {
+        let text = &buffer.text;
+        let rows: Vec<Row> = self.rows(buffer).collect();
         let Some(row) = rows.get(row).or(rows.last()) else {
             return 0;
         };
         let content = text.line_str(row.line);
         let column = row.start_column + self.left_column + column;
-        text.line_start(row.line) + layout::byte_at_column(&content, column, self.tab_width)
+        text.line_start(row.line) + layout::byte_at_column(&content, column, buffer.tab_width())
     }
 
     /// The part of a line drawn on one row, expanded and padded to exactly
@@ -396,15 +393,16 @@ impl View {
     pub fn visible_runs(
         &self,
         line: &str,
+        tab_width: usize,
         start_column: usize,
         highlight: &LineHighlight,
     ) -> Vec<(String, CellStyle)> {
         let left = start_column + self.left_column;
-        let right = left + self.width;
+        let right = left + self.width();
         let mut runs = Runs::default();
         let mut column = left;
 
-        for cell in layout::cells(line, self.tab_width) {
+        for cell in layout::cells(line, tab_width) {
             if cell.end_column() <= left {
                 continue;
             }
@@ -437,7 +435,7 @@ impl View {
 
     #[cfg(test)]
     fn visible_text(&self, line: &str, start_column: usize) -> String {
-        self.visible_runs(line, start_column, &LineHighlight::default())
+        self.visible_runs(line, 4, start_column, &LineHighlight::default())
             .into_iter()
             .map(|(text, _)| text)
             .collect()
@@ -475,65 +473,46 @@ fn digits(n: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::screen::Screen;
+    use crate::text::Text;
 
+    fn buf(content: &str) -> Buffer {
+        Buffer::from_text(Text::from_str(content))
+    }
+
+    /// The view a terminal of this size gives a one-line buffer, with no
+    /// panel open: the status bar takes a row and the gutter two columns.
     fn view(width: usize, height: usize) -> View {
-        let mut view = View::default();
-        view.fit(width, height, 1, 0);
+        let mut view = View::new(BufferId::FIRST);
+        fit(&mut view, width, height, 1);
         view
+    }
+
+    fn fit(view: &mut View, width: usize, height: usize, line_count: usize) {
+        let screen = Screen::divide(width, height, gutter_width(line_count), 0);
+        view.resize(screen.text, line_count);
+    }
+
+    /// Columns of text, whatever the gutter takes.
+    fn set_width(view: &mut View, columns: usize) {
+        view.area.width = view.gutter + columns;
     }
 
     #[test]
     fn gutter_grows_with_the_line_count() {
-        let mut view = View::default();
-        view.fit(80, 24, 9, 0);
+        let mut view = view(80, 24);
+        fit(&mut view, 80, 24, 9);
         assert_eq!(view.gutter, 2);
-        assert_eq!(view.width, 78);
-        assert_eq!(view.height, 23);
+        assert_eq!(view.width(), 78);
+        assert_eq!(view.height(), 23);
 
-        view.fit(80, 24, 1000, 0);
+        fit(&mut view, 80, 24, 1000);
         assert_eq!(view.gutter, 5);
-        assert_eq!(view.width, 75);
+        assert_eq!(view.width(), 75);
     }
 
-    #[test]
-    fn a_wide_terminal_gets_a_centred_band() {
-        let mut view = View::default();
-
-        view.fit(400, 24, 1, 0);
-        assert_eq!(view.width, MAX_TEXT_WIDTH);
-        let band = view.gutter + view.width;
-        assert_eq!(view.margin, (400 - band) / 2);
-        // Nothing of the terminal is unaccounted for.
-        assert!(view.margin * 2 + band >= 399);
-
-        // A terminal no wider than the cap is used whole.
-        view.fit(80, 24, 1, 0);
-        assert_eq!(view.margin, 0);
-        assert_eq!(view.width, 80 - view.gutter);
-    }
-
-    #[test]
-    fn a_panel_never_pushes_the_status_bar_off_the_screen() {
-        let mut view = View::default();
-
-        view.fit(80, 24, 1, 13);
-        assert_eq!(view.panel_height, 13);
-        assert_eq!(view.height, 10);
-
-        // Asking for more than there is leaves the text a row and the status
-        // bar its own.
-        view.fit(80, 12, 1, 13);
-        assert_eq!(view.panel_height, 10);
-        assert_eq!(view.height, 1);
-
-        // Too short to draw a panel in at all.
-        view.fit(80, 4, 1, 13);
-        assert_eq!(view.panel_height, 0);
-        assert_eq!(view.height, 3);
-    }
-
-    fn visible_lines(view: &View, text: &Text) -> Range<usize> {
-        let rows: Vec<_> = view.rows(text).collect();
+    fn visible_lines(view: &View, buffer: &Buffer) -> Range<usize> {
+        let rows: Vec<_> = view.rows(buffer).collect();
         match (rows.first(), rows.last()) {
             (Some(first), Some(last)) => first.line..last.line + 1,
             _ => 0..0,
@@ -542,51 +521,51 @@ mod tests {
 
     #[test]
     fn visible_lines_stop_at_the_end_of_the_document() {
-        let text = Text::from_str("1\n2\n3\n");
+        let buffer = buf("1\n2\n3\n");
         let mut view = view(80, 25);
-        assert_eq!(visible_lines(&view, &text), 0..4);
+        assert_eq!(visible_lines(&view, &buffer), 0..4);
 
-        view.height = 2;
-        assert_eq!(visible_lines(&view, &text), 0..2);
+        view.area.height = 2;
+        assert_eq!(visible_lines(&view, &buffer), 0..2);
 
         view.top_line = 3;
-        assert_eq!(visible_lines(&view, &text), 3..4);
+        assert_eq!(visible_lines(&view, &buffer), 3..4);
     }
 
     #[test]
     fn scrolling_stops_with_the_last_line_at_the_bottom() {
-        let text = Text::from_str("1\n2\n3\n4\n5\n6\n7\n8\n9\n10");
+        let buffer = buf("1\n2\n3\n4\n5\n6\n7\n8\n9\n10");
         let mut view = view(80, 5);
-        assert_eq!(view.height, 4);
+        assert_eq!(view.height(), 4);
 
-        view.scroll_lines(-1, &text);
+        view.scroll_lines(-1, &buffer);
         assert_eq!(view.top_line, 0);
 
-        view.scroll_lines(99, &text);
+        view.scroll_lines(99, &buffer);
         assert_eq!(view.top_line, 6);
-        assert_eq!(visible_lines(&view, &text), 6..10);
+        assert_eq!(visible_lines(&view, &buffer), 6..10);
 
     }
 
     #[test]
     fn a_document_shorter_than_the_screen_does_not_scroll() {
-        let text = Text::from_str("1\n2\n3");
+        let buffer = buf("1\n2\n3");
         let mut view = view(80, 25);
 
-        view.scroll_lines(99, &text);
+        view.scroll_lines(99, &buffer);
         assert_eq!(view.top_line, 0);
     }
 
     #[test]
     fn the_screen_scrolls_sideways_for_the_cursor() {
-        let text = Text::from_str("a very long line indeed");
-        let mut view = view_of(&text, 0);
-        view.width = 10;
+        let buffer = buf("a very long line indeed");
+        let mut view = view_of(&buffer, 0);
+        set_width(&mut view, 10);
 
-        view.move_selections(&text, Motion::LineEdge(Direction::Forward), false);
-        assert_eq!(view.left_column, text.len() + 1 - view.width);
+        view.move_selections(&buffer, Motion::LineEdge(Direction::Forward), false);
+        assert_eq!(view.left_column, buffer.text.len() + 1 - view.width());
 
-        view.move_selections(&text, Motion::LineEdge(Direction::Backward), false);
+        view.move_selections(&buffer, Motion::LineEdge(Direction::Backward), false);
         assert_eq!(view.left_column, 0);
     }
 
@@ -595,22 +574,22 @@ mod tests {
         let view = view(10, 25);
         assert_eq!(
             view.visible_text("ab", 0),
-            "ab".to_owned() + &" ".repeat(view.width - 2)
+            "ab".to_owned() + &" ".repeat(view.width() - 2)
         );
-        assert_eq!(view.visible_text("", 0).len(), view.width);
+        assert_eq!(view.visible_text("", 0).len(), view.width());
     }
 
     #[test]
     fn tabs_are_expanded_in_place() {
         let mut view = view(20, 25);
-        view.width = 8;
+        set_width(&mut view, 8);
         assert_eq!(view.visible_text("a\tb", 0), "a   b   ");
     }
 
     #[test]
     fn horizontal_scrolling_clips_from_the_left() {
         let mut view = view(20, 25);
-        view.width = 4;
+        set_width(&mut view, 4);
         view.left_column = 2;
         assert_eq!(view.visible_text("abcdefgh", 0), "cdef");
     }
@@ -618,14 +597,14 @@ mod tests {
     #[test]
     fn a_row_starting_mid_line_clips_the_same_way() {
         let mut view = view(20, 25);
-        view.width = 4;
+        set_width(&mut view, 4);
         assert_eq!(view.visible_text("abcdefgh", 4), "efgh");
     }
 
     #[test]
     fn a_character_cut_by_an_edge_becomes_blanks() {
         let mut view = view(20, 25);
-        view.width = 4;
+        set_width(&mut view, 4);
 
         // The wide character straddles the right edge.
         assert_eq!(view.visible_text("abc日", 0), "abc ");
@@ -638,15 +617,15 @@ mod tests {
     #[test]
     fn control_characters_are_replaced() {
         let mut view = view(20, 25);
-        view.width = 3;
+        set_width(&mut view, 3);
         assert_eq!(view.visible_text("a\u{7}b", 0), "a·b");
     }
 
     #[test]
     fn every_line_is_one_row_without_wrapping() {
-        let text = Text::from_str("a\nb\nc");
+        let buffer = buf("a\nb\nc");
         let view = view(80, 25);
-        let rows: Vec<_> = view.rows(&text).collect();
+        let rows: Vec<_> = view.rows(&buffer).collect();
 
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[1].line, 1);
@@ -655,153 +634,153 @@ mod tests {
 
     #[test]
     fn rows_fill_the_screen_and_stop_at_the_document() {
-        let text = Text::from_str("a\nb\nc\nd\ne\nf\ng\nh");
+        let buffer = buf("a\nb\nc\nd\ne\nf\ng\nh");
         let mut view = view(80, 4);
-        assert_eq!(view.rows(&text).count(), 3);
+        assert_eq!(view.rows(&buffer).count(), 3);
 
         view.top_line = 6;
-        assert_eq!(view.rows(&text).count(), 2);
+        assert_eq!(view.rows(&buffer).count(), 2);
     }
 
     #[test]
     fn rows_walk_forwards_and_backwards() {
-        let text = Text::from_str("a\nb\nc");
+        let buffer = buf("a\nb\nc");
         let view = view(80, 25);
 
-        let first = view.row_of(&text, 0);
+        let first = view.row_of(&buffer, 0);
         assert_eq!(first.line, 0);
-        assert_eq!(view.previous_row(&text, first), None);
+        assert_eq!(view.previous_row(&buffer, first), None);
 
-        let second = view.next_row(&text, first).unwrap();
+        let second = view.next_row(&buffer, first).unwrap();
         assert_eq!(second.line, 1);
-        assert_eq!(view.previous_row(&text, second), Some(first));
+        assert_eq!(view.previous_row(&buffer, second), Some(first));
 
-        let last = view.row_of(&text, 4);
+        let last = view.row_of(&buffer, 4);
         assert_eq!(last.line, 2);
-        assert_eq!(view.next_row(&text, last), None);
+        assert_eq!(view.next_row(&buffer, last), None);
     }
 
-    fn view_of(text: &Text, offset: usize) -> View {
+    fn view_of(buffer: &Buffer, offset: usize) -> View {
         let mut view = view(80, 25);
-        view.fit(80, 25, text.line_count(), 0);
+        fit(&mut view, 80, 25, buffer.text.line_count());
         view.selections = SelectionSet::single(offset);
         view
     }
 
     #[test]
     fn vertical_movement_keeps_the_column() {
-        let text = Text::from_str("hello\nworld");
-        let mut view = view_of(&text, 3);
+        let buffer = buf("hello\nworld");
+        let mut view = view_of(&buffer, 3);
 
-        view.move_selections(&text, Motion::Row(Direction::Forward), false);
+        view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
         assert_eq!(view.selections.primary().head, 9);
 
-        view.move_selections(&text, Motion::Row(Direction::Backward), false);
+        view.move_selections(&buffer, Motion::Row(Direction::Backward), false);
         assert_eq!(view.selections.primary().head, 3);
     }
 
     #[test]
     fn a_short_line_does_not_lose_the_goal_column() {
-        let text = Text::from_str("longest line\nx\nanother long line");
-        let mut view = view_of(&text, 8);
+        let buffer = buf("longest line\nx\nanother long line");
+        let mut view = view_of(&buffer, 8);
 
-        view.move_selections(&text, Motion::Row(Direction::Forward), false);
+        view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
         assert_eq!(view.selections.primary().head, 14);
         assert_eq!(view.selections.primary().goal_column, Some(8));
 
-        view.move_selections(&text, Motion::Row(Direction::Forward), false);
+        view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
         assert_eq!(view.selections.primary().head, 15 + 8);
     }
 
     #[test]
     fn the_goal_column_is_measured_in_display_columns() {
-        let text = Text::from_str("\tx\nyyyyy");
-        let mut view = view_of(&text, 1);
+        let buffer = buf("\tx\nyyyyy");
+        let mut view = view_of(&buffer, 1);
 
         // The tab occupies columns 0..4, so `x` sits at column 4.
-        view.move_selections(&text, Motion::Row(Direction::Forward), false);
+        view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
         assert_eq!(view.selections.primary().head, 3 + 4);
     }
 
     #[test]
     fn horizontal_movement_forgets_the_goal_column() {
-        let text = Text::from_str("hello\nworld");
-        let mut view = view_of(&text, 3);
+        let buffer = buf("hello\nworld");
+        let mut view = view_of(&buffer, 3);
 
-        view.move_selections(&text, Motion::Row(Direction::Forward), false);
+        view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
         assert!(view.selections.primary().goal_column.is_some());
 
-        view.move_selections(&text, Motion::Grapheme(Direction::Forward), false);
+        view.move_selections(&buffer, Motion::Grapheme(Direction::Forward), false);
         assert_eq!(view.selections.primary().goal_column, None);
     }
 
     #[test]
     fn vertical_movement_falls_off_into_the_document_edges() {
-        let text = Text::from_str("aaaa\nbbbb");
-        let mut view = view_of(&text, 7);
+        let buffer = buf("aaaa\nbbbb");
+        let mut view = view_of(&buffer, 7);
 
-        view.move_selections(&text, Motion::Row(Direction::Forward), false);
-        assert_eq!(view.selections.primary().head, text.len());
+        view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
+        assert_eq!(view.selections.primary().head, buffer.text.len());
 
-        view.move_selections(&text, Motion::Row(Direction::Backward), false);
+        view.move_selections(&buffer, Motion::Row(Direction::Backward), false);
         assert_eq!(view.selections.primary().head, 2);
     }
 
     #[test]
     fn a_page_moves_a_screenful_of_rows_at_once() {
-        let text = Text::from_str(&"line\n".repeat(100));
-        let mut view = view_of(&text, 0);
-        view.fit(80, 11, text.line_count(), 0);
+        let buffer = buf(&"line\n".repeat(100));
+        let mut view = view_of(&buffer, 0);
+        fit(&mut view, 80, 11, buffer.text.line_count());
 
-        view.move_selections(&text, Motion::Page(Direction::Forward), false);
-        assert_eq!(text.line_of(view.selections.primary().head), view.height - 1);
+        view.move_selections(&buffer, Motion::Page(Direction::Forward), false);
+        assert_eq!(buffer.text.line_of(view.selections.primary().head), view.height() - 1);
 
-        view.move_selections(&text, Motion::Page(Direction::Backward), false);
+        view.move_selections(&buffer, Motion::Page(Direction::Backward), false);
         assert_eq!(view.selections.primary().head, 0);
     }
 
     #[test]
     fn extending_leaves_the_anchor_behind() {
-        let text = Text::from_str("hello");
-        let mut view = view_of(&text, 1);
+        let buffer = buf("hello");
+        let mut view = view_of(&buffer, 1);
 
-        view.move_selections(&text, Motion::Grapheme(Direction::Forward), true);
+        view.move_selections(&buffer, Motion::Grapheme(Direction::Forward), true);
         assert_eq!(view.selections.primary().anchor, 1);
         assert_eq!(view.selections.primary().head, 2);
 
-        view.move_selections(&text, Motion::Grapheme(Direction::Forward), false);
+        view.move_selections(&buffer, Motion::Grapheme(Direction::Forward), false);
         assert!(view.selections.primary().is_empty());
     }
 
     #[test]
     fn the_screen_follows_the_cursor() {
-        let text = Text::from_str(&"line\n".repeat(100));
-        let mut view = view_of(&text, 0);
-        view.fit(80, 11, text.line_count(), 0);
+        let buffer = buf(&"line\n".repeat(100));
+        let mut view = view_of(&buffer, 0);
+        fit(&mut view, 80, 11, buffer.text.line_count());
 
         for _ in 0..20 {
-            view.move_selections(&text, Motion::Row(Direction::Forward), false);
+            view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
         }
-        assert_eq!(text.line_of(view.selections.primary().head), 20);
-        assert_eq!(view.top_line, 20 + SCROLL_MARGIN + 1 - view.height);
+        assert_eq!(buffer.text.line_of(view.selections.primary().head), 20);
+        assert_eq!(view.top_line, 20 + SCROLL_MARGIN + 1 - view.height());
 
-        view.move_selections(&text, Motion::Document(Direction::Backward), false);
+        view.move_selections(&buffer, Motion::Document(Direction::Backward), false);
         assert_eq!(view.top_line, 0);
     }
 
     #[test]
     fn a_caret_and_a_selection_style_their_columns() {
-        let text = Text::from_str("hello");
-        let mut view = view_of(&text, 0);
-        view.width = 5;
+        let buffer = buf("hello");
+        let mut view = view_of(&buffer, 0);
+        set_width(&mut view, 5);
         view.selections = SelectionSet::single(1);
         view.selections = view.selections.mapped(|selection| Selection {
             head: 3,
             ..selection
         });
 
-        let highlight = view.highlight_line(&text, 0, &[]);
-        let runs = view.visible_runs("hello", 0, &highlight);
+        let highlight = view.highlight_line(&buffer, 0, &[]);
+        let runs = view.visible_runs("hello", 4, 0, &highlight);
         assert_eq!(
             runs,
             vec![
@@ -815,11 +794,11 @@ mod tests {
 
     #[test]
     fn the_current_line_needs_a_lone_bare_cursor() {
-        let text = Text::from_str("one\ntwo\n");
-        let mut view = view_of(&text, 0);
+        let buffer = buf("one\ntwo\n");
+        let mut view = view_of(&buffer, 0);
 
-        assert!(view.highlight_line(&text, 0, &[]).current);
-        assert!(!view.highlight_line(&text, 1, &[]).current);
+        assert!(view.highlight_line(&buffer, 0, &[]).current);
+        assert!(!view.highlight_line(&buffer, 1, &[]).current);
 
         view.selections = Selection {
             anchor: 0,
@@ -827,33 +806,33 @@ mod tests {
             goal_column: None,
         }
         .into();
-        assert!(!view.highlight_line(&text, 0, &[]).current);
+        assert!(!view.highlight_line(&buffer, 0, &[]).current);
 
         view.selections = SelectionSet::single(0);
         view.selections.push(Selection::cursor(4));
-        assert!(!view.highlight_line(&text, 0, &[]).current);
+        assert!(!view.highlight_line(&buffer, 0, &[]).current);
     }
 
     #[test]
     fn the_current_line_runs_to_the_edge_of_the_screen() {
-        let text = Text::from_str("one\ntwo\n");
-        let mut view = view_of(&text, 1);
-        view.width = 6;
+        let buffer = buf("one\ntwo\n");
+        let mut view = view_of(&buffer, 1);
+        set_width(&mut view, 6);
 
-        let highlight = view.highlight_line(&text, 0, &[]);
-        let runs = view.visible_runs("one", 0, &highlight);
+        let highlight = view.highlight_line(&buffer, 0, &[]);
+        let runs = view.visible_runs("one", 4, 0, &highlight);
         assert!(runs.iter().all(|(_, style)| *style != CellStyle::Normal));
     }
 
     #[test]
     fn clicks_land_on_the_byte_under_them() {
-        let text = Text::from_str("hello\n\tмир");
+        let buffer = buf("hello\n\tмир");
         let view = view(80, 25);
 
-        assert_eq!(view.offset_at_screen(&text, 0, 3), 3);
+        assert_eq!(view.offset_at_screen(&buffer, 0, 3), 3);
         // The tab covers columns 0..4, so column 5 is the second letter.
-        assert_eq!(view.offset_at_screen(&text, 1, 5), 6 + 1 + 2);
+        assert_eq!(view.offset_at_screen(&buffer, 1, 5), 6 + 1 + 2);
         // Clicking past the last row lands on the last row.
-        assert_eq!(view.offset_at_screen(&text, 99, 0), 6);
+        assert_eq!(view.offset_at_screen(&buffer, 99, 0), 6);
     }
 }
