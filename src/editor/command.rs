@@ -86,3 +86,31 @@ pub enum PanelCommand {
     /// Moves the picker's highlight; positive is away from the query.
     MoveChoice(isize),
 }
+
+/// What the palette lists (F2): every command worth asking for by name.
+/// Movement is not — nobody opens a palette to go left — and neither is
+/// anything that only makes sense inside a panel.
+pub const PALETTE: &[(&str, Command)] = &[
+    ("Save", Command::File(File::Save)),
+    ("Quit", Command::Quit),
+    ("Undo", Command::Edit(Edit::Undo)),
+    ("Redo", Command::Edit(Edit::Redo)),
+    ("Cut", Command::Edit(Edit::Cut)),
+    ("Copy", Command::Edit(Edit::Copy)),
+    ("Paste", Command::Edit(Edit::Paste)),
+    ("Indent", Command::Edit(Edit::Indent)),
+    ("Outdent", Command::Edit(Edit::Outdent)),
+    ("Toggle comment", Command::Edit(Edit::ToggleComment)),
+    ("Find", Command::Panel(PanelCommand::Prompt(Purpose::Search))),
+    ("Replace", Command::Panel(PanelCommand::Prompt(Purpose::Replace))),
+    ("Find next", Command::FindNext(Direction::Forward)),
+    ("Find previous", Command::FindNext(Direction::Backward)),
+    ("Go to line", Command::Panel(PanelCommand::Prompt(Purpose::GotoLine))),
+    ("Select all", Command::Select(Select::All)),
+    ("Select line", Command::Select(Select::Line)),
+    ("Select next occurrence", Command::Select(Select::NextOccurrence)),
+    ("Select all occurrences", Command::Select(Select::AllOccurrences)),
+    ("Add cursor above", Command::Select(Select::AddCursor(Direction::Backward))),
+    ("Add cursor below", Command::Select(Select::AddCursor(Direction::Forward))),
+    ("Set language", Command::Panel(PanelCommand::Picker(Pick::Language))),
+];

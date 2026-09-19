@@ -11,6 +11,7 @@ use std::thread;
 
 use crossterm::event::Event;
 
+use super::panel::picker::Candidate;
 use super::workspace::BufferId;
 
 /// What the main loop wakes up for: a keystroke or the like from the
@@ -26,7 +27,7 @@ pub enum Message {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Report {
     /// A batch of a picker's candidates.
-    Candidates { job: JobId, batch: Vec<String> },
+    Candidates { job: JobId, batch: Vec<Candidate> },
     /// The file behind a buffer is not what it was; the editor checks for
     /// itself whether that matters.
     FileChanged(BufferId),
@@ -179,7 +180,7 @@ mod tests {
         let id = jobs.spawn(|worker| {
             worker.report(Report::Candidates {
                 job: worker.id(),
-                batch: vec!["one".to_owned()],
+                batch: vec![Candidate::plain("one")],
             });
         });
 
@@ -187,7 +188,7 @@ mod tests {
             next_report(&rx),
             Report::Candidates {
                 job: id,
-                batch: vec!["one".to_owned()]
+                batch: vec![Candidate::plain("one")]
             }
         );
         assert_eq!(next_report(&rx), Report::Ended(id));

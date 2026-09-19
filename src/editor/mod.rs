@@ -27,7 +27,7 @@ use crate::text::transaction::{CursorAfter, Transaction};
 use clipboard::{Clipboard, Desktop};
 use command::{Command, Edit, File, PanelCommand, Select};
 use job::{Jobs, Message, Report};
-use panel::picker::{self, Pick, Picker};
+use panel::picker::{self, Candidate, Pick, Picker};
 use panel::prompt::{Field, Prompt, Purpose};
 use panel::{Confirm, Panel, Question};
 use screen::Screen;
@@ -414,13 +414,23 @@ impl Editor {
                 let names = language::LANGUAGES
                     .iter()
                     .chain([&language::PLAIN])
-                    .map(|language| language.name.to_owned());
+                    .map(|language| Candidate::plain(language.name));
                 picker::stream(names, &worker);
+            }),
+            // Named after itself, with the key it is bound to beside it.
+            Pick::Command => self.jobs.spawn(|worker| {
+                let entries = command::PALETTE.iter().map(|(name, command)| Candidate {
+                    label: (*name).to_owned(),
+                    detail: keymap::key_for(command).map_or(String::new(), |key| key.to_string()),
+                });
+                picker::stream(entries, &worker);
             }),
         };
         self.panel = Some(Panel::Picker(Picker::new(pick, job)));
     }
 
+    /// The panel closes before the choice is carried out, since the choice
+    /// may open a panel of its own.
     fn accept_pick(&mut self) {
         let Some(Panel::Picker(picker)) = &self.panel else {
             return;
@@ -430,10 +440,21 @@ impl Editor {
         };
 
         match picker.pick {
-            Pick::Language => match language::by_name(chosen) {
+            Pick::Language => match language::by_name(&chosen.label) {
                 Some(language) => self.set_language(language),
                 None => return,
             },
+            Pick::Command => {
+                let found = command::PALETTE
+                    .iter()
+                    .find(|(name, _)| *name == chosen.label)
+                    .map(|(_, command)| command.clone());
+                let Some(command) = found else {
+                    return;
+                };
+                self.close_panel();
+                return self.execute(command);
+            }
         }
         self.close_panel();
     }

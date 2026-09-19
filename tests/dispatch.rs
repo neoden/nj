@@ -75,12 +75,20 @@ fn query(editor: &Editor) -> String {
 
 /// The candidates come from a worker (ADR 21); the test waits for all of
 /// them before it types, so that what it sees does not depend on timing.
-fn open_language_picker(editor: &mut Editor) {
+fn open_palette(editor: &mut Editor) {
     press(
         editor,
-        KeyCode::Char('m'),
+        KeyCode::Char('p'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
+    editor.finish_jobs();
+}
+
+/// Reached the way a user reaches it: through the palette (F2).
+fn open_language_picker(editor: &mut Editor) {
+    open_palette(editor);
+    typed(editor, "set lang");
+    press(editor, KeyCode::Enter, KeyModifiers::NONE);
     editor.finish_jobs();
 }
 
@@ -143,6 +151,36 @@ fn esc_closes_a_panel_and_leaves_the_text_alone() {
     press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
     assert!(editor.panel().is_none());
     assert_eq!(content(&editor), "needle");
+}
+
+/// F2: a command asked for by name does what its key does, and shows the
+/// key beside it.
+#[test]
+fn the_palette_runs_a_command_by_name() {
+    let mut editor = editor_with("abc");
+    open_palette(&mut editor);
+    match editor.panel() {
+        Some(Panel::Picker(picker)) => {
+            let save = picker
+                .visible()
+                .map(|(_, c)| c)
+                .find(|c| c.label == "Save")
+                .expect("Save is listed");
+            assert_eq!(save.detail, "Ctrl+S");
+        }
+        _ => panic!("the palette is open"),
+    }
+
+    typed(&mut editor, "sel all");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(editor.panel().is_none());
+    assert_eq!(ranges(&editor), [0..3]);
+
+    // A choice that opens a panel of its own: the palette gives way to it.
+    open_palette(&mut editor);
+    typed(&mut editor, "find");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(editor.prompt().is_some());
 }
 
 #[test]

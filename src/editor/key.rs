@@ -1,3 +1,5 @@
+use std::fmt;
+
 use bitflags::bitflags;
 use crossterm::event::{KeyCode as TermKeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -35,6 +37,35 @@ pub enum KeyCode {
 pub struct Key {
     pub code: KeyCode,
     pub mods: Mods,
+}
+
+/// `Ctrl+Shift+Z`, the way a menu would print it.
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (flag, name) in [(Mods::CTRL, "Ctrl"), (Mods::ALT, "Alt"), (Mods::SHIFT, "Shift")] {
+            if self.mods.contains(flag) {
+                write!(f, "{name}+")?;
+            }
+        }
+        match self.code {
+            KeyCode::Char(c) => write!(f, "{}", c.to_uppercase()),
+            KeyCode::F(n) => write!(f, "F{n}"),
+            KeyCode::Enter => write!(f, "Enter"),
+            KeyCode::Tab => write!(f, "Tab"),
+            KeyCode::Backspace => write!(f, "Backspace"),
+            KeyCode::Delete => write!(f, "Delete"),
+            KeyCode::Insert => write!(f, "Insert"),
+            KeyCode::Esc => write!(f, "Esc"),
+            KeyCode::Left => write!(f, "Left"),
+            KeyCode::Right => write!(f, "Right"),
+            KeyCode::Up => write!(f, "Up"),
+            KeyCode::Down => write!(f, "Down"),
+            KeyCode::Home => write!(f, "Home"),
+            KeyCode::End => write!(f, "End"),
+            KeyCode::PageUp => write!(f, "PageUp"),
+            KeyCode::PageDown => write!(f, "PageDown"),
+        }
+    }
 }
 
 /// What arrived from the keyboard: the key a keymap matches on, and the
@@ -205,5 +236,14 @@ mod tests {
     fn combinations_insert_nothing() {
         let event = key(TermKeyCode::Char('a'), KeyModifiers::CONTROL);
         assert_eq!(Keystroke::from_event(&event).and_then(|s| s.text), None);
+    }
+
+    #[test]
+    fn a_key_prints_the_way_a_menu_would() {
+        let shown = |code, mods| Key { code, mods }.to_string();
+        assert_eq!(shown(KeyCode::Char('z'), Mods::CTRL | Mods::SHIFT), "Ctrl+Shift+Z");
+        assert_eq!(shown(KeyCode::F(3), Mods::SHIFT), "Shift+F3");
+        assert_eq!(shown(KeyCode::Char('/'), Mods::CTRL), "Ctrl+/");
+        assert_eq!(shown(KeyCode::Esc, Mods::empty()), "Esc");
     }
 }

@@ -634,7 +634,7 @@ fn a_picker_ignores_candidates_meant_for_another() {
 
     editor.receive(Report::Candidates {
         job: stale,
-        batch: vec!["Stray".to_owned()],
+        batch: vec![picker::Candidate::plain("Stray")],
     });
     assert_eq!(picker(&editor).total(), total);
 }

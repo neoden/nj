@@ -13,14 +13,34 @@ const BATCH: usize = 4096;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pick {
     Language,
+    /// The command palette (F2): every command that can be asked for by name.
+    Command,
+}
+
+/// One thing to choose from. The label is what is matched and what is
+/// chosen; the detail is only shown beside it — the key a command is bound
+/// to, say.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Candidate {
+    pub label: String,
+    pub detail: String,
+}
+
+impl Candidate {
+    pub fn plain(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            detail: String::new(),
+        }
+    }
 }
 
 /// Reads a source on a worker and reports it in batches. What the picker
 /// was built for: a source that takes a while does not hold up the frame.
-pub fn stream(source: impl Iterator<Item = String>, worker: &Worker) {
+pub fn stream(source: impl Iterator<Item = Candidate>, worker: &Worker) {
     let mut source = source.peekable();
     while source.peek().is_some() && !worker.cancelled() {
-        let batch: Vec<String> = source.by_ref().take(BATCH).collect();
+        let batch: Vec<Candidate> = source.by_ref().take(BATCH).collect();
         if !worker.report(Report::Candidates {
             job: worker.id(),
             batch,
@@ -36,7 +56,7 @@ pub struct Picker {
     /// The worker reading the candidates; its reports are the only ones
     /// this picker takes.
     pub job: JobId,
-    candidates: Vec<String>,
+    candidates: Vec<Candidate>,
     /// Indices into `candidates`, best first.
     matches: Vec<usize>,
     scores: Vec<i32>,
@@ -71,29 +91,29 @@ impl Picker {
         self.matches.len()
     }
 
-    pub fn selection(&self) -> Option<&str> {
+    pub fn selection(&self) -> Option<&Candidate> {
         let index = *self.matches.get(self.selected)?;
         Some(&self.candidates[index])
     }
 
     /// The window of matches on screen, kept around the selected one.
-    pub fn visible(&self) -> impl Iterator<Item = (usize, &str)> {
+    pub fn visible(&self) -> impl Iterator<Item = (usize, &Candidate)> {
         let first = self.selected.saturating_sub(VISIBLE - 1);
         self.matches
             .iter()
             .enumerate()
             .skip(first)
             .take(VISIBLE)
-            .map(|(row, &index)| (row, self.candidates[index].as_str()))
+            .map(|(row, &index)| (row, &self.candidates[index]))
     }
 
     /// Takes a batch the worker reported. New candidates are placed straight
     /// into the ranking, so the list stays sorted without re-scoring
     /// everything seen so far (P9).
-    pub fn accept(&mut self, batch: Vec<String>) {
+    pub fn accept(&mut self, batch: Vec<Candidate>) {
         let query = self.query.contents();
         for candidate in batch {
-            if let Some(score) = fuzzy::score(&candidate, &query) {
+            if let Some(score) = fuzzy::score(&candidate.label, &query) {
                 let at = self.rank_of(score);
                 self.matches.insert(at, self.candidates.len());
                 self.scores.insert(at, score);
@@ -109,7 +129,7 @@ impl Picker {
             .iter()
             .enumerate()
             .filter_map(|(index, candidate)| {
-                fuzzy::score(candidate, &query).map(|score| (score, index))
+                fuzzy::score(&candidate.label, &query).map(|score| (score, index))
             })
             .collect();
         ranked.sort_by_key(|&(score, _)| std::cmp::Reverse(score));
@@ -148,8 +168,8 @@ mod tests {
 
     use crate::editor::job::{Jobs, Message};
 
-    fn batch(items: &[&str]) -> Vec<String> {
-        items.iter().map(|&item| item.to_owned()).collect()
+    fn batch(items: &[&str]) -> Vec<Candidate> {
+        items.iter().map(|&item| Candidate::plain(item)).collect()
     }
 
     fn picker(items: &[&str]) -> Picker {
@@ -159,7 +179,7 @@ mod tests {
     }
 
     fn shown(picker: &Picker) -> Vec<&str> {
-        picker.visible().map(|(_, item)| item).collect()
+        picker.visible().map(|(_, item)| item.label.as_str()).collect()
     }
 
     #[test]
@@ -171,7 +191,7 @@ mod tests {
     #[test]
     fn a_source_is_streamed_in_batches_and_then_the_worker_ends() {
         let (mut jobs, rx) = Jobs::new();
-        let items: Vec<String> = (0..BATCH + 1).map(|n| n.to_string()).collect();
+        let items: Vec<Candidate> = (0..BATCH + 1).map(|n| Candidate::plain(n.to_string())).collect();
         let id = jobs.spawn(move |worker| stream(items.into_iter(), &worker));
 
         let mut reports = Vec::new();
@@ -224,16 +244,17 @@ mod tests {
     #[test]
     fn the_selection_walks_the_list_and_stops_at_its_ends() {
         let mut picker = picker(&["one", "two", "three"]);
-        assert_eq!(picker.selection(), Some("one"));
+        let chosen = |picker: &Picker| picker.selection().map(|c| c.label.clone());
+        assert_eq!(chosen(&picker).as_deref(), Some("one"));
 
         picker.move_selection(1);
-        assert_eq!(picker.selection(), Some("two"));
+        assert_eq!(chosen(&picker).as_deref(), Some("two"));
 
         picker.move_selection(99);
-        assert_eq!(picker.selection(), Some("three"));
+        assert_eq!(chosen(&picker).as_deref(), Some("three"));
 
         picker.move_selection(-99);
-        assert_eq!(picker.selection(), Some("one"));
+        assert_eq!(chosen(&picker).as_deref(), Some("one"));
     }
 
     #[test]

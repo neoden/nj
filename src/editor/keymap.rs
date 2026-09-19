@@ -43,6 +43,18 @@ impl Context {
             Context::Confirm => matches!(editor.panel(), Some(Panel::Confirm(_))),
         }
     }
+
+    /// Whether every state this context holds in is one `other` holds in
+    /// too — in which case a binding in `self` listed before one in `other`
+    /// for the same key leaves the latter unreachable.
+    #[cfg(test)]
+    fn covers(self, other: Context) -> bool {
+        use Context::*;
+        self == other
+            || self == Any
+            || (self == Text && other == MultipleCursors)
+            || (self == Panel && matches!(other, Prompt | Picker | Confirm))
+    }
 }
 
 #[derive(Debug)]
@@ -50,6 +62,18 @@ pub struct Binding {
     pub key: Key,
     pub context: Context,
     pub command: Command,
+}
+
+/// The key a command is reached by from the text, for the palette to show
+/// beside its name. The first binding is the one listed, so a command bound
+/// twice shows its preferred key.
+pub fn key_for(command: &Command) -> Option<Key> {
+    KEYMAP
+        .iter()
+        .find(|binding| {
+            binding.command == *command && matches!(binding.context, Context::Text | Context::Any)
+        })
+        .map(|binding| binding.key)
 }
 
 /// The command a keystroke means right now. A key nothing is bound to
@@ -136,8 +160,7 @@ pub static KEYMAP: &[Binding] = &[
     bind(Char('g'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::GotoLine))),
     bind(Char('f'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::Search))),
     bind(Char('h'), CTRL, Text, Command::Panel(PanelCommand::Prompt(Purpose::Replace))),
-    // Temporary: this belongs in the command palette.
-    bind(Char('m'), CTRL_SHIFT, Text, Command::Panel(PanelCommand::Picker(Pick::Language))),
+    bind(Char('p'), CTRL_SHIFT, Text, Command::Panel(PanelCommand::Picker(Pick::Command))),
     bind(Char('c'), CTRL, Text, Command::Edit(Edit::Copy)),
     bind(Char('x'), CTRL, Text, Command::Edit(Edit::Cut)),
     bind(Char('v'), CTRL, Text, Command::Edit(Edit::Paste)),
@@ -182,3 +205,39 @@ pub static KEYMAP: &[Binding] = &[
     mv(PageDown, NONE, Page(Forward)),
     mv(PageDown, SHIFT, Page(Forward)),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// First match wins, so a binding is dead if an earlier one for the same
+    /// key holds wherever it does: the same context twice, or a wider one
+    /// listed first. Cheap to check, and exactly the slip a new binding
+    /// invites.
+    #[test]
+    fn no_binding_is_shadowed_by_an_earlier_one() {
+        for (later, binding) in KEYMAP.iter().enumerate() {
+            let shadow = KEYMAP[..later]
+                .iter()
+                .find(|earlier| earlier.key == binding.key && earlier.context.covers(binding.context));
+            assert!(
+                shadow.is_none(),
+                "{:?} in {:?} is unreachable behind {:?}",
+                binding.key,
+                binding.context,
+                shadow.unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn contexts_cover_what_they_contain() {
+        use Context::*;
+        assert!(Any.covers(Text));
+        assert!(Text.covers(MultipleCursors));
+        assert!(!MultipleCursors.covers(Text));
+        assert!(Panel.covers(Confirm));
+        assert!(!Prompt.covers(Picker));
+        assert!(!Text.covers(Panel));
+    }
+}

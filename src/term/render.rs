@@ -127,9 +127,19 @@ fn draw_picker(grid: &mut Grid, x: usize, picker: &Picker, top: usize, width: us
             true => CellStyle::Selected,
             false => CellStyle::Normal,
         };
-        // Indented to line up with the text of the query below.
-        let line = pad(&format!("   {candidate}"), width);
-        grid.put_str(x, top + rows - 1 - row, &line, style);
+        // Indented to line up with the text of the query below; the detail,
+        // if any, sits at the right edge with the same space the status bar
+        // keeps there.
+        let y = top + rows - 1 - row;
+        let line = pad(&format!("   {}", candidate.label), width);
+        grid.put_str(x, y, &line, style);
+        if !candidate.detail.is_empty() {
+            let detail = format!("{} ", candidate.detail);
+            let columns = layout::line_width(&detail, PANEL_TAB_WIDTH);
+            if let Some(at) = width.checked_sub(columns) {
+                grid.put_str(x + at, y, &detail, style);
+            }
+        }
     }
 
     draw_field(grid, x, &picker.query, true, top + rows, width);
@@ -139,18 +149,43 @@ fn rule(grid: &mut Grid, x: usize, y: usize, width: usize) {
     grid.put_str(x, y, &"─".repeat(width), CellStyle::Rule);
 }
 
-/// The left half belongs to the document, the right half to whatever panel is
-/// open. The left is what gives way when there is not enough room, and the
-/// right keeps a space so it never touches the edge of the screen.
+/// The right half is the document — path, language, line and column — and
+/// the left is whatever is going on. The right takes what the left does not
+/// need, but never more than half the screen while the left has something to
+/// say, and what does not fit is cut from its start: a path loses its first
+/// directories, not the line number at the end (D11). It keeps a space so it
+/// never touches the edge of the screen.
 fn status_line(left: &str, right: &str, width: usize) -> String {
     let right = match right.is_empty() {
         true => String::new(),
         false => format!("{right} "),
     };
-    let columns = layout::line_width(&right, PANEL_TAB_WIDTH).min(width);
-    let right = pad(&right, columns);
+    let wanted = layout::line_width(left, PANEL_TAB_WIDTH);
+    let allowed = match wanted {
+        0 => width,
+        _ => (width / 2).max(width.saturating_sub(wanted)),
+    };
+    let right = tail(&right, allowed);
+    let columns = layout::line_width(&right, PANEL_TAB_WIDTH);
     let left = pad(left, width - columns);
     format!("{left}{right}")
+}
+
+/// The last `columns` of `text`, with an ellipsis where the rest was.
+fn tail(text: &str, columns: usize) -> String {
+    let width = layout::line_width(text, PANEL_TAB_WIDTH);
+    if width <= columns {
+        return text.to_owned();
+    }
+    if columns == 0 {
+        return String::new();
+    }
+    // Skip whole clusters until the remainder fits beside the ellipsis.
+    let keep = columns - 1;
+    let from = layout::cells(text, PANEL_TAB_WIDTH)
+        .find(|cell| width - cell.column <= keep)
+        .map_or(text.len(), |cell| cell.byte);
+    pad(&format!("…{}", &text[from..]), columns)
 }
 
 /// Each field is a labelled line with the caret drawn on it, since the real
@@ -350,5 +385,36 @@ mod tests {
         // Both halves want more room than there is.
         assert_eq!(columns(&status_line("a long message", "日本語.rs", 12)), 12);
         assert_eq!(columns(&status_line("", "", 8)), 8);
+    }
+
+    /// D11: a long path used to take the whole bar and leave the message no
+    /// room at all.
+    #[test]
+    fn a_long_path_gives_way_to_the_message_and_loses_its_start() {
+        let line = status_line(" changed", "/very/long/path/to/file.rs · Rust · 1:1", 40);
+        assert_eq!(columns(&line), 40);
+        assert!(line.starts_with(" changed"));
+        assert!(line.ends_with("Rust · 1:1 "), "{line:?}");
+        assert!(line.contains('…'));
+
+        // With nothing to say on the left, the right may have it all.
+        let line = status_line("", "/very/long/path/to/file.rs · Rust · 1:1", 40);
+        assert!(line.starts_with("/very/long"));
+
+        // The left never pushes the right below half the screen.
+        let line = status_line(&"m".repeat(60), "/p/file.rs · 1:1", 40);
+        assert_eq!(columns(&line), 40);
+        assert!(line.ends_with("/p/file.rs · 1:1 "));
+        assert!(line.starts_with("mmmm"));
+    }
+
+    #[test]
+    fn a_tail_keeps_whole_clusters() {
+        assert_eq!(tail("abcdef", 4), "…def");
+        assert_eq!(tail("abc", 4), "abc");
+        // `…日本` would be five columns; a wide cluster goes whole or not at all.
+        assert_eq!(tail("ab日本", 4), "…本 ");
+        assert_eq!(tail("abcdef", 1), "…");
+        assert_eq!(tail("abcdef", 0), "");
     }
 }
