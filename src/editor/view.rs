@@ -5,12 +5,9 @@ use super::style::CellStyle;
 use super::workspace::BufferId;
 use crate::buffer::Buffer;
 use crate::text::anchor::{Anchor, Bias, Version};
-use crate::text::layout::{self, Glyph};
+use crate::text::layout;
 use crate::text::movement::{self, Direction, Motion};
 use crate::text::selection::{Selection, SelectionSet};
-
-/// Drawn in place of a control character, which has no glyph of its own.
-pub const CONTROL_PLACEHOLDER: char = '·';
 
 /// Rows kept between the cursor and the edge of the screen while scrolling.
 const SCROLL_MARGIN: usize = 2;
@@ -31,7 +28,7 @@ impl LineHighlight {
         self.current
     }
 
-    fn style_at(&self, column: usize) -> CellStyle {
+    pub fn style_at(&self, column: usize) -> CellStyle {
         if self.carets.contains(&column) {
             CellStyle::Cursor
         } else if self.selected.iter().any(|range| range.contains(&column)) {
@@ -414,84 +411,6 @@ impl View {
         let column = row.start_column + self.left_column + column;
         text.line_start(row.line) + layout::byte_at_column(&content, column, buffer.tab_width())
     }
-
-    /// The part of a line drawn on one row, expanded and padded to exactly
-    /// `width` columns. A cluster cut by either edge becomes blanks, because
-    /// half a character cannot be drawn.
-    pub fn visible_runs(
-        &self,
-        line: &str,
-        tab_width: usize,
-        start_column: usize,
-        highlight: &LineHighlight,
-    ) -> Vec<(String, CellStyle)> {
-        let left = start_column + self.left_column;
-        let right = left + self.width();
-        let mut runs = Runs::default();
-        let mut column = left;
-
-        for cell in layout::cells(line, tab_width) {
-            if cell.end_column() <= left {
-                continue;
-            }
-            if cell.column >= right {
-                break;
-            }
-
-            let visible_start = cell.column.max(left);
-            let visible_end = cell.end_column().min(right);
-            // A cluster spanning several columns may be cut by an edge, or be
-            // half selected, so it is emitted one column at a time.
-            if cell.column < left || cell.end_column() > right {
-                runs.blanks(visible_start..visible_end, highlight);
-            } else {
-                match cell.glyph {
-                    Glyph::Text(text) => runs.push(text, highlight.style_at(cell.column)),
-                    Glyph::Tab => runs.blanks(visible_start..visible_end, highlight),
-                    Glyph::Control => runs.push(
-                        &CONTROL_PLACEHOLDER.to_string(),
-                        highlight.style_at(cell.column),
-                    ),
-                }
-            }
-            column = visible_end;
-        }
-
-        runs.blanks(column..right, highlight);
-        runs.finish()
-    }
-
-    #[cfg(test)]
-    fn visible_text(&self, line: &str, start_column: usize) -> String {
-        self.visible_runs(line, 4, start_column, &LineHighlight::default())
-            .into_iter()
-            .map(|(text, _)| text)
-            .collect()
-    }
-}
-
-#[derive(Default)]
-struct Runs {
-    runs: Vec<(String, CellStyle)>,
-}
-
-impl Runs {
-    fn push(&mut self, text: &str, style: CellStyle) {
-        match self.runs.last_mut() {
-            Some((buffer, last)) if *last == style => buffer.push_str(text),
-            _ => self.runs.push((text.to_owned(), style)),
-        }
-    }
-
-    fn blanks(&mut self, columns: Range<usize>, highlight: &LineHighlight) {
-        for column in columns {
-            self.push(" ", highlight.style_at(column));
-        }
-    }
-
-    fn finish(self) -> Vec<(String, CellStyle)> {
-        self.runs
-    }
 }
 
 fn digits(n: usize) -> usize {
@@ -595,58 +514,6 @@ mod tests {
 
         view.move_selections(&buffer, Motion::LineEdge(Direction::Backward), false);
         assert_eq!(view.left_column, 0);
-    }
-
-    #[test]
-    fn text_is_padded_to_the_full_width() {
-        let view = view(10, 25);
-        assert_eq!(
-            view.visible_text("ab", 0),
-            "ab".to_owned() + &" ".repeat(view.width() - 2)
-        );
-        assert_eq!(view.visible_text("", 0).len(), view.width());
-    }
-
-    #[test]
-    fn tabs_are_expanded_in_place() {
-        let mut view = view(20, 25);
-        set_width(&mut view, 8);
-        assert_eq!(view.visible_text("a\tb", 0), "a   b   ");
-    }
-
-    #[test]
-    fn horizontal_scrolling_clips_from_the_left() {
-        let mut view = view(20, 25);
-        set_width(&mut view, 4);
-        view.left_column = 2;
-        assert_eq!(view.visible_text("abcdefgh", 0), "cdef");
-    }
-
-    #[test]
-    fn a_row_starting_mid_line_clips_the_same_way() {
-        let mut view = view(20, 25);
-        set_width(&mut view, 4);
-        assert_eq!(view.visible_text("abcdefgh", 4), "efgh");
-    }
-
-    #[test]
-    fn a_character_cut_by_an_edge_becomes_blanks() {
-        let mut view = view(20, 25);
-        set_width(&mut view, 4);
-
-        // The wide character straddles the right edge.
-        assert_eq!(view.visible_text("abc日", 0), "abc ");
-
-        // And now the left edge.
-        view.left_column = 1;
-        assert_eq!(view.visible_text("日abc", 0), " abc");
-    }
-
-    #[test]
-    fn control_characters_are_replaced() {
-        let mut view = view(20, 25);
-        set_width(&mut view, 3);
-        assert_eq!(view.visible_text("a\u{7}b", 0), "a·b");
     }
 
     #[test]
@@ -800,22 +667,23 @@ mod tests {
     fn a_caret_and_a_selection_style_their_columns() {
         let buffer = buf("hello");
         let mut view = view_of(&buffer, 0);
-        set_width(&mut view, 5);
-        view.selections = SelectionSet::single(1);
-        view.selections = view.selections.mapped(|selection| Selection {
+        view.selections = Selection {
+            anchor: 1,
             head: 3,
-            ..selection
-        });
+            goal_column: None,
+        }
+        .into();
 
         let highlight = view.highlight_line(&buffer, 0, &[]);
-        let runs = view.visible_runs("hello", 4, 0, &highlight);
+        let styles: Vec<_> = (0..5).map(|column| highlight.style_at(column)).collect();
         assert_eq!(
-            runs,
-            vec![
-                ("h".to_owned(), CellStyle::Normal),
-                ("el".to_owned(), CellStyle::Selected),
-                ("l".to_owned(), CellStyle::Cursor),
-                ("o".to_owned(), CellStyle::Normal),
+            styles,
+            [
+                CellStyle::Normal,
+                CellStyle::Selected,
+                CellStyle::Selected,
+                CellStyle::Cursor,
+                CellStyle::Normal,
             ]
         );
     }
@@ -848,8 +716,7 @@ mod tests {
         set_width(&mut view, 6);
 
         let highlight = view.highlight_line(&buffer, 0, &[]);
-        let runs = view.visible_runs("one", 4, 0, &highlight);
-        assert!(runs.iter().all(|(_, style)| *style != CellStyle::Normal));
+        assert!((0..view.width()).all(|column| highlight.style_at(column) != CellStyle::Normal));
     }
 
     #[test]

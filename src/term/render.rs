@@ -3,14 +3,16 @@
 //! flushes what changed since the frame before.
 
 use std::io::Write;
+use std::ops::Range;
 
 use anyhow::Result;
 
-use super::grid::Grid;
+use super::grid::{Grid, CONTROL_PLACEHOLDER};
 use crate::editor::panel::picker::Picker;
 use crate::editor::panel::prompt::{Field, Prompt};
 use crate::editor::panel::Panel;
 use crate::editor::style::CellStyle;
+use crate::editor::view::LineHighlight;
 use crate::editor::Editor;
 use crate::text::layout::{self, Glyph};
 
@@ -84,11 +86,9 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
             false => CellStyle::Gutter,
         };
         grid.put_str(x, y, &number, gutter);
-
-        let mut column = x + view.gutter;
-        for (text, style) in view.visible_runs(&text, buffer.tab_width(), row.start_column, &highlight) {
-            column += grid.put_str(column, y, &text, style);
-        }
+        let left = row.start_column + view.left_column;
+        let columns = left..left + view.width();
+        draw_row(grid, x + view.gutter, y, columns, &text, buffer.tab_width(), &highlight);
     }
 
     // What the panel asked for is not what it got: only the screen knows how
@@ -150,6 +150,72 @@ fn status(editor: &Editor) -> (String, String) {
     };
 
     (format!(" {left}"), right)
+}
+
+/// The display `columns` of a line, drawn on one row of the grid starting at
+/// `x`, blank where the line has nothing. A cluster cut by either edge
+/// becomes blanks too, because half a character cannot be drawn.
+fn draw_row(
+    grid: &mut Grid,
+    x: usize,
+    y: usize,
+    columns: Range<usize>,
+    line: &str,
+    tab_width: usize,
+    highlight: &LineHighlight,
+) {
+    let Range { start: left, end: right } = columns;
+    let mut painter = Painter { grid, x, y, left, highlight };
+    let mut column = left;
+
+    for cell in layout::cells(line, tab_width) {
+        if cell.end_column() <= left {
+            continue;
+        }
+        if cell.column >= right {
+            break;
+        }
+
+        let visible = cell.column.max(left)..cell.end_column().min(right);
+        // A cluster spanning several columns may be cut by an edge, or be
+        // half selected, so it goes down one column at a time.
+        if cell.column < left || cell.end_column() > right {
+            painter.blanks(visible.clone());
+        } else {
+            match cell.glyph {
+                Glyph::Text(text) => painter.put(cell.column, text, cell.width),
+                Glyph::Tab => painter.blanks(visible.clone()),
+                Glyph::Control => painter.put(cell.column, CONTROL_PLACEHOLDER, 1),
+            }
+        }
+        column = visible.end;
+    }
+
+    painter.blanks(column..right);
+}
+
+/// Puts cells of one row on the grid, addressed by display column of the
+/// line, with the style the highlight gives that column.
+struct Painter<'a> {
+    grid: &'a mut Grid,
+    x: usize,
+    y: usize,
+    /// The line column at the left edge of the row.
+    left: usize,
+    highlight: &'a LineHighlight,
+}
+
+impl Painter<'_> {
+    fn put(&mut self, column: usize, cluster: &str, width: usize) {
+        let style = self.highlight.style_at(column);
+        self.grid.put(self.x + column - self.left, self.y, cluster, width, style);
+    }
+
+    fn blanks(&mut self, columns: Range<usize>) {
+        for column in columns {
+            self.put(column, " ", 1);
+        }
+    }
 }
 
 /// The query sits at the bottom, right above the status bar, and the list
@@ -290,8 +356,10 @@ fn pad(text: &str, width: usize) -> String {
 mod tests {
     use super::*;
     use crate::buffer::Buffer;
-    use crate::editor::command::{Command, Edit, PanelCommand};
+    use crate::editor::command::{Command, Edit, PanelCommand, Select};
     use crate::editor::panel::prompt::Purpose;
+    use crate::text::movement::{Direction, Motion};
+    use crate::text::selection::Selection;
     use crate::text::Text;
 
     fn editor_of(content: &str, width: usize, height: usize) -> Editor {
@@ -308,6 +376,84 @@ mod tests {
 
     fn style_at(grid: &Grid, x: usize, y: usize) -> CellStyle {
         grid.cell(x, y).unwrap().style
+    }
+
+    /// The `columns` of `line` drawn on a row, as it reads on the grid.
+    fn drawn(line: &str, columns: Range<usize>) -> String {
+        let mut grid = Grid::new(columns.len(), 1);
+        draw_row(&mut grid, 0, 0, columns, line, 4, &LineHighlight::default());
+        grid.row_text(0)
+    }
+
+    #[test]
+    fn text_is_padded_to_the_full_width() {
+        assert_eq!(drawn("ab", 0..8), "ab      ");
+        assert_eq!(drawn("", 0..8), "        ");
+    }
+
+    #[test]
+    fn tabs_are_expanded_in_place() {
+        assert_eq!(drawn("a\tb", 0..8), "a   b   ");
+    }
+
+    #[test]
+    fn a_row_starting_mid_line_clips_from_the_left() {
+        assert_eq!(drawn("abcdefgh", 2..6), "cdef");
+    }
+
+    #[test]
+    fn a_character_cut_by_an_edge_becomes_blanks() {
+        // The wide character straddles the right edge, then the left one.
+        assert_eq!(drawn("abc日", 0..4), "abc ");
+        assert_eq!(drawn("日abc", 1..5), " abc");
+    }
+
+    #[test]
+    fn control_characters_are_replaced() {
+        assert_eq!(drawn("a\u{7}b", 0..3), "a·b");
+    }
+
+    /// The window a row is drawn through follows the view's scrolling.
+    #[test]
+    fn a_scrolled_view_draws_the_line_from_its_left_column() {
+        let mut editor = editor_of("abcdefgh\n", 6, 3);
+        let gutter = editor.view().gutter;
+        assert_eq!(editor.view().width(), 6 - gutter);
+
+        editor.execute(Command::Move {
+            motion: Motion::LineEdge(Direction::Forward),
+            extend: false,
+        });
+        assert!(editor.view().left_column > 0);
+        let expected = &"abcdefgh "[editor.view().left_column..][..editor.view().width()];
+        assert_eq!(&composed(&editor, 6, 3).row_text(0)[gutter..], expected);
+    }
+
+    #[test]
+    fn a_caret_and_a_selection_style_their_cells() {
+        let mut editor = editor_of("hello", 80, 5);
+        editor.execute(Command::Select(Select::Set(
+            Selection {
+                anchor: 1,
+                head: 3,
+                goal_column: None,
+            }
+            .into(),
+        )));
+        let grid = composed(&editor, 80, 5);
+        let gutter = editor.view().gutter;
+
+        let styles: Vec<_> = (0..5).map(|column| style_at(&grid, gutter + column, 0)).collect();
+        assert_eq!(
+            styles,
+            [
+                CellStyle::Normal,
+                CellStyle::Selected,
+                CellStyle::Selected,
+                CellStyle::Cursor,
+                CellStyle::Normal,
+            ]
+        );
     }
 
     #[test]

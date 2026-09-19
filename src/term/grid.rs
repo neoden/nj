@@ -10,8 +10,10 @@ use crossterm::style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor
 use crossterm::{cursor, queue};
 
 use crate::editor::style::CellStyle;
-use crate::editor::view::CONTROL_PLACEHOLDER;
 use crate::text::layout::{self, Glyph};
+
+/// Drawn in place of a control character, which has no glyph of its own.
+pub const CONTROL_PLACEHOLDER: &str = "·";
 
 /// What a cell shows. A cluster wider than one column takes the cells after
 /// it as continuations, which print nothing of their own.
@@ -111,10 +113,7 @@ impl Grid {
             match cell.glyph {
                 Glyph::Text(cluster) => self.put(x + cell.column, y, cluster, cell.width, style),
                 Glyph::Tab => self.put(x + cell.column, y, " ", 1, style),
-                Glyph::Control => {
-                    let placeholder = CONTROL_PLACEHOLDER.to_string();
-                    self.put(x + cell.column, y, &placeholder, 1, style);
-                }
+                Glyph::Control => self.put(x + cell.column, y, CONTROL_PLACEHOLDER, 1, style),
             }
             columns = cell.end_column();
         }
