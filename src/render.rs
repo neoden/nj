@@ -1,47 +1,77 @@
+//! Composes a frame into the grid (ADR 5). Nothing here writes to the
+//! terminal: the grid is filled from the editor's state, and the renderer
+//! flushes what changed since the frame before.
+
 use std::io::Write;
 
 use anyhow::Result;
-use crossterm::style::{
-    Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
-};
-use crossterm::terminal::{Clear, ClearType};
-use crossterm::{cursor, queue};
 
 use crate::editor::Editor;
+use crate::grid::{CellStyle, Grid};
 use crate::layout::{self, Glyph};
 use crate::panel::Panel;
 use crate::picker::Picker;
 use crate::prompt::{Field, Prompt};
-use crate::view::CellStyle;
 
 /// Panels and the status bar hold one-line strings rather than code, so a tab
 /// in one of them is worth a single column.
 const PANEL_TAB_WIDTH: usize = 1;
 
-/// Assumes a dark terminal, which is what a theme (F12) will fix.
-const CURRENT_LINE: Color = Color::AnsiValue(236);
-
-/// Starts a row at the left edge of the editor's band. What follows it should
-/// end with [`end_row`], which blanks the rest of the terminal.
-fn start_row(out: &mut impl Write, margin: &str, row: usize) -> Result<()> {
-    queue!(out, cursor::MoveTo(0, row as u16), Print(margin))?;
-    Ok(())
+/// Holds the frame last sent, so that the next one costs only its difference.
+/// Two grids trade places every frame; nothing is allocated between resizes.
+#[derive(Debug)]
+pub struct Renderer {
+    previous: Option<Grid>,
+    scratch: Grid,
 }
 
-fn end_row(out: &mut impl Write) -> Result<()> {
-    queue!(out, SetAttribute(Attribute::Reset), Clear(ClearType::UntilNewLine))?;
-    Ok(())
+impl Renderer {
+    pub fn new() -> Self {
+        Self {
+            previous: None,
+            scratch: Grid::new(0, 0),
+        }
+    }
+
+    /// Draws a frame of `width` by `height` cells. A change of size throws
+    /// the previous frame away, since nothing on it is where it was.
+    pub fn draw(
+        &mut self,
+        out: &mut impl Write,
+        editor: &Editor,
+        (width, height): (usize, usize),
+        left: &str,
+        right: &str,
+    ) -> Result<()> {
+        if self.scratch.width() != width || self.scratch.height() != height {
+            self.scratch = Grid::new(width, height);
+            self.previous = None;
+        }
+        self.scratch.clear();
+        compose(&mut self.scratch, editor, left, right);
+        self.scratch.flush(out, self.previous.as_ref())?;
+
+        let spare = self.previous.take().unwrap_or_else(|| Grid::new(width, height));
+        self.previous = Some(std::mem::replace(&mut self.scratch, spare));
+        Ok(())
+    }
 }
 
-/// Draws a whole frame. Every cell is rewritten, so the screen is never
-/// cleared first: clearing is what makes a terminal flicker.
-pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> Result<()> {
+impl Default for Renderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Lays the whole screen out on the grid: the text with its gutter, a panel
+/// if one is open, and the status bar on the last row.
+pub fn compose(grid: &mut Grid, editor: &Editor, left: &str, right: &str) {
     let (view, buffer) = (editor.view(), editor.buffer());
     let screen = editor.screen();
-    let margin = &" ".repeat(view.area.x);
-    let mut drawn = view.area.y;
+    let x = view.area.x;
+    let width = view.area.width;
 
-    for row in view.rows(buffer) {
+    for (row, y) in view.rows(buffer).zip(view.area.y..) {
         let text = buffer.text().line_str(row.line);
         let highlight = view.highlight_line(buffer, row.line, editor.matches());
         // Wrapped continuations leave the gutter empty: the number belongs to
@@ -50,140 +80,62 @@ pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> R
             0 => format!("{:>1$} ", row.line + 1, view.gutter - 1),
             _ => " ".repeat(view.gutter),
         };
-
-        let (ink, paper) = match highlight.is_current() {
-            true => (Color::Grey, CURRENT_LINE),
-            false => (Color::DarkGrey, Color::Reset),
+        let gutter = match highlight.is_current() {
+            true => CellStyle::GutterCurrent,
+            false => CellStyle::Gutter,
         };
+        grid.put_str(x, y, &number, gutter);
 
-        start_row(out, margin, drawn)?;
-        queue!(
-            out,
-            SetBackgroundColor(paper),
-            SetForegroundColor(ink),
-            Print(number),
-            ResetColor,
-        )?;
-        let runs = view.visible_runs(&text, buffer.tab_width(), row.start_column, &highlight);
-        for (text, style) in runs {
-            match style {
-                CellStyle::Normal => queue!(out, Print(text))?,
-                CellStyle::CurrentLine => queue!(
-                    out,
-                    SetBackgroundColor(CURRENT_LINE),
-                    Print(text),
-                    ResetColor
-                )?,
-                CellStyle::Selected => queue!(
-                    out,
-                    SetBackgroundColor(Color::DarkGrey),
-                    Print(text),
-                    ResetColor
-                )?,
-                // Underlined rather than coloured, so that a hit reads the
-                // same whatever the terminal's palette looks like.
-                CellStyle::Matched => queue!(
-                    out,
-                    SetAttribute(Attribute::Underlined),
-                    Print(text),
-                    SetAttribute(Attribute::NoUnderline)
-                )?,
-                CellStyle::Cursor => queue!(
-                    out,
-                    SetAttribute(Attribute::Reverse),
-                    Print(text),
-                    SetAttribute(Attribute::NoReverse)
-                )?,
-            }
+        let mut column = x + view.gutter;
+        for (text, style) in view.visible_runs(&text, buffer.tab_width(), row.start_column, &highlight) {
+            column += grid.put_str(column, y, &text, style);
         }
-        end_row(out)?;
-        drawn += 1;
     }
 
-    for row in drawn..screen.panel_top() {
-        start_row(out, margin, row)?;
-        end_row(out)?;
-    }
-
-    let width = view.area.width;
     // What the panel asked for is not what it got: only the screen knows how
     // much was left over, and it may have granted nothing at all.
     let body = screen.panel_height.saturating_sub(2);
     if let Some(panel) = editor.panel().filter(|_| body > 0) {
         let top = screen.panel_top() + 1;
-        rule(out, margin, screen.panel_top(), width)?;
+        rule(grid, x, screen.panel_top(), width);
         match panel {
-            Panel::Prompt(prompt) => draw_prompt(out, margin, prompt, top, width, body)?,
-            Panel::Picker(picker) => draw_picker(out, margin, picker, top, width, body)?,
+            Panel::Prompt(prompt) => draw_prompt(grid, x, prompt, top, width, body),
+            Panel::Picker(picker) => draw_picker(grid, x, picker, top, width, body),
             Panel::Confirm(confirm) => {
                 for (row, line) in confirm.rows().iter().take(body).enumerate() {
-                    start_row(out, margin, top + row)?;
-                    queue!(out, Print(pad(line, width)))?;
-                    end_row(out)?;
+                    grid.put_str(x, top + row, &pad(line, width), CellStyle::Normal);
                 }
             }
         }
-        rule(out, margin, screen.status_row() - 1, width)?;
+        rule(grid, x, screen.status_row() - 1, width);
     }
 
-    start_row(out, margin, screen.status_row())?;
-    queue!(
-        out,
-        SetAttribute(Attribute::Reverse),
-        Print(status_line(left, right, width)),
-        SetAttribute(Attribute::Reset),
-    )?;
-    end_row(out)?;
-
-    out.flush()?;
-    Ok(())
+    grid.put_str(x, screen.status_row(), &status_line(left, right, width), CellStyle::Status);
 }
 
 /// The query sits at the bottom, right above the status bar, and the list
 /// grows upwards from it. That way neither the field nor the best candidate
 /// moves as the list changes size.
-fn draw_picker(
-    out: &mut impl Write,
-    margin: &str,
-    picker: &Picker,
-    top: usize,
-    width: usize,
-    height: usize,
-) -> Result<()> {
+fn draw_picker(grid: &mut Grid, x: usize, picker: &Picker, top: usize, width: usize, height: usize) {
     // The query keeps the bottom row; candidates take what is left of a strip
     // that may be shorter than the list, best matches nearest the query.
     let rows = picker.visible().count().min(height - 1);
 
     for (row, (index, candidate)) in picker.visible().take(rows).enumerate() {
-        let selected = index == picker.selected;
+        let style = match index == picker.selected {
+            true => CellStyle::Selected,
+            false => CellStyle::Normal,
+        };
         // Indented to line up with the text of the query below.
         let line = pad(&format!("   {candidate}"), width);
-
-        start_row(out, margin, top + rows - 1 - row)?;
-        match selected {
-            true => queue!(
-                out,
-                SetBackgroundColor(Color::DarkGrey),
-                Print(line),
-                ResetColor
-            )?,
-            false => queue!(out, Print(line))?,
-        }
-        end_row(out)?;
+        grid.put_str(x, top + rows - 1 - row, &line, style);
     }
 
-    draw_field(out, margin, &picker.query, true, top + rows, width)
+    draw_field(grid, x, &picker.query, true, top + rows, width);
 }
 
-fn rule(out: &mut impl Write, margin: &str, row: usize, width: usize) -> Result<()> {
-    start_row(out, margin, row)?;
-    queue!(
-        out,
-        SetForegroundColor(Color::DarkGrey),
-        Print("─".repeat(width)),
-        ResetColor,
-    )?;
-    end_row(out)
+fn rule(grid: &mut Grid, x: usize, y: usize, width: usize) {
+    grid.put_str(x, y, &"─".repeat(width), CellStyle::Rule);
 }
 
 /// The left half belongs to the document, the right half to whatever panel is
@@ -202,30 +154,15 @@ fn status_line(left: &str, right: &str, width: usize) -> String {
 
 /// Each field is a labelled line with the caret drawn on it, since the real
 /// terminal cursor stays hidden and we paint our own everywhere else.
-fn draw_prompt(
-    out: &mut impl Write,
-    margin: &str,
-    prompt: &Prompt,
-    top: usize,
-    width: usize,
-    height: usize,
-) -> Result<()> {
+fn draw_prompt(grid: &mut Grid, x: usize, prompt: &Prompt, top: usize, width: usize, height: usize) {
     for (index, field) in prompt.fields.iter().take(height).enumerate() {
-        draw_field(out, margin, field, index == prompt.active, top + index, width)?;
+        draw_field(grid, x, field, index == prompt.active, top + index, width);
     }
-    Ok(())
 }
 
 /// The caret and the selection are painted by us, since the terminal's own
 /// cursor stays hidden everywhere in this editor.
-fn draw_field(
-    out: &mut impl Write,
-    margin: &str,
-    field: &Field,
-    active: bool,
-    row: usize,
-    width: usize,
-) -> Result<()> {
+fn draw_field(grid: &mut Grid, x: usize, field: &Field, active: bool, y: usize, width: usize) {
     let contents = field.contents();
     let label = format!(" {} ", field.label);
     let offset = layout::line_width(&label, PANEL_TAB_WIDTH);
@@ -238,31 +175,20 @@ fn draw_field(
     // Walked as cells rather than characters: the caret is placed in display
     // columns, so counting anything else drifts away from it on wide glyphs.
     let line = pad(&format!("{label}{contents}"), width);
-    start_row(out, margin, row)?;
     for cell in layout::cells(&line, PANEL_TAB_WIDTH) {
         let glyph = match cell.glyph {
             Glyph::Text(text) => text,
             _ => " ",
         };
-        if caret == Some(cell.column) {
-            queue!(
-                out,
-                SetAttribute(Attribute::Reverse),
-                Print(glyph),
-                SetAttribute(Attribute::NoReverse)
-            )?;
+        let style = if caret == Some(cell.column) {
+            CellStyle::Cursor
         } else if active && selected.contains(&cell.column) {
-            queue!(
-                out,
-                SetBackgroundColor(Color::DarkGrey),
-                Print(glyph),
-                ResetColor
-            )?;
+            CellStyle::Selected
         } else {
-            queue!(out, Print(glyph))?;
-        }
+            CellStyle::Normal
+        };
+        grid.put(x + cell.column, y, glyph, cell.width, style);
     }
-    end_row(out)
 }
 
 /// Truncates or pads to exactly `width` columns, counting display width rather
@@ -290,43 +216,116 @@ fn pad(text: &str, width: usize) -> String {
 mod tests {
     use super::*;
     use crate::buffer::Buffer;
+    use crate::command::{Command, Edit, PanelCommand};
+    use crate::prompt::Purpose;
     use crate::text::Text;
 
-    fn drawn(term_width: usize) -> (String, usize) {
-        let mut editor = Editor::new(Buffer::from_text(Text::from_str("hello\n")));
-        editor.resize(term_width, 4);
+    fn editor_of(content: &str, width: usize, height: usize) -> Editor {
+        let mut editor = Editor::new(Buffer::from_text(Text::from_str(content)));
+        editor.resize(width, height);
+        editor
+    }
 
-        let mut out = Vec::new();
-        draw(&mut out, &editor, "", "").unwrap();
-        (String::from_utf8(out).unwrap(), editor.view().area.x)
+    fn composed(editor: &Editor, width: usize, height: usize) -> Grid {
+        let mut grid = Grid::new(width, height);
+        compose(&mut grid, editor, " left", "right");
+        grid
+    }
+
+    fn style_at(grid: &Grid, x: usize, y: usize) -> CellStyle {
+        grid.cell(x, y).unwrap().style
     }
 
     #[test]
-    fn every_row_starts_at_the_edge_of_the_band() {
-        let (wide, margin) = drawn(200);
+    fn the_text_sits_in_the_band_with_the_status_bar_on_the_last_row() {
+        let editor = editor_of("hello\n", 200, 4);
+        let margin = editor.view().area.x;
         assert!(margin > 0);
-        for row in 1..=4 {
-            let start = format!("\x1b[{row};1H{}\x1b", " ".repeat(margin));
-            assert!(wide.contains(&start), "row {row} is not indented");
-        }
+
+        let grid = composed(&editor, 200, 4);
+        let row = grid.row_text(0);
+        assert_eq!(&row[..margin], " ".repeat(margin));
+        assert!(row[margin..].starts_with("1 hello"));
+        assert!(grid.row_text(1)[margin..].starts_with("2 "));
+        assert_eq!(grid.row_text(2).trim(), "");
+        assert!(grid.row_text(3)[margin..].starts_with(" left"));
+        assert!(grid.row_text(3).trim_end().ends_with("right"));
+        assert_eq!(style_at(&grid, margin, 3), CellStyle::Status);
 
         // A terminal narrower than the cap keeps the editor at the left edge.
-        let (narrow, margin) = drawn(80);
-        assert_eq!(margin, 0);
-        assert!(narrow.contains("\x1b[1;1H\x1b"));
+        let editor = editor_of("hello\n", 80, 4);
+        assert_eq!(editor.view().area.x, 0);
+        assert!(composed(&editor, 80, 4).row_text(0).starts_with("1 hello"));
     }
 
     #[test]
     fn only_the_current_line_paints_its_gutter() {
-        let (frame, margin) = drawn(200);
-        let painted = |row: usize| {
-            let marker = format!("\x1b[{row};1H");
-            let at = frame.find(&marker).unwrap() + marker.len() + margin;
-            frame[at..].starts_with("\x1b[48;")
-        };
+        let editor = editor_of("one\ntwo\n", 80, 5);
+        let grid = composed(&editor, 80, 5);
 
-        assert!(painted(1), "the cursor's row should carry a background");
-        assert!(!painted(2));
+        assert_eq!(style_at(&grid, 0, 0), CellStyle::GutterCurrent);
+        assert_eq!(style_at(&grid, 2, 0), CellStyle::Cursor);
+        assert_eq!(style_at(&grid, 3, 0), CellStyle::CurrentLine);
+        assert_eq!(style_at(&grid, 0, 1), CellStyle::Gutter);
+        assert_eq!(style_at(&grid, 3, 1), CellStyle::Normal);
+    }
+
+    #[test]
+    fn a_prompt_takes_its_rows_from_the_text_and_carries_its_caret() {
+        let mut editor = editor_of("one\ntwo\n", 40, 8);
+        editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::Search)));
+        editor.execute(Command::Edit(Edit::Insert("tw".to_owned())));
+        editor.resize(40, 8);
+        let grid = composed(&editor, 40, 8);
+
+        assert!(grid.row_text(4).starts_with("───"));
+        assert_eq!(style_at(&grid, 0, 4), CellStyle::Rule);
+        assert!(grid.row_text(5).starts_with(" Find: tw"));
+        assert_eq!(style_at(&grid, 9, 5), CellStyle::Cursor);
+        assert!(grid.row_text(6).starts_with("───"));
+        assert!(grid.row_text(7).starts_with(" left"));
+        assert_eq!(style_at(&grid, 0, 7), CellStyle::Status);
+
+        // The hit the search landed on is selected in the text above.
+        assert_eq!(style_at(&grid, 2, 1), CellStyle::Selected);
+    }
+
+    /// What was sent, with the escape sequences taken out.
+    fn visible(sent: &[u8]) -> String {
+        let mut text = String::new();
+        let sent = String::from_utf8_lossy(sent);
+        let mut chars = sent.chars();
+        while let Some(character) = chars.next() {
+            if character != '\x1b' {
+                text.push(character);
+                continue;
+            }
+            // A CSI sequence runs to its final byte, a letter.
+            for byte in chars.by_ref() {
+                if byte.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        }
+        text
+    }
+
+    #[test]
+    fn a_frame_after_a_keystroke_costs_its_difference() {
+        let mut editor = editor_of("hello\n", 80, 5);
+        let mut renderer = Renderer::new();
+        let mut first = Vec::new();
+        renderer.draw(&mut first, &editor, (80, 5), "", "").unwrap();
+        assert!(visible(&first).contains("1 hello"));
+
+        editor.execute(Command::Edit(Edit::Insert("H".to_owned())));
+        let mut second = Vec::new();
+        renderer.draw(&mut second, &editor, (80, 5), "", "").unwrap();
+
+        // Only the cells that changed: the second `l` landed where an `l`
+        // already was, so it is not among them.
+        assert_eq!(visible(&second), "Hhelo");
+        assert!(second.len() * 4 < first.len(), "{} vs {}", second.len(), first.len());
     }
 
     #[test]

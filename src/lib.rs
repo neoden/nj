@@ -9,6 +9,7 @@ pub mod clipboard;
 pub mod command;
 pub mod editor;
 pub mod fuzzy;
+pub mod grid;
 pub mod indent;
 pub mod key;
 pub mod keymap;

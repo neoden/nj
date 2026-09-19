@@ -2,25 +2,15 @@ use std::ops::Range;
 
 use crate::anchor::{Anchor, Bias, Version};
 use crate::buffer::Buffer;
+use crate::grid::{CellStyle, CONTROL_PLACEHOLDER};
 use crate::layout::{self, Glyph};
 use crate::movement::{self, Direction, Motion};
 use crate::screen::Area;
 use crate::selection::{Selection, SelectionSet};
 use crate::workspace::BufferId;
 
-pub const CONTROL_PLACEHOLDER: char = '·';
-
 /// Rows kept between the cursor and the edge of the screen while scrolling.
 const SCROLL_MARGIN: usize = 2;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CellStyle {
-    Normal,
-    CurrentLine,
-    Matched,
-    Selected,
-    Cursor,
-}
 
 /// Where selections, carets and search hits fall on one line, in display
 /// columns. A cell under several of them takes the topmost.

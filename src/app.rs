@@ -11,17 +11,20 @@ use crate::command::{Command, Edit, Select};
 use crate::editor::Editor;
 use crate::key::Keystroke;
 use crate::keymap;
-use crate::render;
+use crate::render::Renderer;
 
 const MOUSE_SCROLL_LINES: isize = 3;
 
 pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
+    let mut renderer = Renderer::new();
+
     loop {
         let (width, height) = crossterm::terminal::size()?;
-        editor.resize(width as usize, height as usize);
+        let size = (width as usize, height as usize);
+        editor.resize(size.0, size.1);
 
         let (left, right) = status(editor);
-        render::draw(out, editor, &left, &right)?;
+        renderer.draw(out, editor, size, &left, &right)?;
 
         // A panel still reading its candidates must not let the loop go back
         // to sleep, or the list would stop filling until the next keystroke.
