@@ -64,7 +64,7 @@ impl Clipboard {
                 .touched_lines(text)
                 .into_iter()
                 .map(|line| {
-                    let mut piece = text.slice(line_range(text, line)).to_string();
+                    let mut piece = text.substring(line_range(text, line));
                     if !piece.ends_with('\n') {
                         piece.push('\n');
                     }
@@ -73,7 +73,7 @@ impl Clipboard {
                 .collect(),
             false => selections
                 .iter()
-                .map(|selection| text.slice(selection.range()).to_string())
+                .map(|selection| text.substring(selection.range()))
                 .collect(),
         };
         self.set(pieces, lines);
@@ -141,7 +141,7 @@ impl Clipboard {
 /// nothing is selected.
 fn line_range(text: &Text, line: usize) -> Range<usize> {
     let start = text.line_start(line);
-    start..(start + text.line(line).len() + 1).min(text.len())
+    start..(start + text.line_len(line) + 1).min(text.len())
 }
 
 #[cfg(test)]

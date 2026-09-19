@@ -160,7 +160,7 @@ pub fn document_edge(text: &Text, direction: Direction) -> usize {
 }
 
 fn line_end(text: &Text, line: usize) -> usize {
-    text.line_start(line) + text.line(line).len()
+    text.line_start(line) + text.line_len(line)
 }
 
 #[cfg(test)]

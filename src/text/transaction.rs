@@ -99,7 +99,7 @@ impl Transaction {
         // Back to front, so that offsets ahead of each change stay valid.
         let mut removed = Vec::with_capacity(self.changes.len());
         for change in self.changes.iter().rev() {
-            removed.push(text.slice(change.range.clone()).to_string());
+            removed.push(text.substring(change.range.clone()));
             text.remove(change.range.clone());
             text.insert(change.range.start, &change.text);
         }

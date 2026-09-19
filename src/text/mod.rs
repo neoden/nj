@@ -49,12 +49,17 @@ impl Text {
     }
 
     /// Line contents without the trailing break.
-    pub fn line(&self, line: usize) -> RopeSlice<'_> {
+    fn line(&self, line: usize) -> RopeSlice<'_> {
         let slice = self.rope.line(line, LINES);
         match slice.trailing_line_break_idx(LINES) {
             Some(idx) => slice.slice(..idx),
             None => slice,
         }
+    }
+
+    /// Bytes in a line, not counting its break.
+    pub fn line_len(&self, line: usize) -> usize {
+        self.line(line).len()
     }
 
     /// Borrows when the line lives in a single chunk, which is the common case.
@@ -64,6 +69,12 @@ impl Text {
             Some(text) => Cow::Borrowed(text),
             None => Cow::Owned(slice.to_string()),
         }
+    }
+
+    /// A copy of the bytes in `range`, which must fall on character
+    /// boundaries.
+    pub fn substring(&self, range: Range<usize>) -> String {
+        self.rope.slice(range).to_string()
     }
 
     pub fn char_at(&self, byte: usize) -> Option<char> {
@@ -213,10 +224,6 @@ impl Text {
         self.rope.byte_to_line_idx(byte, LINES)
     }
 
-    pub fn slice(&self, range: Range<usize>) -> RopeSlice<'_> {
-        self.rope.slice(range)
-    }
-
     pub fn insert(&mut self, at: usize, text: &str) {
         self.rope.insert(at, text);
     }
@@ -293,6 +300,20 @@ mod tests {
         assert_eq!(text.line(0), "first");
         assert_eq!(text.line(1), "second");
         assert_eq!(text.line(2), "");
+    }
+
+    #[test]
+    fn substrings_and_line_lengths_come_out_in_bytes() {
+        let text = Text::from_str("да\nnet");
+        assert_eq!(text.line_len(0), 4);
+        assert_eq!(text.line_len(1), 3);
+        assert_eq!(text.substring(2..6), "а\nn");
+
+        // Long enough to lie across several chunks.
+        let text = Text::from_str(&format!("{}\n{}", "д".repeat(3_000), "x"));
+        assert_eq!(text.line_len(0), 6_000);
+        assert_eq!(text.line_len(1), 1);
+        assert_eq!(text.substring(5_998..6_002), "д\nx");
     }
 
     #[test]

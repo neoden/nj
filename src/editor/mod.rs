@@ -476,7 +476,7 @@ impl Editor {
         let primary = self.view().selections.primary();
         match primary.is_empty() {
             true => None,
-            false => Some(self.buffer().text().slice(primary.range()).to_string()),
+            false => Some(self.buffer().text().substring(primary.range())),
         }
     }
 
@@ -945,7 +945,7 @@ impl Editor {
 
         let range = self.view().selections.primary().range();
         Some(Query {
-            needle: self.buffer().text().slice(range).to_string(),
+            needle: self.buffer().text().substring(range),
             whole_word,
         })
     }
