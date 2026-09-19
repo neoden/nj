@@ -12,6 +12,9 @@ pub struct Confirm {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Question {
     Quit,
+    /// The file changed on disk since it was read. Asked on the way out as
+    /// well, when "save and quit" runs into it.
+    Overwrite { then_quit: bool },
 }
 
 impl Confirm {
@@ -20,6 +23,14 @@ impl Confirm {
             question: "Unsaved changes",
             answers: &[('s', "Save and quit"), ('q', "Quit anyway")],
             about: Question::Quit,
+        }
+    }
+
+    pub fn overwrite(then_quit: bool) -> Self {
+        Self {
+            question: "File changed on disk",
+            answers: &[('o', "Overwrite")],
+            about: Question::Overwrite { then_quit },
         }
     }
 

@@ -283,8 +283,25 @@ impl Buffer {
         )
     }
 
-    /// Writes the text where it came from. For a pipeline that is not a
-    /// write but a promise: the text is only handed on when the editor exits.
+    /// Whether the disk holds something other than what was last read or
+    /// written: a file changed by another writer, or one that has appeared
+    /// where there was none. A file that has gone missing is no conflict —
+    /// the buffer is then the only copy, and saving simply puts it back.
+    pub fn changed_on_disk(&self) -> bool {
+        let Backing::File { path, on_disk } = &self.backing else {
+            return false;
+        };
+        match (Stamp::of(path), on_disk) {
+            (Some(now), Some(seen)) => now != *seen,
+            (Some(_), None) => true,
+            (None, _) => false,
+        }
+    }
+
+    /// Writes the text where it came from, whatever the disk holds by now —
+    /// the check for that is the caller's, since only it can ask. For a
+    /// pipeline this is not a write but a promise: the text is only handed
+    /// on when the editor exits.
     pub fn save(&mut self) -> Result<()> {
         match &mut self.backing {
             Backing::Scratch => return Err(anyhow::anyhow!("buffer has no path")),
@@ -557,6 +574,40 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "fresh\n");
         assert!(matches!(buffer.backing, Backing::File { on_disk: Some(_), .. }));
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn another_writer_is_noticed_and_a_save_catches_up() {
+        let path = scratch("stamp");
+        fs::write(&path, "old\n").unwrap();
+
+        let mut buffer = Buffer::open(&path).unwrap();
+        assert!(!buffer.changed_on_disk());
+
+        // A different length, so the verdict does not hang on the clock.
+        fs::write(&path, "rewritten elsewhere\n").unwrap();
+        assert!(buffer.changed_on_disk());
+
+        buffer.save().unwrap();
+        assert!(!buffer.changed_on_disk());
+
+        // Gone is not changed: nothing is there to be lost.
+        fs::remove_file(&path).unwrap();
+        assert!(!buffer.changed_on_disk());
+    }
+
+    #[test]
+    fn a_file_appearing_under_a_new_buffer_counts_as_changed() {
+        let path = scratch("appeared");
+        let _ = fs::remove_file(&path);
+
+        let buffer = Buffer::open(&path).unwrap();
+        assert!(!buffer.changed_on_disk());
+
+        fs::write(&path, "someone else\n").unwrap();
+        assert!(buffer.changed_on_disk());
 
         let _ = fs::remove_file(&path);
     }

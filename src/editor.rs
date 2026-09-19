@@ -183,7 +183,7 @@ impl Editor {
             Command::Select(Select::Drag { row, column }) => self.drag(row, column),
 
             Command::File(File::Save) => {
-                self.save();
+                self.save(false);
             }
             Command::File(File::SetLanguage(name)) => match language::by_name(&name) {
                 Some(language) => self.set_language(language),
@@ -600,7 +600,18 @@ impl Editor {
         view.scroll_to_cursor(buffer);
     }
 
-    fn save(&mut self) -> bool {
+    /// Saves unless another writer got there first, in which case it asks
+    /// rather than overwriting their work blindly (ADR 20). Returns whether
+    /// the text reached the disk; a question pending counts as no.
+    fn save(&mut self, then_quit: bool) -> bool {
+        if self.buffer().changed_on_disk() {
+            self.panel = Some(Panel::Confirm(Confirm::overwrite(then_quit)));
+            return false;
+        }
+        self.write()
+    }
+
+    fn write(&mut self) -> bool {
         match self.buffer_mut().save() {
             Ok(()) => true,
             Err(error) => {
@@ -619,7 +630,8 @@ impl Editor {
     }
 
     /// A failed save cancels the quit and says why, rather than losing the
-    /// file that could not be written.
+    /// file that could not be written. Saving may raise a question of its
+    /// own, which then replaces this one.
     fn answer(&mut self, answer: char) {
         let Some(Panel::Confirm(confirm)) = &self.panel else {
             return;
@@ -628,11 +640,20 @@ impl Editor {
         // The letters are commands, not text, so they are read off the
         // physical key rather than the current keyboard layout.
         match (confirm.about, key::physical_key(answer)) {
-            (Question::Quit, 's') => self.quit = self.save(),
-            (Question::Quit, 'q') => self.quit = true,
-            _ => return,
+            (Question::Quit, 's') => {
+                self.close_panel();
+                self.quit = self.save(true);
+            }
+            (Question::Quit, 'q') => {
+                self.close_panel();
+                self.quit = true;
+            }
+            (Question::Overwrite { then_quit }, 'o') => {
+                self.close_panel();
+                self.quit = self.write() && then_quit;
+            }
+            _ => {}
         }
-        self.close_panel();
     }
 
     fn set_language(&mut self, language: &'static Language) {
@@ -1864,7 +1885,7 @@ mod tests {
         editor.insert("!");
         assert!(editor.buffer().is_modified());
 
-        editor.save();
+        editor.save(false);
         assert!(!editor.buffer().is_modified());
 
         // Back to what the file holds, so there is nothing to warn about.
@@ -1889,12 +1910,79 @@ mod tests {
 
         let mut editor = Editor::new(Buffer::open(&path).unwrap());
         type_text(&mut editor, "wor");
-        editor.save();
+        editor.save(false);
 
         // The same word carries on, but it must not join the group that was
         // written to disk.
         type_text(&mut editor, "d");
         assert!(editor.buffer().is_modified());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// ADR 20, the half that waits for nothing: a save never overwrites
+    /// another writer's work without asking.
+    #[test]
+    fn a_file_changed_elsewhere_is_not_overwritten_unasked() {
+        let path = std::env::temp_dir().join(format!("ned-{}-elsewhere", std::process::id()));
+        std::fs::write(&path, "mine\n").unwrap();
+
+        let mut editor = Editor::new(Buffer::open(&path).unwrap());
+        editor.insert("!");
+        std::fs::write(&path, "theirs, and longer\n").unwrap();
+
+        editor.execute(Command::File(File::Save));
+        assert!(matches!(
+            editor.panel,
+            Some(Panel::Confirm(Confirm {
+                about: Question::Overwrite { then_quit: false },
+                ..
+            }))
+        ));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs, and longer\n");
+        assert!(editor.buffer().is_modified());
+
+        editor.execute(Command::Panel(PanelCommand::Answer('o')));
+        assert!(editor.panel.is_none());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "!mine\n");
+        assert!(!editor.buffer().is_modified());
+        assert!(!editor.quit);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// "Save and quit" that runs into another writer asks, and the answer
+    /// still quits: the intention to leave is not lost with the question.
+    #[test]
+    fn save_and_quit_still_quits_after_agreeing_to_overwrite() {
+        let path = std::env::temp_dir().join(format!("ned-{}-overwrite-quit", std::process::id()));
+        std::fs::write(&path, "mine\n").unwrap();
+
+        let mut editor = Editor::new(Buffer::open(&path).unwrap());
+        editor.insert("!");
+        std::fs::write(&path, "theirs, and longer\n").unwrap();
+
+        editor.execute(Command::Quit);
+        editor.execute(Command::Panel(PanelCommand::Answer('s')));
+        assert!(!editor.quit);
+        assert!(matches!(
+            editor.panel,
+            Some(Panel::Confirm(Confirm {
+                about: Question::Overwrite { then_quit: true },
+                ..
+            }))
+        ));
+
+        // Declining leaves everything as it was: not written, not quit.
+        editor.execute(Command::Panel(PanelCommand::Close));
+        assert!(!editor.quit);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs, and longer\n");
+
+        editor.execute(Command::Quit);
+        editor.execute(Command::Panel(PanelCommand::Answer('s')));
+        editor.execute(Command::Panel(PanelCommand::Answer('o')));
+        assert!(editor.quit);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "!mine\n");
 
         let _ = std::fs::remove_file(&path);
     }
