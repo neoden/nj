@@ -1,14 +1,15 @@
 use std::ops::Range;
 
-use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::buffer::{Buffer, EditKind};
+use crate::clipboard::{Clipboard, SystemClipboard};
+use crate::command::{Command, Edit, File, PanelCommand, Select};
 use crate::key;
 use crate::language::{self, Indent, Language};
 use crate::layout;
-use crate::picker::{Pick, Picker};
 use crate::movement::{self, Class, Direction, Motion};
 use crate::panel::{Confirm, Panel, Question};
-use crate::prompt::{Prompt, Purpose};
+use crate::picker::{Pick, Picker};
+use crate::prompt::{Field, Prompt, Purpose};
 use crate::screen::Screen;
 use crate::selection::{Selection, SelectionSet};
 use crate::text::Text;
@@ -79,6 +80,172 @@ impl Editor {
         let line_count = buffer.text.line_count();
         self.screen = Screen::divide(term_width, term_height, view::gutter_width(line_count), panel);
         view.resize(self.screen.text, line_count);
+    }
+
+    /// The only way in (ADR 16). Routes to the method that does the work;
+    /// what a command means is decided here and nowhere else.
+    pub fn execute(&mut self, command: Command) {
+        match command {
+            // These go wherever the keyboard is: an open panel's field, or
+            // the text. A panel without a field swallows them.
+            Command::Move { motion, extend } => self.at_focus(
+                |field| {
+                    field.move_cursor(motion, extend);
+                    false
+                },
+                |editor| editor.move_selections(motion, extend),
+            ),
+            Command::Edit(Edit::Insert(text)) => self.at_focus(
+                |field| {
+                    field.insert(&text);
+                    true
+                },
+                |editor| editor.insert(&text),
+            ),
+            Command::Edit(Edit::Delete(motion)) => self.at_focus(
+                |field| {
+                    field.delete(motion);
+                    true
+                },
+                |editor| editor.delete(motion),
+            ),
+            Command::Select(Select::All) => self.at_focus(
+                |field| {
+                    field.select_all();
+                    false
+                },
+                |editor| editor.select_all(),
+            ),
+            // Two searches still exist (S2); which one answers depends on
+            // whether the prompt that collected the hits is open.
+            Command::FindNext(direction) => match self.panel.is_some() {
+                true => self.go_to_match(direction),
+                false => self.search_next(direction),
+            },
+            Command::Select(Select::AllOccurrences) => match self.panel.is_some() {
+                true => self.select_all_matches(),
+                false => self.select_all_occurrences(),
+            },
+
+            Command::Scroll(rows) => self.scroll(rows),
+            Command::Quit => self.request_quit(),
+
+            Command::Edit(Edit::Newline) => self.insert_newline(),
+            Command::Edit(Edit::Indent) => self.indent(),
+            Command::Edit(Edit::Outdent) => self.outdent(),
+            Command::Edit(Edit::ToggleComment) => self.toggle_comment(),
+            Command::Edit(Edit::Undo) => self.undo(),
+            Command::Edit(Edit::Redo) => self.redo(),
+            Command::Edit(Edit::Copy) => self.copy(),
+            Command::Edit(Edit::Cut) => self.cut(),
+            Command::Edit(Edit::Paste) => self.paste(),
+
+            Command::Select(Select::Line) => self.select_line(),
+            Command::Select(Select::Cancel) => self.cancel_selection(),
+            Command::Select(Select::RemoveSecondary) => self.remove_secondary_cursors(),
+            Command::Select(Select::AddCursor(direction)) => self.add_cursor(direction),
+            Command::Select(Select::NextOccurrence) => self.select_next_occurrence(),
+            Command::Select(Select::Set(selections)) => self.set_selections(selections),
+            Command::Select(Select::Click { row, column, add }) => self.click(row, column, add),
+            Command::Select(Select::Drag { row, column }) => self.drag(row, column),
+
+            Command::File(File::Save) => {
+                self.save();
+            }
+            Command::File(File::SetLanguage(name)) => match language::by_name(&name) {
+                Some(language) => self.set_language(language),
+                None => self.message = Some(format!("No language called {name}")),
+            },
+
+            Command::Panel(PanelCommand::Prompt(purpose)) => self.open_prompt(purpose),
+            Command::Panel(PanelCommand::Picker(pick)) => self.open_picker(pick),
+            Command::Panel(PanelCommand::Close) => self.close_panel(),
+            Command::Panel(PanelCommand::Submit { backwards }) => self.submit_prompt(backwards),
+            Command::Panel(PanelCommand::Pick) => self.accept_pick(),
+            Command::Panel(PanelCommand::Answer(answer)) => self.answer(answer),
+            Command::Panel(PanelCommand::NextField) => {
+                if let Some(Panel::Prompt(prompt)) = &mut self.panel {
+                    prompt.focus_next_field();
+                }
+            }
+            Command::Panel(PanelCommand::MoveChoice(delta)) => {
+                if let Some(Panel::Picker(picker)) = &mut self.panel {
+                    picker.move_selection(delta);
+                }
+            }
+        }
+    }
+
+    /// Runs a command where the keyboard is: on an open panel's field, on
+    /// the text when no panel is open, and nowhere when the panel has no
+    /// field. `on_field` reports whether it changed the contents.
+    fn at_focus(
+        &mut self,
+        on_field: impl FnOnce(&mut Field) -> bool,
+        on_text: impl FnOnce(&mut Self),
+    ) {
+        let edited = match &mut self.panel {
+            Some(panel) => panel.field_mut().is_some_and(on_field),
+            None => {
+                on_text(self);
+                false
+            }
+        };
+        if edited {
+            self.field_edited();
+        }
+    }
+
+    /// An edited query drives whatever the panel is for; a moved caret does
+    /// not, or a search would drag the cursor back to the first hit.
+    fn field_edited(&mut self) {
+        match &mut self.panel {
+            Some(Panel::Picker(picker)) => picker.refilter(),
+            Some(Panel::Prompt(_)) => self.prompt_changed(),
+            _ => {}
+        }
+    }
+
+    fn set_selections(&mut self, selections: SelectionSet) {
+        let (view, buffer) = self.workspace.focus_mut();
+        view.selections = selections;
+        view.scroll_to_cursor(buffer);
+    }
+
+    /// Screen cells into the view's own coordinates: past its gutter, down
+    /// from its top. A click outside the text is nobody's.
+    fn cell_in_view(&self, row: usize, column: usize) -> Option<(usize, usize)> {
+        let view = self.view();
+        let row = row.checked_sub(view.area.y)?;
+        (row < view.height()).then(|| {
+            (row, column.saturating_sub(view.area.x + view.gutter))
+        })
+    }
+
+    fn click(&mut self, row: usize, column: usize, add: bool) {
+        let Some((row, column)) = self.cell_in_view(row, column) else {
+            return;
+        };
+        let (view, buffer) = self.workspace.focus_mut();
+        let offset = view.offset_at_screen(buffer, row, column);
+        match add {
+            true => view.selections.push(Selection::cursor(offset)),
+            false => view.selections = SelectionSet::single(offset),
+        }
+    }
+
+    fn drag(&mut self, row: usize, column: usize) {
+        let Some((row, column)) = self.cell_in_view(row, column) else {
+            return;
+        };
+        let (view, buffer) = self.workspace.focus_mut();
+        view.selections = Selection {
+            anchor: view.selections.primary().anchor,
+            head: view.offset_at_screen(buffer, row, column),
+            goal_column: None,
+        }
+        .into();
+        view.scroll_to_cursor(buffer);
     }
 
     pub fn open_prompt(&mut self, purpose: Purpose) {

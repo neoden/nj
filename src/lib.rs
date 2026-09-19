@@ -5,10 +5,12 @@
 pub mod app;
 pub mod buffer;
 pub mod clipboard;
+pub mod command;
 pub mod editor;
 pub mod fuzzy;
 pub mod indent;
 pub mod key;
+pub mod keymap;
 pub mod language;
 pub mod layout;
 pub mod movement;

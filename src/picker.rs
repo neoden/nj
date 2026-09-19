@@ -1,6 +1,4 @@
 use crate::fuzzy;
-use crate::key::{KeyCode, Keystroke};
-use crate::panel::Outcome;
 use crate::prompt::Field;
 
 /// Rows of candidates shown at once. The query line sits above them.
@@ -124,30 +122,6 @@ impl Picker {
 
     fn rank_of(&self, score: i32) -> usize {
         self.scores.partition_point(|&other| other >= score)
-    }
-
-    /// Moving through the list and refiltering are the picker's own business,
-    /// so only choosing and leaving reach the editor.
-    pub fn handle_key(&mut self, stroke: Keystroke) -> Outcome {
-        let page = VISIBLE as isize;
-
-        match stroke.key.code {
-            KeyCode::Esc => return Outcome::Close,
-            KeyCode::Enter => return Outcome::Pick,
-            // The list grows upwards from the query, so moving up the screen
-            // means moving away from the best match.
-            KeyCode::Up => self.move_selection(1),
-            KeyCode::Down => self.move_selection(-1),
-            KeyCode::PageUp => self.move_selection(page),
-            KeyCode::PageDown => self.move_selection(-page),
-            _ => {
-                if self.query.handle_key(stroke) == Some(true) {
-                    self.refilter();
-                }
-            }
-        }
-
-        Outcome::Nothing
     }
 }
 

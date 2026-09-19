@@ -1,29 +1,5 @@
-use crate::key::{Key, KeyCode, Keystroke, Mods};
-use crate::movement::Direction;
 use crate::picker::Picker;
-use crate::prompt::Prompt;
-
-/// What a panel wants done after it has dealt with a keystroke itself.
-///
-/// Each variant answers to exactly one method of the editor, so that deciding
-/// what a key means stays inside the panel and no caller has to ask what kind
-/// of panel it is holding (ADR 12).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outcome {
-    /// Dealt with, and nothing outside the panel is concerned.
-    Nothing,
-    Close,
-    /// The query was edited, so whatever it drives has to run again.
-    Changed,
-    /// A picker's choice was taken.
-    Pick,
-    /// A prompt was submitted; backwards for `Shift+Enter`.
-    Submit { backwards: bool },
-    /// A single-key answer to a question.
-    Answer(char),
-    GoToMatch(Direction),
-    SelectAllMatches,
-}
+use crate::prompt::{Field, Prompt};
 
 /// A question with single-key answers. `Esc` always means "never mind".
 #[derive(Debug)]
@@ -72,22 +48,11 @@ impl Confirm {
             )
             .collect()
     }
-
-    fn handle_key(&self, key: Key) -> Outcome {
-        match key.code {
-            KeyCode::Esc => Outcome::Close,
-            // Combinations are not answers: Ctrl+Q must not discard the changes
-            // it is asking about just because it carries a `q`.
-            KeyCode::Char(answer) if !key.mods.intersects(Mods::CTRL | Mods::ALT) => {
-                Outcome::Answer(answer)
-            }
-            _ => Outcome::Nothing,
-        }
-    }
 }
 
-/// The strip above the status bar. Whatever is open here owns the keyboard,
-/// so there is never a question of where typing goes.
+/// The strip above the status bar. Whatever is open here owns the keyboard:
+/// the keymap binds text commands outside a panel only, and the commands
+/// that mean something in both places go to the panel's field first.
 #[derive(Debug)]
 pub enum Panel {
     Prompt(Prompt),
@@ -106,13 +71,14 @@ impl Panel {
         }
     }
 
-    /// The only place that asks what kind of panel this is. A new kind adds an
-    /// arm here, an arm in `height`, and its own drawing — and nothing else.
-    pub fn handle_key(&mut self, stroke: Keystroke) -> Outcome {
+    /// The one-line field with the keyboard, for panels that have one. A new
+    /// kind adds an arm here, in `height`, and its own drawing — and nothing
+    /// else.
+    pub fn field_mut(&mut self) -> Option<&mut Field> {
         match self {
-            Panel::Prompt(prompt) => prompt.handle_key(stroke),
-            Panel::Picker(picker) => picker.handle_key(stroke),
-            Panel::Confirm(confirm) => confirm.handle_key(stroke.key),
+            Panel::Prompt(prompt) => Some(prompt.field_mut()),
+            Panel::Picker(picker) => Some(&mut picker.query),
+            Panel::Confirm(_) => None,
         }
     }
 
