@@ -9,23 +9,9 @@ use anyhow::Result;
 use crossterm::style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor};
 use crossterm::{cursor, queue};
 
-use crate::layout::{self, Glyph};
-
-/// How a cell is drawn. A closed list for now (R5): syntax highlighting and
-/// themes will want something richer, and the grid does not care what.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CellStyle {
-    #[default]
-    Normal,
-    CurrentLine,
-    Matched,
-    Selected,
-    Cursor,
-    Gutter,
-    GutterCurrent,
-    Rule,
-    Status,
-}
+use crate::editor::style::CellStyle;
+use crate::editor::view::CONTROL_PLACEHOLDER;
+use crate::text::layout::{self, Glyph};
 
 /// What a cell shows. A cluster wider than one column takes the cells after
 /// it as continuations, which print nothing of their own.
@@ -64,8 +50,6 @@ impl Default for Cell {
 /// Tabs in what is put on the grid are worth one column: the text area has
 /// expanded its own already, and a panel's strings are one-line prose.
 const TAB_WIDTH: usize = 1;
-
-pub const CONTROL_PLACEHOLDER: char = '·';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Grid {

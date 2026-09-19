@@ -1,3 +1,10 @@
+//! An open text with everything around it: where it came from, how to write
+//! it back, its history, its language, and the journal that lets a position
+//! taken earlier be found again.
+
+pub mod indent;
+pub mod language;
+
 use std::collections::VecDeque;
 use std::fs;
 use std::io::{self, ErrorKind, Read, Write};
@@ -6,13 +13,12 @@ use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 
-use crate::anchor::{self, Anchor, Splice, Version};
-use crate::indent;
-use crate::language::{self, Indent, Language};
-use crate::movement::{Class, Direction};
-use crate::selection::SelectionSet;
+use crate::text::anchor::{self, Anchor, Splice, Version};
+use crate::text::movement::{Class, Direction};
+use crate::text::selection::SelectionSet;
+use crate::text::transaction::Transaction;
 use crate::text::{Text, TextBuilder};
-use crate::transaction::Transaction;
+use language::{Indent, Language};
 
 const BOM: &str = "\u{feff}";
 
@@ -514,8 +520,8 @@ fn stage(staging: &Path, original: &Path, contents: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::anchor::Bias;
-    use crate::transaction::CursorAfter;
+    use crate::text::anchor::Bias;
+    use crate::text::transaction::CursorAfter;
 
     #[test]
     fn detects_line_endings() {

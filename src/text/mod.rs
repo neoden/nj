@@ -1,3 +1,15 @@
+//! A buffer's contents and positions in it: bytes for storage, graphemes
+//! for movement, columns for display, versions for time — and nothing about
+//! files, screens or commands.
+
+pub mod anchor;
+pub mod fuzzy;
+pub mod layout;
+pub mod movement;
+pub mod search;
+pub mod selection;
+pub mod transaction;
+
 use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;

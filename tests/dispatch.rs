@@ -8,10 +8,10 @@ use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
-use ned::app;
 use ned::buffer::Buffer;
+use ned::editor::panel::Panel;
 use ned::editor::Editor;
-use ned::panel::Panel;
+use ned::term::app;
 
 fn editor() -> Editor {
     let mut editor = Editor::new(Buffer::default());

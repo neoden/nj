@@ -1,4 +1,4 @@
-use crate::language::Indent;
+use super::language::Indent;
 use crate::text::Text;
 
 const SAMPLE: usize = 500;

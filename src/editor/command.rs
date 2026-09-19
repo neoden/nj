@@ -6,10 +6,10 @@
 //! work. Nothing here borrows: a command is plain data that can be stored,
 //! sent and later parsed from a configuration file.
 
-use crate::movement::{Direction, Motion};
-use crate::picker::Pick;
-use crate::prompt::Purpose;
-use crate::selection::SelectionSet;
+use super::panel::picker::Pick;
+use super::panel::prompt::Purpose;
+use crate::text::movement::{Direction, Motion};
+use crate::text::selection::SelectionSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {

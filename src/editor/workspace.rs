@@ -5,8 +5,8 @@
 //! given (ADR 15). Nothing here is ever removed yet, so a plain index is a
 //! stable handle.
 
+use super::view::View;
 use crate::buffer::Buffer;
-use crate::view::View;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BufferId(usize);
@@ -102,9 +102,9 @@ impl Workspace {
 mod tests {
     use super::*;
     use crate::buffer::EditKind;
-    use crate::selection::SelectionSet;
+    use crate::text::selection::SelectionSet;
+    use crate::text::transaction::{CursorAfter, Transaction};
     use crate::text::Text;
-    use crate::transaction::{CursorAfter, Transaction};
 
     /// Two views on one buffer keep their own cursors (ADR 9), and the one
     /// not in focus is carried along through the edits it did not see.

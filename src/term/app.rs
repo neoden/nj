@@ -7,12 +7,11 @@ use std::thread;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
-use crate::command::{Command, Edit, Select};
-use crate::editor::Editor;
-use crate::job::Message;
-use crate::key::Keystroke;
-use crate::keymap;
-use crate::render::Renderer;
+use super::render::Renderer;
+use crate::editor::command::{Command, Edit, Select};
+use crate::editor::job::Message;
+use crate::editor::key::Keystroke;
+use crate::editor::{keymap, Editor};
 
 const MOUSE_SCROLL_LINES: isize = 3;
 

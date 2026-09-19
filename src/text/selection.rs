@@ -1,5 +1,7 @@
 use std::ops::Range;
 
+use super::Text;
+
 /// A cursor with a tail. `anchor` is where selecting started, `head` is where
 /// the cursor is now; a collapsed selection has them equal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,6 +135,43 @@ impl SelectionSet {
 
     pub fn collapse_to_cursors(&mut self) {
         *self = self.mapped(|selection| Selection::cursor(selection.head));
+    }
+
+    /// Lines under any cursor, each named once however many cursors sit on
+    /// it. A selection ending exactly on a line start does not reach that
+    /// line — it only swallowed the break before it.
+    pub fn touched_lines(&self, text: &Text) -> Vec<usize> {
+        let mut lines: Vec<usize> = self
+            .selections
+            .iter()
+            .flat_map(|selection| {
+                let first = text.line_of(selection.min());
+                let mut last = text.line_of(selection.max());
+                if last > first && text.line_start(last) == selection.max() {
+                    last -= 1;
+                }
+                first..=last
+            })
+            .collect();
+        lines.sort_unstable();
+        lines.dedup();
+        lines
+    }
+
+    /// Whether each selection is the first one on its line, taking the line
+    /// from the offset `by` picks, so that a line edit happens once however
+    /// many cursors sit on it.
+    pub fn first_on_each_line(&self, text: &Text, by: impl Fn(&Selection) -> usize) -> Vec<bool> {
+        let mut previous = None;
+        self.selections
+            .iter()
+            .map(|selection| {
+                let line = text.line_of(by(selection));
+                let first = previous != Some(line);
+                previous = Some(line);
+                first
+            })
+            .collect()
     }
 
     fn normalize(&mut self) {

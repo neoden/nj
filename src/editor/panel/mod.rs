@@ -1,5 +1,10 @@
-use crate::picker::Picker;
-use crate::prompt::{Field, Prompt};
+//! The strip above the status bar: a prompt, a picker or a question.
+
+pub mod picker;
+pub mod prompt;
+
+use picker::Picker;
+use prompt::{Field, Prompt};
 
 /// A question with single-key answers. `Esc` always means "never mind".
 #[derive(Debug)]

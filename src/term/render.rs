@@ -6,12 +6,13 @@ use std::io::Write;
 
 use anyhow::Result;
 
+use super::grid::Grid;
+use crate::editor::panel::picker::Picker;
+use crate::editor::panel::prompt::{Field, Prompt};
+use crate::editor::panel::Panel;
+use crate::editor::style::CellStyle;
 use crate::editor::Editor;
-use crate::grid::{CellStyle, Grid};
-use crate::layout::{self, Glyph};
-use crate::panel::Panel;
-use crate::picker::Picker;
-use crate::prompt::{Field, Prompt};
+use crate::text::layout::{self, Glyph};
 
 /// Panels and the status bar hold one-line strings rather than code, so a tab
 /// in one of them is worth a single column.
@@ -216,8 +217,8 @@ fn pad(text: &str, width: usize) -> String {
 mod tests {
     use super::*;
     use crate::buffer::Buffer;
-    use crate::command::{Command, Edit, PanelCommand};
-    use crate::prompt::Purpose;
+    use crate::editor::command::{Command, Edit, PanelCommand};
+    use crate::editor::panel::prompt::Purpose;
     use crate::text::Text;
 
     fn editor_of(content: &str, width: usize, height: usize) -> Editor {

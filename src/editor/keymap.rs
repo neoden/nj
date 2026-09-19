@@ -7,13 +7,13 @@
 //! this table: commands that act on the text are bound in `Context::Text`,
 //! and in a panel they simply do not match.
 
-use crate::command::{Command, Edit, File, PanelCommand, Select};
-use crate::editor::Editor;
-use crate::key::{Key, KeyCode, Keystroke, Mods};
-use crate::movement::{Direction, Motion};
-use crate::panel::Panel;
-use crate::picker::{self, Pick};
-use crate::prompt::Purpose;
+use super::command::{Command, Edit, File, PanelCommand, Select};
+use super::key::{Key, KeyCode, Keystroke, Mods};
+use super::panel::picker::{self, Pick};
+use super::panel::prompt::Purpose;
+use super::panel::Panel;
+use super::Editor;
+use crate::text::movement::{Direction, Motion};
 
 /// Where a binding applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

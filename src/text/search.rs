@@ -6,9 +6,9 @@
 
 use std::ops::Range;
 
-use crate::movement::{Class, Direction};
-use crate::selection::{Selection, SelectionSet};
-use crate::text::Text;
+use super::movement::{Class, Direction};
+use super::selection::{Selection, SelectionSet};
+use super::Text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Query {

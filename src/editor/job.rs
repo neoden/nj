@@ -11,7 +11,7 @@ use std::thread;
 
 use crossterm::event::Event;
 
-use crate::workspace::BufferId;
+use super::workspace::BufferId;
 
 /// What the main loop wakes up for: a keystroke or the like from the
 /// terminal, or something a worker has to say.

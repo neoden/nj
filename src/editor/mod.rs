@@ -1,25 +1,38 @@
+//! The editor as a whole: what commands mean, which buffers and views there
+//! are, what panel is open, and the one boundary everything crosses.
+
+pub mod clipboard;
+pub mod command;
+pub mod job;
+pub mod key;
+pub mod keymap;
+pub mod lines;
+pub mod panel;
+pub mod screen;
+pub mod style;
+pub mod view;
+pub mod workspace;
+
 use std::ops::Range;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
+use crate::buffer::language::{self, Language};
 use crate::buffer::{Backing, Buffer, EditKind, Stamp};
-use crate::clipboard::{Clipboard, SystemClipboard};
-use crate::command::{Command, Edit, File, PanelCommand, Select};
-use crate::job::{Jobs, Message, Report};
-use crate::key;
-use crate::language::{self, Indent, Language};
-use crate::layout;
-use crate::movement::{self, Class, Direction, Motion};
-use crate::panel::{Confirm, Panel, Question};
-use crate::picker::{self, Pick, Picker};
-use crate::prompt::{Field, Prompt, Purpose};
-use crate::screen::Screen;
-use crate::search::{Query, Session};
-use crate::selection::{Selection, SelectionSet};
-use crate::text::Text;
-use crate::transaction::{self, Change, CursorAfter, Transaction};
-use crate::view::{self, View};
-use crate::workspace::{BufferId, Workspace};
+use crate::text::layout;
+use crate::text::movement::{self, Class, Direction, Motion};
+use crate::text::search::{Query, Session};
+use crate::text::selection::{Selection, SelectionSet};
+use crate::text::transaction::{CursorAfter, Transaction};
+use clipboard::{Clipboard, Desktop};
+use command::{Command, Edit, File, PanelCommand, Select};
+use job::{Jobs, Message, Report};
+use panel::picker::{self, Pick, Picker};
+use panel::prompt::{Field, Prompt, Purpose};
+use panel::{Confirm, Panel, Question};
+use screen::Screen;
+use view::View;
+use workspace::{BufferId, Workspace};
 
 /// How often the file behind a buffer is looked at. Seconds are plenty: the
 /// check is a `stat`, and the save it guards asks again anyway.
@@ -45,7 +58,8 @@ pub struct Editor {
     last: Option<Query>,
     quit: bool,
     occurrences: Option<Occurrences>,
-    system: Option<SystemClipboard>,
+    /// The clipboard outside the process, when there is one to talk to.
+    desktop: Option<Box<dyn Desktop>>,
     jobs: Jobs,
     /// Where everything arrives: input forwarded from the terminal, and the
     /// reports of the jobs.
@@ -65,7 +79,7 @@ impl Editor {
             last: None,
             quit: false,
             occurrences: None,
-            system: None,
+            desktop: None,
             jobs,
             inbox,
         };
@@ -647,9 +661,10 @@ impl Editor {
         self.buffer_mut().set_language(language);
     }
 
-    /// Left out by default so that tests never touch the real clipboard.
-    pub fn with_system_clipboard(mut self) -> Self {
-        self.system = Some(SystemClipboard::new());
+    /// Left out by default, so that tests never touch the real clipboard
+    /// unless they hand in one of their own.
+    pub fn with_desktop(mut self, desktop: impl Desktop + 'static) -> Self {
+        self.desktop = Some(Box::new(desktop));
         self
     }
 
@@ -667,77 +682,22 @@ impl Editor {
         self.apply(transaction, insert_kind(inserted));
     }
 
-    /// With nothing selected, whole lines are taken — and put back as whole
-    /// lines, which is what every editor with this binding does. A line under
-    /// several cursors is taken once, however many of them sit on it.
     fn copy(&mut self) {
-        let lines = self.view().selections.iter().all(Selection::is_empty);
-        let text = &self.buffer().text();
-        let pieces = match lines {
-            true => self
-                .touched_lines()
-                .into_iter()
-                .map(|line| {
-                    let mut piece = text.slice(line_range(text, line)).to_string();
-                    if !piece.ends_with('\n') {
-                        piece.push('\n');
-                    }
-                    piece
-                })
-                .collect(),
-            false => self
-                .view()
-                .selections
-                .iter()
-                .map(|selection| text.slice(selection.range()).to_string())
-                .collect(),
-        };
-
-        self.clipboard.set(pieces, lines);
+        let (view, buffer) = self.workspace.focus();
+        self.clipboard.copy_from(buffer.text(), &view.selections);
 
         let text = self.clipboard.text();
-        if let Some(system) = &mut self.system {
-            system.write(&text);
+        if let Some(desktop) = &mut self.desktop {
+            desktop.write(&text);
         }
     }
 
     fn cut(&mut self) {
         self.copy();
-
-        if self.clipboard.holds_lines() {
-            return self.cut_lines();
-        }
-
-        let transaction = Transaction::edit(
-            &self.view().selections,
-            CursorAfter::EndOfChange,
-            |selection| (selection.range(), String::new()),
-        );
-
-        if !transaction.is_empty() {
+        let (view, buffer) = self.workspace.focus();
+        if let Some(transaction) = self.clipboard.cut_from(buffer.text(), &view.selections) {
             self.apply(transaction, EditKind::Other);
         }
-    }
-
-    /// One change per line rather than per cursor: a line removed twice would
-    /// take the line after it as well.
-    fn cut_lines(&mut self) {
-        let text = &self.buffer().text();
-        let changes: Vec<Change> = self
-            .touched_lines()
-            .into_iter()
-            .map(|line| Change {
-                range: line_range(text, line),
-                text: String::new(),
-            })
-            .collect();
-
-        let after = self.view().selections.mapped(|selection| {
-            Selection::cursor(transaction::displace(selection.head, &changes))
-        });
-
-        let transaction = Transaction::over_lines(&self.view().selections, changes, after);
-        self.apply(transaction, EditKind::Other);
     }
 
     fn paste(&mut self) {
@@ -745,46 +705,15 @@ impl Editor {
         if self.clipboard.is_empty() {
             return;
         }
-
-        // Whole lines land above the line a cursor is on, so cursors sharing a
-        // line share the one insertion, and only that one takes a piece.
-        let lines = self.clipboard.holds_lines();
-        let leading = match lines {
-            true => self.first_on_each_line(|selection| selection.head),
-            false => vec![true; self.view().selections.len()],
-        };
-        let mut pieces = self
-            .clipboard
-            .pieces_for(leading.iter().filter(|&&first| first).count())
-            .into_iter();
-        let mut leading = leading.into_iter();
-
-        let text = &self.buffer().text();
-        let cursor = match lines {
-            true => CursorAfter::Displaced,
-            false => CursorAfter::EndOfChange,
-        };
-        let transaction = Transaction::edit(&self.view().selections, cursor, |selection| {
-            if !leading.next().unwrap_or(true) {
-                return (selection.head..selection.head, String::new());
-            }
-            let range = match lines {
-                true => {
-                    let start = text.line_start(text.line_of(selection.head));
-                    start..start
-                }
-                false => selection.range(),
-            };
-            (range, pieces.next().unwrap_or_default())
-        });
-
+        let (view, buffer) = self.workspace.focus();
+        let transaction = self.clipboard.paste_into(buffer.text(), &view.selections);
         self.apply(transaction, EditKind::Other);
     }
 
     /// Someone else copied since we did, so our pieces are stale: what the
     /// desktop holds is one piece of text, and it is not made of lines.
     fn adopt_foreign_clipboard(&mut self) {
-        let Some(text) = self.system.as_mut().and_then(SystemClipboard::read) else {
+        let Some(text) = self.desktop.as_mut().and_then(|desktop| desktop.read()) else {
             return;
         };
         if text != self.clipboard.text() {
@@ -792,250 +721,45 @@ impl Editor {
         }
     }
 
-    /// A new line starts where the current one starts. Nothing language-aware
-    /// happens here: opening a block deepens the indent only once there is a
-    /// parser to say so.
     fn insert_newline(&mut self) {
-        let text = &self.buffer().text();
-        let mut leading = self.first_on_each_line(Selection::min).into_iter();
-
-        let transaction = Transaction::edit(
-            &self.view().selections,
-            CursorAfter::EndOfChange,
-            |selection| {
-                let line = text.line_of(selection.min());
-                let start = text.line_start(line);
-                let content = text.line_str(line);
-                let local = selection.min() - start;
-
-                let indent: String = content[..local]
-                    .chars()
-                    .take_while(|character| character.is_whitespace())
-                    .collect();
-
-                // A line holding nothing but this indent is left behind empty
-                // rather than as a row of spaces.
-                let abandoned = indent.len() == local
-                    && content[local..].is_empty()
-                    && selection.is_empty()
-                    && leading.next().unwrap_or(false);
-
-                let range = match abandoned {
-                    true => start..selection.max(),
-                    false => selection.range(),
-                };
-                (range, format!("\n{indent}"))
-            },
-        );
-
+        let (view, buffer) = self.workspace.focus();
+        let transaction = lines::newline(buffer.text(), &view.selections);
         self.apply(transaction, EditKind::Other);
     }
 
-    /// Whether each selection is the first one on its line, so that a line
-    /// edit happens once however many cursors sit on it.
-    fn first_on_each_line(&self, offset: impl Fn(&Selection) -> usize) -> Vec<bool> {
-        let text = &self.buffer().text();
-        let mut previous = None;
-        self.view()
-            .selections
-            .iter()
-            .map(|selection| {
-                let line = text.line_of(offset(selection));
-                let first = previous != Some(line);
-                previous = Some(line);
-                first
-            })
-            .collect()
-    }
-
     /// `Tab` indents whole lines when a selection crosses one, and otherwise
-    /// moves to the next tab stop, which is not the same as inserting a whole
-    /// level when the cursor sits mid-line.
+    /// moves to the next tab stop.
     fn indent(&mut self) {
-        let selecting = self
-            .view()
-            .selections
-            .iter()
-            .any(|selection| !selection.is_empty());
-
+        let (view, buffer) = self.workspace.focus();
+        let selecting = view.selections.iter().any(|selection| !selection.is_empty());
         match selecting {
-            true => self.indent_lines(),
+            true => {
+                let transaction = lines::indent(buffer.text(), &view.selections, buffer.indent);
+                self.apply(transaction, EditKind::Other);
+            }
             false => {
-                let inserted = match self.buffer().indent {
-                    Indent::Tabs => "\t".to_owned(),
-                    Indent::Spaces(width) => " ".repeat(width - self.cursor_column() % width),
-                };
+                let inserted = lines::to_tab_stop(buffer.indent, self.cursor_column());
                 self.insert(&inserted);
             }
         }
     }
 
     fn outdent(&mut self) {
-        let text = &self.buffer().text();
-        let unit = self.buffer().indent;
-        let changes = self
-            .touched_lines()
-            .into_iter()
-            .filter_map(|line| {
-                let start = text.line_start(line);
-                let content = text.line_str(line);
-                let removed = match unit {
-                    Indent::Tabs => content.starts_with('\t').then_some(1),
-                    Indent::Spaces(width) => match content.starts_with('\t') {
-                        true => Some(1),
-                        false => match content.chars().take_while(|&c| c == ' ').count() {
-                            0 => None,
-                            spaces => Some(spaces.min(width)),
-                        },
-                    },
-                }?;
-                Some(Change {
-                    range: start..start + removed,
-                    text: String::new(),
-                })
-            })
-            .collect::<Vec<_>>();
-
-        if !changes.is_empty() {
-            self.apply_to_lines(changes);
+        let (view, buffer) = self.workspace.focus();
+        if let Some(transaction) = lines::outdent(buffer.text(), &view.selections, buffer.indent) {
+            self.apply(transaction, EditKind::Other);
         }
     }
 
-    fn indent_lines(&mut self) {
-        let text = &self.buffer().text();
-        let unit = self.buffer().indent.unit();
-        let changes = self
-            .touched_lines()
-            .into_iter()
-            .map(|line| {
-                let start = text.line_start(line);
-                Change {
-                    range: start..start,
-                    text: unit.clone(),
-                }
-            })
-            .collect();
-
-        self.apply_to_lines(changes);
-    }
-
-    /// A selection that took part in a line edit ends up covering those lines
-    /// whole, so the indentation it just gained is inside it rather than
-    /// hanging off its left edge.
-    fn apply_to_lines(&mut self, changes: Vec<Change>) {
-        let text = &self.buffer().text();
-        let after = self.view().selections.mapped(|selection| {
-            if selection.is_empty() {
-                let head = transaction::displace(selection.head, &changes);
-                return Selection::cursor(head);
-            }
-
-            let start = text.line_start(text.line_of(selection.min()));
-            let end = transaction::displace(selection.max(), &changes);
-            match selection.is_reversed() {
-                true => Selection {
-                    anchor: end,
-                    head: start,
-                    goal_column: None,
-                },
-                false => Selection {
-                    anchor: start,
-                    head: end,
-                    goal_column: None,
-                },
-            }
-        });
-
-        let transaction = Transaction::over_lines(&self.view().selections, changes, after);
-        self.apply(transaction, EditKind::Other);
-    }
-
-    /// Comments the touched lines, or uncomments them when every one of them
-    /// is already commented. Blank lines are left out either way.
     fn toggle_comment(&mut self) {
-        let Some(token) = self.buffer().language.line_comment else {
+        let (view, buffer) = self.workspace.focus();
+        let Some(token) = buffer.language.line_comment else {
             self.message = Some("No line comment for this language".to_owned());
             return;
         };
-
-        let text = &self.buffer().text();
-        let lines: Vec<usize> = self
-            .touched_lines()
-            .into_iter()
-            .filter(|&line| !text.line_str(line).trim().is_empty())
-            .collect();
-        if lines.is_empty() {
-            return;
+        if let Some(transaction) = lines::toggle_comment(buffer.text(), &view.selections, token) {
+            self.apply(transaction, EditKind::Other);
         }
-
-        let commented = lines
-            .iter()
-            .all(|&line| text.line_str(line).trim_start().starts_with(token));
-
-        let changes = match commented {
-            true => lines
-                .iter()
-                .map(|&line| {
-                    let start = text.line_start(line);
-                    let content = text.line_str(line);
-                    let at = content.len() - content.trim_start().len();
-                    let rest = &content[at + token.len()..];
-                    let width = token.len() + usize::from(rest.starts_with(' '));
-                    Change {
-                        range: start + at..start + at + width,
-                        text: String::new(),
-                    }
-                })
-                .collect(),
-            false => {
-                // All the markers line up with the shallowest line, which is
-                // what keeps a commented-out block readable.
-                let column = lines
-                    .iter()
-                    .map(|&line| {
-                        let content = text.line_str(line);
-                        content.len() - content.trim_start().len()
-                    })
-                    .min()
-                    .unwrap_or(0);
-
-                lines
-                    .iter()
-                    .map(|&line| {
-                        let at = text.line_start(line) + column;
-                        Change {
-                            range: at..at,
-                            text: format!("{token} "),
-                        }
-                    })
-                    .collect()
-            }
-        };
-
-        self.apply_to_lines(changes);
-    }
-
-    /// Lines under any cursor, each named once however many cursors sit on it.
-    /// A selection ending exactly on a line start does not reach that line —
-    /// it only swallowed the break before it.
-    fn touched_lines(&self) -> Vec<usize> {
-        let text = &self.buffer().text();
-        let mut lines: Vec<usize> = self
-            .view()
-            .selections
-            .iter()
-            .flat_map(|selection| {
-                let first = text.line_of(selection.min());
-                let mut last = text.line_of(selection.max());
-                if last > first && text.line_start(last) == selection.max() {
-                    last -= 1;
-                }
-                first..=last
-            })
-            .collect();
-        lines.sort_unstable();
-        lines.dedup();
-        lines
     }
 
     pub fn cursor_column(&self) -> usize {
@@ -1061,7 +785,7 @@ impl Editor {
                 let head = selection.head;
                 let range = if !selection.is_empty() {
                     selection.range()
-                } else if let Some(range) = indent_deletion(text, indent, motion, head) {
+                } else if let Some(range) = lines::deletion_to_tab_stop(text, indent, motion, head) {
                     range
                 } else {
                     let target = match motion {
@@ -1240,46 +964,10 @@ impl Editor {
     }
 }
 
-/// Backspace inside a run of leading spaces removes back to the previous tab
-/// stop, mirroring what Tab does forwards. Anywhere else it is an ordinary
-/// deletion, or alignment inside a line would be eaten a level at a time.
-fn indent_deletion(
-    text: &Text,
-    indent: Indent,
-    motion: Motion,
-    head: usize,
-) -> Option<Range<usize>> {
-    let Indent::Spaces(width) = indent else {
-        return None;
-    };
-    if motion != Motion::Grapheme(Direction::Backward) {
-        return None;
-    }
-
-    let line = text.line_of(head);
-    let start = text.line_start(line);
-    let local = head - start;
-    let content = text.line_str(line);
-    let prefix = content.get(..local)?;
-    if prefix.is_empty() || !prefix.chars().all(|character| character == ' ') {
-        return None;
-    }
-
-    let stop = (local - 1) / width * width;
-    Some(start + stop..head)
-}
-
 /// Line numbers are what people count from one.
 fn parse_line_number(input: &str) -> Option<usize> {
     let line = input.trim().parse::<usize>().ok()?;
     Some(line.saturating_sub(1))
-}
-
-/// A whole line with the break after it, which is what a copy takes when
-/// nothing is selected.
-fn line_range(text: &Text, line: usize) -> Range<usize> {
-    let start = text.line_start(line);
-    start..(start + text.line(line).len() + 1).min(text.len())
 }
 
 /// The cursors a run of `Ctrl+D` left behind, so the next press can tell
@@ -1301,8 +989,9 @@ fn insert_kind(inserted: &str) -> EditKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::movement::Direction;
-    use crate::selection::{Selection, SelectionSet};
+    use crate::buffer::language::Indent;
+    use crate::text::movement::Direction;
+    use crate::text::selection::{Selection, SelectionSet};
     use crate::text::Text;
 
     fn editor(content: &str, offset: usize) -> Editor {

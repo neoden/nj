@@ -2,10 +2,11 @@ use std::io::{self, IsTerminal};
 
 use anyhow::Result;
 
-use ned::app;
 use ned::buffer::Buffer;
 use ned::editor::Editor;
-use ned::terminal::{self, Terminal};
+use ned::term::app;
+use ned::term::system_clipboard::SystemClipboard;
+use ned::term::terminal::{self, Terminal};
 
 fn main() -> Result<()> {
     terminal::install_panic_hook();
@@ -19,7 +20,7 @@ fn main() -> Result<()> {
 
     let downstream = terminal::claim_stdout()?;
     let term = Terminal::enter()?;
-    let mut editor = Editor::new(buffer).with_system_clipboard();
+    let mut editor = Editor::new(buffer).with_desktop(SystemClipboard::new());
     if !term.keyboard_enhanced {
         editor.say("Legacy keyboard: some combinations are unavailable");
     }

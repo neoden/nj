@@ -1,8 +1,8 @@
 use std::ops::Range;
 
-use crate::anchor::{self, Bias, Splice};
-use crate::selection::{Selection, SelectionSet};
-use crate::text::Text;
+use super::anchor::{self, Bias, Splice};
+use super::selection::{Selection, SelectionSet};
+use super::Text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {

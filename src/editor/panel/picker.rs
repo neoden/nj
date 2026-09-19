@@ -1,6 +1,6 @@
-use crate::fuzzy;
-use crate::job::{JobId, Report, Worker};
-use crate::prompt::Field;
+use super::prompt::Field;
+use crate::editor::job::{JobId, Report, Worker};
+use crate::text::fuzzy;
 
 /// Rows of candidates shown at once. The query line sits above them.
 pub const VISIBLE: usize = 10;
@@ -146,7 +146,7 @@ impl std::fmt::Debug for Picker {
 mod tests {
     use super::*;
 
-    use crate::job::{Jobs, Message};
+    use crate::editor::job::{Jobs, Message};
 
     fn batch(items: &[&str]) -> Vec<String> {
         items.iter().map(|&item| item.to_owned()).collect()

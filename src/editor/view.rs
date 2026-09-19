@@ -1,13 +1,16 @@
 use std::ops::Range;
 
-use crate::anchor::{Anchor, Bias, Version};
+use super::screen::Area;
+use super::style::CellStyle;
+use super::workspace::BufferId;
 use crate::buffer::Buffer;
-use crate::grid::{CellStyle, CONTROL_PLACEHOLDER};
-use crate::layout::{self, Glyph};
-use crate::movement::{self, Direction, Motion};
-use crate::screen::Area;
-use crate::selection::{Selection, SelectionSet};
-use crate::workspace::BufferId;
+use crate::text::anchor::{Anchor, Bias, Version};
+use crate::text::layout::{self, Glyph};
+use crate::text::movement::{self, Direction, Motion};
+use crate::text::selection::{Selection, SelectionSet};
+
+/// Drawn in place of a control character, which has no glyph of its own.
+pub const CONTROL_PLACEHOLDER: char = '·';
 
 /// Rows kept between the cursor and the edge of the screen while scrolling.
 const SCROLL_MARGIN: usize = 2;
@@ -498,7 +501,7 @@ fn digits(n: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::screen::Screen;
+    use super::super::screen::Screen;
     use crate::text::Text;
 
     fn buf(content: &str) -> Buffer {

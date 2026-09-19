@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::text::Text;
+use super::Text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {

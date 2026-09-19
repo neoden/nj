@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::movement::{self, Motion};
+use crate::text::movement::{self, Motion};
 use crate::text::Text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,7 +152,7 @@ impl Prompt {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::movement::Direction;
+    use crate::text::movement::Direction;
 
     fn prompt(purpose: Purpose, typed: &str) -> Prompt {
         let mut prompt = Prompt::new(purpose);
