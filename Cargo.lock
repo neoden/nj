@@ -157,6 +157,7 @@ dependencies = [
  "bitflags",
  "crossterm",
  "ropey",
+ "rustix",
  "unicode-segmentation",
  "unicode-width",
 ]

@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 
@@ -33,13 +34,59 @@ impl LineEnding {
     }
 }
 
-/// One open file: its text plus everything needed to write it back unchanged.
-#[derive(Debug)]
-pub struct Document {
-    pub text: Text,
-    pub path: Option<PathBuf>,
+/// How the bytes were framed when read, and so how they are written back.
+/// A buffer created empty gets the defaults: LF, no BOM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Framing {
     pub line_ending: LineEnding,
     pub has_bom: bool,
+}
+
+/// What the disk held when the file was last read or written, so that a save
+/// can tell whether someone else wrote to it in between.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stamp {
+    modified: SystemTime,
+    len: u64,
+}
+
+impl Stamp {
+    fn of(path: &Path) -> Option<Self> {
+        let metadata = fs::metadata(path).ok()?;
+        Some(Self {
+            modified: metadata.modified().ok()?,
+            len: metadata.len(),
+        })
+    }
+}
+
+/// What stands behind the buffer outside the process: where the text came
+/// from and where a save goes. The two are coupled, which is why this is one
+/// enum rather than a source and a sink.
+#[derive(Debug)]
+pub enum Backing {
+    /// Created empty. A save needs a path first.
+    Scratch,
+    /// Read from a file and written back to it.
+    File {
+        path: PathBuf,
+        /// `None` while the file does not exist on disk yet, or no longer
+        /// does.
+        on_disk: Option<Stamp>,
+    },
+    /// Read from standard input; what was last saved goes to standard output
+    /// when the editor exits, so it can stand in a pipeline. Starts as the
+    /// input, so quitting without saving passes the text through.
+    Stdio { committed: Text },
+}
+
+/// One open text: what is being edited, plus everything needed to write it
+/// back where it came from.
+#[derive(Debug)]
+pub struct Buffer {
+    pub text: Text,
+    pub framing: Framing,
+    pub backing: Backing,
     pub language: &'static Language,
     pub indent: Indent,
     undo_stack: Vec<Group>,
@@ -71,13 +118,12 @@ pub enum EditKind {
     Other,
 }
 
-impl Default for Document {
+impl Default for Buffer {
     fn default() -> Self {
         Self {
             text: Text::default(),
-            path: None,
-            line_ending: LineEnding::default(),
-            has_bom: false,
+            framing: Framing::default(),
+            backing: Backing::Scratch,
             language: &language::PLAIN,
             indent: language::PLAIN.indent,
             undo_stack: Vec::new(),
@@ -89,7 +135,7 @@ impl Default for Document {
     }
 }
 
-impl Document {
+impl Buffer {
     pub fn from_text(text: Text) -> Self {
         Self {
             text,
@@ -100,34 +146,34 @@ impl Document {
     /// A missing file opens as an empty buffer, so `ned newfile` works.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let file = match fs::File::open(path) {
-            Ok(file) => file,
-            Err(err) if err.kind() == ErrorKind::NotFound => {
-                let language = language::detect(path);
-                return Ok(Self {
-                    path: Some(path.to_path_buf()),
-                    language,
-                    indent: language.indent,
-                    ..Self::default()
-                });
-            }
-            Err(err) => return Err(err).with_context(|| format!("cannot read {}", path.display())),
-        };
+        let context = || format!("cannot read {}", path.display());
 
-        let mut document = Self {
-            path: Some(path.to_path_buf()),
-            language: language::detect(path),
-            ..Self::read(file).with_context(|| format!("cannot read {}", path.display()))?
+        let mut buffer = match fs::File::open(path) {
+            Ok(file) => Self::read(file).with_context(context)?,
+            Err(err) if err.kind() == ErrorKind::NotFound => Self::default(),
+            Err(err) => return Err(err).with_context(context),
         };
-        document.indent = indent::detect(&document.text, document.language.indent);
-        Ok(document)
+        buffer.backing = Backing::File {
+            path: path.to_path_buf(),
+            on_disk: Stamp::of(path),
+        };
+        buffer.set_language(language::detect(path));
+        Ok(buffer)
+    }
+
+    /// The text of a pipeline, to be handed on when the editor exits.
+    pub fn from_stdin() -> Result<Self> {
+        let mut buffer = Self::read(io::stdin().lock()).context("cannot read standard input")?;
+        buffer.backing = Backing::Stdio {
+            committed: buffer.text.clone(),
+        };
+        Ok(buffer)
     }
 
     fn read(reader: impl Read) -> io::Result<Self> {
-        let (text, line_ending, has_bom) = read_text(reader)?;
+        let (text, framing) = read_text(reader)?;
         Ok(Self {
-            line_ending,
-            has_bom,
+            framing,
             ..Self::from_text(text)
         })
     }
@@ -135,6 +181,26 @@ impl Document {
     #[cfg(test)]
     fn parse(content: &str) -> Self {
         Self::read(content.as_bytes()).expect("reading from memory cannot fail")
+    }
+
+    /// The one place a language change is applied: indentation is
+    /// re-detected, everything else is read through the language.
+    pub fn set_language(&mut self, language: &'static Language) {
+        self.language = language;
+        self.indent = indent::detect(&self.text, language.indent);
+    }
+
+    pub fn tab_width(&self) -> usize {
+        self.language.tab_width
+    }
+
+    /// What the status bar calls this buffer.
+    pub fn name(&self) -> String {
+        match &self.backing {
+            Backing::Scratch => "[scratch]".to_owned(),
+            Backing::File { path, .. } => path.display().to_string(),
+            Backing::Stdio { .. } => "[stdin]".to_owned(),
+        }
     }
 
     /// True while the buffer holds something other than what is on disk.
@@ -217,10 +283,19 @@ impl Document {
         )
     }
 
+    /// Writes the text where it came from. For a pipeline that is not a
+    /// write but a promise: the text is only handed on when the editor exits.
     pub fn save(&mut self) -> Result<()> {
-        let path = self.path.as_ref().context("document has no path")?;
-        write_atomically(path, &self.encode())
-            .with_context(|| format!("cannot write {}", path.display()))?;
+        match &mut self.backing {
+            Backing::Scratch => return Err(anyhow::anyhow!("buffer has no path")),
+            Backing::File { path, on_disk } => {
+                write_atomically(path, &self.framing.encode(&self.text))
+                    .with_context(|| format!("cannot write {}", path.display()))?;
+                *on_disk = Stamp::of(path);
+            }
+            Backing::Stdio { committed } => *committed = self.text.clone(),
+        }
+
         self.saved = self.undo_stack.last().map(|group| group.revision);
         // Typing after a save starts a group of its own, or it would go on
         // extending the revision that just reached the disk.
@@ -228,8 +303,20 @@ impl Document {
         Ok(())
     }
 
-    fn encode(&self) -> String {
-        let body = self.text.to_string();
+    /// What a pipeline downstream receives once the editor has exited: the
+    /// last saved text, or the input itself when nothing was saved.
+    pub fn finish(&self, out: &mut impl Write) -> io::Result<()> {
+        if let Backing::Stdio { committed } = &self.backing {
+            out.write_all(self.framing.encode(committed).as_bytes())?;
+            out.flush()?;
+        }
+        Ok(())
+    }
+}
+
+impl Framing {
+    fn encode(&self, text: &Text) -> String {
+        let body = text.to_string();
         let body = match self.line_ending {
             LineEnding::Lf => body,
             LineEnding::Crlf => body.replace('\n', "\r\n"),
@@ -247,7 +334,7 @@ impl Document {
 /// Every CRLF goes, not just those of the ending that was detected: a file
 /// whose first break happens to be bare would otherwise keep the carriage
 /// returns of all the others. A lone CR stays, being data.
-fn read_text(mut reader: impl Read) -> io::Result<(Text, LineEnding, bool)> {
+fn read_text(mut reader: impl Read) -> io::Result<(Text, Framing)> {
     const BUFFER: usize = 64 * 1024;
     let invalid = || io::Error::new(ErrorKind::InvalidData, "not valid UTF-8");
 
@@ -301,7 +388,13 @@ fn read_text(mut reader: impl Read) -> io::Result<(Text, LineEnding, bool)> {
 
         if read == 0 {
             return match filled {
-                0 => Ok((builder.finish(), line_ending.unwrap_or_default(), has_bom)),
+                0 => Ok((
+                    builder.finish(),
+                    Framing {
+                        line_ending: line_ending.unwrap_or_default(),
+                        has_bom,
+                    },
+                )),
                 _ => Err(invalid()),
             };
         }
@@ -360,34 +453,35 @@ mod tests {
 
     #[test]
     fn buffer_holds_no_carriage_returns() {
-        assert_eq!(Document::parse("a\r\nb\r\n").text.to_string(), "a\nb\n");
+        assert_eq!(Buffer::parse("a\r\nb\r\n").text.to_string(), "a\nb\n");
     }
 
     #[test]
     fn a_mixed_file_still_loses_every_carriage_return() {
         // The first break is bare, so the ending reads as LF — the CRLF that
         // comes later has to go all the same.
-        let document = Document::parse("a\nb\r\nc");
-        assert_eq!(document.line_ending, LineEnding::Lf);
-        assert_eq!(document.text.to_string(), "a\nb\nc");
+        let buffer = Buffer::parse("a\nb\r\nc");
+        assert_eq!(buffer.framing.line_ending, LineEnding::Lf);
+        assert_eq!(buffer.text.to_string(), "a\nb\nc");
     }
 
     #[test]
     fn a_lone_carriage_return_is_left_alone() {
-        assert_eq!(Document::parse("a\rb\n").text.to_string(), "a\rb\n");
+        assert_eq!(Buffer::parse("a\rb\n").text.to_string(), "a\rb\n");
     }
 
     #[test]
     fn bom_is_stripped_from_the_buffer() {
-        let doc = Document::parse("\u{feff}text");
-        assert!(doc.has_bom);
-        assert_eq!(doc.text.to_string(), "text");
+        let buffer = Buffer::parse("\u{feff}text");
+        assert!(buffer.framing.has_bom);
+        assert_eq!(buffer.text.to_string(), "text");
     }
 
     #[test]
     fn encoding_restores_the_original_bytes() {
         for content in ["a\nb\n", "a\r\nb\r\n", "\u{feff}a\r\nb", "", "no breaks"] {
-            assert_eq!(Document::parse(content).encode(), content);
+            let buffer = Buffer::parse(content);
+            assert_eq!(buffer.framing.encode(&buffer.text), content);
         }
     }
 
@@ -418,19 +512,18 @@ mod tests {
             "ab",
             "",
         ] {
-            let whole = Document::parse(content);
-            let dribbled = Document::read(Trickle(content.as_bytes())).unwrap();
+            let whole = Buffer::parse(content);
+            let dribbled = Buffer::read(Trickle(content.as_bytes())).unwrap();
 
             assert_eq!(dribbled.text.to_string(), whole.text.to_string(), "{content:?}");
-            assert_eq!(dribbled.line_ending, whole.line_ending, "{content:?}");
-            assert_eq!(dribbled.has_bom, whole.has_bom, "{content:?}");
+            assert_eq!(dribbled.framing, whole.framing, "{content:?}");
         }
     }
 
     #[test]
     fn invalid_utf8_is_refused() {
-        assert!(Document::read(&[0xff, 0xfe][..]).is_err());
-        assert!(Document::read(Trickle(&[b'a', 0xc3])).is_err());
+        assert!(Buffer::read(&[0xff, 0xfe][..]).is_err());
+        assert!(Buffer::read(Trickle(&[b'a', 0xc3])).is_err());
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -442,12 +535,12 @@ mod tests {
         let path = scratch("save");
         fs::write(&path, "old\n").unwrap();
 
-        let mut document = Document::open(&path).unwrap();
-        document.text.insert(3, " and new");
-        document.save().unwrap();
+        let mut buffer = Buffer::open(&path).unwrap();
+        buffer.text.insert(3, " and new");
+        buffer.save().unwrap();
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "old and new\n");
-        assert!(!document.is_modified());
+        assert!(!buffer.is_modified());
 
         let _ = fs::remove_file(&path);
     }
@@ -457,13 +550,45 @@ mod tests {
         let path = scratch("new");
         let _ = fs::remove_file(&path);
 
-        let mut document = Document::open(&path).unwrap();
-        document.text.insert(0, "fresh\n");
-        document.save().unwrap();
+        let mut buffer = Buffer::open(&path).unwrap();
+        assert!(matches!(buffer.backing, Backing::File { on_disk: None, .. }));
+        buffer.text.insert(0, "fresh\n");
+        buffer.save().unwrap();
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "fresh\n");
+        assert!(matches!(buffer.backing, Backing::File { on_disk: Some(_), .. }));
 
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_scratch_buffer_has_nowhere_to_be_saved() {
+        let mut buffer = Buffer::default();
+        assert_eq!(buffer.name(), "[scratch]");
+        assert!(buffer.save().is_err());
+    }
+
+    #[test]
+    fn a_pipeline_hands_on_what_was_last_saved() {
+        let mut buffer = Buffer::parse("in\r\n");
+        buffer.backing = Backing::Stdio {
+            committed: buffer.text.clone(),
+        };
+
+        // Nothing saved: the input passes through, framing included.
+        let mut out = Vec::new();
+        buffer.finish(&mut out).unwrap();
+        assert_eq!(out, b"in\r\n");
+
+        buffer.text.insert(0, "edited ");
+        let mut out = Vec::new();
+        buffer.finish(&mut out).unwrap();
+        assert_eq!(out, b"in\r\n");
+
+        buffer.save().unwrap();
+        let mut out = Vec::new();
+        buffer.finish(&mut out).unwrap();
+        assert_eq!(out, b"edited in\r\n");
     }
 
     #[cfg(unix)]
@@ -475,9 +600,9 @@ mod tests {
         fs::write(&path, "#!/bin/sh\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
 
-        let mut document = Document::open(&path).unwrap();
-        document.text.insert(0, "# edited\n");
-        document.save().unwrap();
+        let mut buffer = Buffer::open(&path).unwrap();
+        buffer.text.insert(0, "# edited\n");
+        buffer.save().unwrap();
 
         assert_eq!(
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,

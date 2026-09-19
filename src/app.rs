@@ -1,7 +1,7 @@
 //! The loop and the dispatch around the editor: what the process does with
 //! events, as opposed to what the editor does with commands.
 
-use std::io;
+use std::io::Write;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -18,20 +18,18 @@ use crate::selection::{Selection, SelectionSet};
 
 const MOUSE_SCROLL_LINES: isize = 3;
 
-pub fn run(editor: &mut Editor) -> Result<()> {
-    let mut out = io::stdout();
-
+pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
     loop {
         let (width, height) = crossterm::terminal::size()?;
         editor.view.fit(
             width as usize,
             height as usize,
-            editor.document.text.line_count(),
+            editor.buffer.text.line_count(),
             editor.panel_height(),
         );
 
         let (left, right) = status(editor);
-        render::draw(&mut out, editor, &left, &right)?;
+        render::draw(out, editor, &left, &right)?;
 
         // A panel still reading its candidates must not let the loop go back
         // to sleep, or the list would stop filling until the next keystroke.
@@ -174,7 +172,7 @@ fn handle_key(stroke: Keystroke, editor: &mut Editor) {
 
 fn handle_mouse(mouse: MouseEvent, editor: &mut Editor) {
     let view = &mut editor.view;
-    let text = &editor.document.text;
+    let text = &editor.buffer.text;
     let column = (mouse.column as usize).saturating_sub(view.margin + view.gutter);
     let row = mouse.row as usize;
 
@@ -205,19 +203,16 @@ fn handle_mouse(mouse: MouseEvent, editor: &mut Editor) {
 /// whatever is going on right now, so the eye only goes there when something
 /// is happening.
 fn status(editor: &Editor) -> (String, String) {
-    let document = &editor.document;
-    let line = document.text.line_of(editor.view.selections.primary().head);
+    let buffer = &editor.buffer;
+    let line = buffer.text.line_of(editor.view.selections.primary().head);
     let column = editor.cursor_column();
 
-    let path = document
-        .path
-        .as_ref()
-        .map_or("[scratch]".to_owned(), |path| path.display().to_string());
     let right = format!(
-        "{path}{} · {} · {} lines · {}:{}",
-        if document.is_modified() { "*" } else { "" },
-        document.language.name,
-        document.text.line_count(),
+        "{}{} · {} · {} lines · {}:{}",
+        buffer.name(),
+        if buffer.is_modified() { "*" } else { "" },
+        buffer.language.name,
+        buffer.text.line_count(),
         line + 1,
         column + 1,
     );

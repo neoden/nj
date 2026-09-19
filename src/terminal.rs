@@ -1,7 +1,9 @@
+use std::fs::File;
 use std::io::{self, IsTerminal, Write};
+use std::os::fd::AsFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use crossterm::cursor;
 use crossterm::event::{
     DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
@@ -15,6 +17,27 @@ use crossterm::terminal::{
 
 static MODIFIED: AtomicBool = AtomicBool::new(false);
 static KEYBOARD_FLAGS_PUSHED: AtomicBool = AtomicBool::new(false);
+
+/// When standard output is a pipe carrying the edited text downstream, takes
+/// it away and puts the controlling terminal on descriptor 1 for the rest of
+/// the session. Everything that assumes stdout is the screen — our drawing,
+/// crossterm's fallbacks, a panic message — is then right, and the pipe
+/// receives nothing but what is written to the handle returned here.
+///
+/// `None` when standard output is the terminal already.
+pub fn claim_stdout() -> Result<Option<File>> {
+    if io::stdout().is_terminal() {
+        return Ok(None);
+    }
+    let downstream = io::stdout().as_fd().try_clone_to_owned()?;
+    let tty = File::options()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+        .context("not running in a terminal")?;
+    rustix::stdio::dup2_stdout(&tty)?;
+    Ok(Some(File::from(downstream)))
+}
 
 /// Owns the terminal's raw mode and alternate screen for as long as it lives.
 pub struct Terminal {

@@ -3,8 +3,8 @@
 //! test could not reach any of it.
 
 pub mod app;
+pub mod buffer;
 pub mod clipboard;
-pub mod document;
 pub mod editor;
 pub mod fuzzy;
 pub mod indent;

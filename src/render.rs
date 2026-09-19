@@ -36,14 +36,14 @@ fn end_row(out: &mut impl Write) -> Result<()> {
 /// Draws a whole frame. Every cell is rewritten, so the screen is never
 /// cleared first: clearing is what makes a terminal flicker.
 pub fn draw(out: &mut impl Write, editor: &Editor, left: &str, right: &str) -> Result<()> {
-    let document = &editor.document;
+    let buffer = &editor.buffer;
     let view = &editor.view;
     let margin = &" ".repeat(view.margin);
     let mut drawn = 0;
 
-    for row in view.rows(&document.text) {
-        let text = document.text.line_str(row.line);
-        let highlight = view.highlight_line(&document.text, row.line, &editor.matches);
+    for row in view.rows(&buffer.text) {
+        let text = buffer.text.line_str(row.line);
+        let highlight = view.highlight_line(&buffer.text, row.line, &editor.matches);
         // Wrapped continuations leave the gutter empty: the number belongs to
         // the logical line, not to every row it spans.
         let number = match row.index {
@@ -290,11 +290,11 @@ fn pad(text: &str, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::Document;
+    use crate::buffer::Buffer;
     use crate::text::Text;
 
     fn drawn(term_width: usize) -> (String, usize) {
-        let mut editor = Editor::new(Document::from_text(Text::from_str("hello\n")));
+        let mut editor = Editor::new(Buffer::from_text(Text::from_str("hello\n")));
         editor.view.fit(term_width, 4, 2, 0);
 
         let mut out = Vec::new();

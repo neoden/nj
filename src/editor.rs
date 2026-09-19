@@ -1,9 +1,8 @@
 use std::ops::Range;
 
 use crate::clipboard::{Clipboard, SystemClipboard};
-use crate::document::{Document, EditKind};
+use crate::buffer::{Buffer, EditKind};
 use crate::key;
-use crate::indent;
 use crate::language::{self, Indent, Language};
 use crate::layout;
 use crate::picker::{Pick, Picker};
@@ -16,7 +15,7 @@ use crate::transaction::{self, Change, CursorAfter, Transaction};
 use crate::view::View;
 
 pub struct Editor {
-    pub document: Document,
+    pub buffer: Buffer,
     pub view: View,
     pub clipboard: Clipboard,
     pub panel: Option<Panel>,
@@ -34,13 +33,13 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn new(document: Document) -> Self {
+    pub fn new(buffer: Buffer) -> Self {
         let view = View {
-            tab_width: document.language.tab_width,
+            tab_width: buffer.tab_width(),
             ..View::default()
         };
         Self {
-            document,
+            buffer,
             view,
             clipboard: Clipboard::default(),
             panel: None,
@@ -137,7 +136,7 @@ impl Editor {
         let primary = self.view.selections.primary();
         match primary.is_empty() {
             true => None,
-            false => Some(self.document.text.slice(primary.range()).to_string()),
+            false => Some(self.buffer.text.slice(primary.range()).to_string()),
         }
     }
 
@@ -218,7 +217,7 @@ impl Editor {
             return;
         }
 
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         // Hits of a longer query are a subset of the shorter one's, so typing
         // sifts what is already there instead of reading the document again.
         match !self.collected.is_empty() && needle.starts_with(&self.collected) {
@@ -257,7 +256,7 @@ impl Editor {
 
         self.view.selections = SelectionSet::from_selections(selections, primary);
         self.close_panel();
-        self.view.scroll_to_cursor(&self.document.text);
+        self.view.scroll_to_cursor(&self.buffer.text);
     }
 
     pub fn go_to_match(&mut self, direction: Direction) {
@@ -318,7 +317,7 @@ impl Editor {
 
     /// Both directions wrap, which is what every editor's find does.
     fn find(&self, needle: &str, from: usize, direction: Direction) -> Option<usize> {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         match direction {
             Direction::Forward => text.find(needle, from).or_else(|| text.find(needle, 0)),
             Direction::Backward => {
@@ -334,7 +333,7 @@ impl Editor {
             goal_column: None,
         }
         .into();
-        self.view.scroll_to_cursor(&self.document.text);
+        self.view.scroll_to_cursor(&self.buffer.text);
     }
 
     fn replace_all(&mut self, needle: &str, replacement: &str) {
@@ -343,7 +342,7 @@ impl Editor {
         }
 
         let matches: Vec<Selection> = self
-            .document
+            .buffer
             .text
             .matches(needle)
             .map(|found| Selection {
@@ -364,14 +363,14 @@ impl Editor {
     }
 
     fn goto_line(&mut self, line: usize) {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let line = line.min(text.line_count().saturating_sub(1));
         self.view.selections = Selection::cursor(text.line_start(line)).into();
         self.view.scroll_to_cursor(text);
     }
 
     pub fn save(&mut self) -> bool {
-        match self.document.save() {
+        match self.buffer.save() {
             Ok(()) => true,
             Err(error) => {
                 self.message = Some(format!("{error:#}"));
@@ -382,7 +381,7 @@ impl Editor {
 
     /// Nothing is ever discarded without being asked about first.
     pub fn request_quit(&mut self) {
-        match self.document.is_modified() {
+        match self.buffer.is_modified() {
             false => self.quit = true,
             true => self.panel = Some(Panel::Confirm(Confirm::quit())),
         }
@@ -406,9 +405,8 @@ impl Editor {
     }
 
     pub fn set_language(&mut self, language: &'static Language) {
-        self.document.language = language;
-        self.document.indent = indent::detect(&self.document.text, language.indent);
-        self.view.tab_width = language.tab_width;
+        self.buffer.set_language(language);
+        self.view.tab_width = self.buffer.tab_width();
     }
 
     /// Left out by default so that tests never touch the real clipboard.
@@ -419,7 +417,7 @@ impl Editor {
 
     pub fn move_selections(&mut self, motion: Motion, extend: bool) {
         self.view
-            .move_selections(&self.document.text, motion, extend);
+            .move_selections(&self.buffer.text, motion, extend);
     }
 
     pub fn insert(&mut self, inserted: &str) {
@@ -436,7 +434,7 @@ impl Editor {
     /// several cursors is taken once, however many of them sit on it.
     pub fn copy(&mut self) {
         let lines = self.view.selections.iter().all(Selection::is_empty);
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let pieces = match lines {
             true => self
                 .touched_lines()
@@ -486,7 +484,7 @@ impl Editor {
     /// One change per line rather than per cursor: a line removed twice would
     /// take the line after it as well.
     fn cut_lines(&mut self) {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let changes: Vec<Change> = self
             .touched_lines()
             .into_iter()
@@ -523,7 +521,7 @@ impl Editor {
             .into_iter();
         let mut leading = leading.into_iter();
 
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let cursor = match lines {
             true => CursorAfter::Displaced,
             false => CursorAfter::EndOfChange,
@@ -560,7 +558,7 @@ impl Editor {
     /// happens here: opening a block deepens the indent only once there is a
     /// parser to say so.
     pub fn insert_newline(&mut self) {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let mut leading = self.first_on_each_line(Selection::min).into_iter();
 
         let transaction = Transaction::edit(
@@ -598,7 +596,7 @@ impl Editor {
     /// Whether each selection is the first one on its line, so that a line
     /// edit happens once however many cursors sit on it.
     fn first_on_each_line(&self, offset: impl Fn(&Selection) -> usize) -> Vec<bool> {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let mut previous = None;
         self.view
             .selections
@@ -625,7 +623,7 @@ impl Editor {
         match selecting {
             true => self.indent_lines(),
             false => {
-                let inserted = match self.document.indent {
+                let inserted = match self.buffer.indent {
                     Indent::Tabs => "\t".to_owned(),
                     Indent::Spaces(width) => " ".repeat(width - self.cursor_column() % width),
                 };
@@ -635,8 +633,8 @@ impl Editor {
     }
 
     pub fn outdent(&mut self) {
-        let text = &self.document.text;
-        let unit = self.document.indent;
+        let text = &self.buffer.text;
+        let unit = self.buffer.indent;
         let changes = self
             .touched_lines()
             .into_iter()
@@ -666,8 +664,8 @@ impl Editor {
     }
 
     fn indent_lines(&mut self) {
-        let text = &self.document.text;
-        let unit = self.document.indent.unit();
+        let text = &self.buffer.text;
+        let unit = self.buffer.indent.unit();
         let changes = self
             .touched_lines()
             .into_iter()
@@ -687,7 +685,7 @@ impl Editor {
     /// whole, so the indentation it just gained is inside it rather than
     /// hanging off its left edge.
     fn apply_to_lines(&mut self, changes: Vec<Change>) {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let after = self.view.selections.mapped(|selection| {
             if selection.is_empty() {
                 let head = transaction::displace(selection.head, &changes);
@@ -717,12 +715,12 @@ impl Editor {
     /// Comments the touched lines, or uncomments them when every one of them
     /// is already commented. Blank lines are left out either way.
     pub fn toggle_comment(&mut self) {
-        let Some(token) = self.document.language.line_comment else {
+        let Some(token) = self.buffer.language.line_comment else {
             self.message = Some("No line comment for this language".to_owned());
             return;
         };
 
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let lines: Vec<usize> = self
             .touched_lines()
             .into_iter()
@@ -783,7 +781,7 @@ impl Editor {
     /// A selection ending exactly on a line start does not reach that line —
     /// it only swallowed the break before it.
     fn touched_lines(&self) -> Vec<usize> {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let mut lines: Vec<usize> = self
             .view
             .selections
@@ -803,7 +801,7 @@ impl Editor {
     }
 
     pub fn cursor_column(&self) -> usize {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let head = self.view.selections.primary().head;
         let line = text.line_of(head);
         layout::column_of_byte(
@@ -815,8 +813,8 @@ impl Editor {
 
     /// A cursor with nothing selected eats the neighbouring text instead.
     pub fn delete(&mut self, motion: Motion) {
-        let text = &self.document.text;
-        let indent = self.document.indent;
+        let text = &self.buffer.text;
+        let indent = self.buffer.indent;
         let transaction = Transaction::edit(
             &self.view.selections,
             CursorAfter::EndOfChange,
@@ -850,7 +848,7 @@ impl Editor {
 
     pub fn remove_secondary_cursors(&mut self) {
         self.view.selections.collapse_to_primary();
-        self.view.scroll_to_cursor(&self.document.text);
+        self.view.scroll_to_cursor(&self.buffer.text);
     }
 
     pub fn cancel_selection(&mut self) {
@@ -860,7 +858,7 @@ impl Editor {
     /// Takes the lines a selection touches, break included. Pressing again
     /// swallows the next line, because the selection now ends on its start.
     pub fn select_line(&mut self) {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         self.view.selections = self.view.selections.mapped(|selection| {
             let last = text.line_of(selection.max());
             Selection {
@@ -872,7 +870,7 @@ impl Editor {
                 goal_column: None,
             }
         });
-        self.view.scroll_to_cursor(&self.document.text);
+        self.view.scroll_to_cursor(&self.buffer.text);
     }
 
     /// The view stays where it is: jumping to the end of the file is not what
@@ -880,7 +878,7 @@ impl Editor {
     pub fn select_all(&mut self) {
         self.view.selections = Selection {
             anchor: 0,
-            head: self.document.text.len(),
+            head: self.buffer.text.len(),
             goal_column: None,
         }
         .into();
@@ -889,11 +887,11 @@ impl Editor {
     /// Moves the page without moving the cursors, which may leave them off
     /// screen until something moves them again.
     pub fn scroll(&mut self, delta: isize) {
-        self.view.scroll_lines(delta, &self.document.text);
+        self.view.scroll_lines(delta, &self.buffer.text);
     }
 
     pub fn add_cursor(&mut self, direction: Direction) {
-        self.view.add_cursor(&self.document.text, direction);
+        self.view.add_cursor(&self.buffer.text, direction);
     }
 
     /// First press selects the word under each cursor; every press after that
@@ -903,7 +901,7 @@ impl Editor {
             return;
         };
 
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let from = self.view.selections.primary().max();
         let Some(at) = search
             .find(text, from)
@@ -924,7 +922,7 @@ impl Editor {
 
         self.view.selections.push(found);
         self.remember_occurrences(search.whole_word);
-        self.view.scroll_to_cursor(&self.document.text);
+        self.view.scroll_to_cursor(&self.buffer.text);
     }
 
     pub fn select_all_occurrences(&mut self) {
@@ -932,7 +930,7 @@ impl Editor {
             return;
         };
 
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         let mut selections = Vec::new();
         let mut at = 0;
         while let Some(found) = search.find(text, at) {
@@ -942,13 +940,13 @@ impl Editor {
 
         self.view.selections = SelectionSet::from_selections(selections, 0);
         self.remember_occurrences(search.whole_word);
-        self.view.scroll_to_cursor(&self.document.text);
+        self.view.scroll_to_cursor(&self.buffer.text);
     }
 
     /// Bare cursors first expand to the word they touch; only once something
     /// is selected is there anything to search for.
     fn take_search(&mut self) -> Option<Search> {
-        let text = &self.document.text;
+        let text = &self.buffer.text;
         if self.view.selections.iter().any(Selection::is_empty) {
             self.view.selections = self.view.selections.mapped(|selection| {
                 if !selection.is_empty() {
@@ -974,7 +972,7 @@ impl Editor {
         let range = self.view.selections.primary().range();
         Some(Search {
             whole_word,
-            needle: self.document.text.slice(range).to_string(),
+            needle: self.buffer.text.slice(range).to_string(),
         })
     }
 
@@ -986,22 +984,22 @@ impl Editor {
     }
 
     pub fn undo(&mut self) {
-        if let Some(selections) = self.document.undo() {
+        if let Some(selections) = self.buffer.undo() {
             self.view.selections = selections;
-            self.view.scroll_to_cursor(&self.document.text);
+            self.view.scroll_to_cursor(&self.buffer.text);
         }
     }
 
     pub fn redo(&mut self) {
-        if let Some(selections) = self.document.redo() {
+        if let Some(selections) = self.buffer.redo() {
             self.view.selections = selections;
-            self.view.scroll_to_cursor(&self.document.text);
+            self.view.scroll_to_cursor(&self.buffer.text);
         }
     }
 
     fn apply(&mut self, transaction: Transaction, kind: EditKind) {
-        self.view.selections = self.document.apply(transaction, kind);
-        self.view.scroll_to_cursor(&self.document.text);
+        self.view.selections = self.buffer.apply(transaction, kind);
+        self.view.scroll_to_cursor(&self.buffer.text);
     }
 }
 
@@ -1113,16 +1111,16 @@ mod tests {
     use crate::text::Text;
 
     fn editor(content: &str, offset: usize) -> Editor {
-        let mut editor = Editor::new(Document::from_text(Text::from_str(content)));
+        let mut editor = Editor::new(Buffer::from_text(Text::from_str(content)));
         editor
             .view
-            .fit(80, 25, editor.document.text.line_count(), 0);
+            .fit(80, 25, editor.buffer.text.line_count(), 0);
         editor.view.selections = SelectionSet::single(offset);
         editor
     }
 
     fn content(editor: &Editor) -> String {
-        editor.document.text.to_string()
+        editor.buffer.text.to_string()
     }
 
     #[test]
@@ -1165,7 +1163,7 @@ mod tests {
         editor.delete(Motion::Grapheme(Direction::Backward));
 
         assert_eq!(content(&editor), "x");
-        assert!(!editor.document.is_modified());
+        assert!(!editor.buffer.is_modified());
     }
 
     #[test]
@@ -1366,7 +1364,7 @@ mod tests {
 
     fn indented(content: &str, indent: Indent, offset: usize) -> Editor {
         let mut editor = editor(content, offset);
-        editor.document.indent = indent;
+        editor.buffer.indent = indent;
         editor
     }
 
@@ -1661,27 +1659,27 @@ mod tests {
         let path = std::env::temp_dir().join(format!("ned-{}-modified", std::process::id()));
         std::fs::write(&path, "start").unwrap();
 
-        let mut editor = Editor::new(Document::open(&path).unwrap());
+        let mut editor = Editor::new(Buffer::open(&path).unwrap());
         editor.view.selections = SelectionSet::single(5);
-        assert!(!editor.document.is_modified());
+        assert!(!editor.buffer.is_modified());
 
         editor.insert("!");
-        assert!(editor.document.is_modified());
+        assert!(editor.buffer.is_modified());
 
         editor.save();
-        assert!(!editor.document.is_modified());
+        assert!(!editor.buffer.is_modified());
 
         // Back to what the file holds, so there is nothing to warn about.
         editor.undo();
-        assert!(editor.document.is_modified());
+        assert!(editor.buffer.is_modified());
         editor.redo();
-        assert!(!editor.document.is_modified());
+        assert!(!editor.buffer.is_modified());
 
         // And an edit undone past the save is a change again.
         editor.insert("?");
-        assert!(editor.document.is_modified());
+        assert!(editor.buffer.is_modified());
         editor.undo();
-        assert!(!editor.document.is_modified());
+        assert!(!editor.buffer.is_modified());
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1691,14 +1689,14 @@ mod tests {
         let path = std::env::temp_dir().join(format!("ned-{}-revision", std::process::id()));
         std::fs::write(&path, "").unwrap();
 
-        let mut editor = Editor::new(Document::open(&path).unwrap());
+        let mut editor = Editor::new(Buffer::open(&path).unwrap());
         type_text(&mut editor, "wor");
         editor.save();
 
         // The same word carries on, but it must not join the group that was
         // written to disk.
         type_text(&mut editor, "d");
-        assert!(editor.document.is_modified());
+        assert!(editor.buffer.is_modified());
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1785,14 +1783,14 @@ mod tests {
     #[test]
     fn select_all_covers_the_document_and_stays_put() {
         let mut editor = editor(&"line\n".repeat(100), 0);
-        editor.view.fit(80, 11, editor.document.text.line_count(), 0);
+        editor.view.fit(80, 11, editor.buffer.text.line_count(), 0);
         editor.move_selections(Motion::Document(Direction::Forward), false);
         let top = editor.view.top_line;
 
         editor.select_all();
         assert_eq!(
             editor.view.selections.primary().range(),
-            0..editor.document.text.len()
+            0..editor.buffer.text.len()
         );
         assert_eq!(editor.view.top_line, top);
     }
@@ -1800,7 +1798,7 @@ mod tests {
     #[test]
     fn scrolling_leaves_the_cursors_alone() {
         let mut editor = editor(&"line\n".repeat(100), 0);
-        editor.view.fit(80, 11, editor.document.text.line_count(), 0);
+        editor.view.fit(80, 11, editor.buffer.text.line_count(), 0);
 
         editor.scroll(5);
         assert_eq!(editor.view.top_line, 5);

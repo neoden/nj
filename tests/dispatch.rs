@@ -5,12 +5,12 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
 use ned::app;
-use ned::document::Document;
+use ned::buffer::Buffer;
 use ned::editor::Editor;
 use ned::panel::Panel;
 
 fn editor() -> Editor {
-    let mut editor = Editor::new(Document::default());
+    let mut editor = Editor::new(Buffer::default());
     editor.view.fit(80, 24, 1, 0);
     editor
 }
@@ -26,7 +26,7 @@ fn typed(editor: &mut Editor, text: &str) {
 }
 
 fn content(editor: &Editor) -> String {
-    editor.document.text.to_string()
+    editor.buffer.text.to_string()
 }
 
 fn ctrl(editor: &mut Editor, character: char) {
@@ -117,7 +117,7 @@ fn enter_in_a_picker_takes_the_choice() {
     press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(editor.panel.is_none());
-    assert_eq!(editor.document.language.name, "Rust");
+    assert_eq!(editor.buffer.language.name, "Rust");
 }
 
 /// S3: the picker's query and a prompt's fields were near-identical copies
