@@ -24,6 +24,18 @@ pub struct LineHighlight {
 }
 
 impl LineHighlight {
+    /// For a panel's field: one caret and what it has selected.
+    pub fn field(caret: usize, selected: Range<usize>) -> Self {
+        Self {
+            carets: vec![caret],
+            selected: (!selected.is_empty())
+                .then_some(selected)
+                .into_iter()
+                .collect(),
+            ..Self::default()
+        }
+    }
+
     pub fn is_current(&self) -> bool {
         self.current
     }
@@ -124,9 +136,19 @@ impl View {
         self.seen = buffer.version();
     }
 
-    pub fn resize(&mut self, area: Area, line_count: usize) {
+    /// A new area means a new window onto the text, so what is scrolled
+    /// into it is worked out again here rather than by whoever resized: a
+    /// smaller screen must still show the cursor, a larger one must not
+    /// keep a top line that leaves the bottom empty. Called every frame, so
+    /// an unchanged area changes nothing, or a wheel scroll would be undone.
+    pub fn resize(&mut self, area: Area, buffer: &Buffer) {
+        let gutter = gutter_width(buffer.text().line_count());
+        if area == self.area && gutter == self.gutter {
+            return;
+        }
         self.area = area;
-        self.gutter = gutter_width(line_count);
+        self.gutter = gutter;
+        self.scroll_to_cursor(buffer);
     }
 
     /// Columns of text, excluding the gutter.
@@ -433,14 +455,16 @@ mod tests {
     /// The view a terminal of this size gives a one-line buffer, with no
     /// panel open: the status bar takes a row and the gutter two columns.
     fn view(width: usize, height: usize) -> View {
-        let mut view = View::new(BufferId::FIRST, &Buffer::default());
-        fit(&mut view, width, height, 1);
+        let buffer = Buffer::default();
+        let mut view = View::new(BufferId::FIRST, &buffer);
+        fit(&mut view, width, height, &buffer);
         view
     }
 
-    fn fit(view: &mut View, width: usize, height: usize, line_count: usize) {
+    fn fit(view: &mut View, width: usize, height: usize, buffer: &Buffer) {
+        let line_count = buffer.text().line_count();
         let screen = Screen::divide(width, height, gutter_width(line_count), 0);
-        view.resize(screen.text, line_count);
+        view.resize(screen.text, buffer);
     }
 
     /// Columns of text, whatever the gutter takes.
@@ -451,14 +475,39 @@ mod tests {
     #[test]
     fn gutter_grows_with_the_line_count() {
         let mut view = view(80, 24);
-        fit(&mut view, 80, 24, 9);
+        fit(&mut view, 80, 24, &buf(&"x\n".repeat(8)));
         assert_eq!(view.gutter, 2);
         assert_eq!(view.width(), 78);
         assert_eq!(view.height(), 23);
 
-        fit(&mut view, 80, 24, 1000);
+        fit(&mut view, 80, 24, &buf(&"x\n".repeat(999)));
         assert_eq!(view.gutter, 5);
         assert_eq!(view.width(), 75);
+    }
+
+    /// The window changed, so what it shows is worked out again: a screen
+    /// that shrank still shows the cursor, one that grew has no blank rows
+    /// below the last line — and one that stayed the same leaves a wheel
+    /// scroll alone.
+    #[test]
+    fn resizing_keeps_the_cursor_on_screen_and_the_document_on_it() {
+        let buffer = buf(&"line\n".repeat(50));
+        let mut view = view_of(&buffer, 0);
+        view.selections = SelectionSet::single(40 * 5);
+        assert_eq!(view.top_line, 0);
+
+        fit(&mut view, 80, 10, &buffer);
+        assert!(view.top_line + view.height() > 40);
+        assert!(view.top_line <= 40);
+
+        view.scroll_lines(-10, &buffer);
+        let scrolled = view.top_line;
+        fit(&mut view, 80, 10, &buffer);
+        assert_eq!(view.top_line, scrolled);
+
+        view.scroll_lines(99, &buffer);
+        fit(&mut view, 80, 200, &buffer);
+        assert_eq!(view.top_line, 0);
     }
 
     fn visible_lines(view: &View, buffer: &Buffer) -> Range<usize> {
@@ -562,7 +611,7 @@ mod tests {
 
     fn view_of(buffer: &Buffer, offset: usize) -> View {
         let mut view = view(80, 25);
-        fit(&mut view, 80, 25, buffer.text().line_count());
+        fit(&mut view, 80, 25, buffer);
         view.selections = SelectionSet::single(offset);
         view
     }
@@ -630,7 +679,7 @@ mod tests {
     fn a_page_moves_a_screenful_of_rows_at_once() {
         let buffer = buf(&"line\n".repeat(100));
         let mut view = view_of(&buffer, 0);
-        fit(&mut view, 80, 11, buffer.text().line_count());
+        fit(&mut view, 80, 11, &buffer);
 
         view.move_selections(&buffer, Motion::Page(Direction::Forward), false);
         assert_eq!(
@@ -659,7 +708,7 @@ mod tests {
     fn the_screen_follows_the_cursor() {
         let buffer = buf(&"line\n".repeat(100));
         let mut view = view_of(&buffer, 0);
-        fit(&mut view, 80, 11, buffer.text().line_count());
+        fit(&mut view, 80, 11, &buffer);
 
         for _ in 0..20 {
             view.move_selections(&buffer, Motion::Row(Direction::Forward), false);

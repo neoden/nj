@@ -257,9 +257,9 @@ fn draw_picker(
 ) {
     // The query keeps the bottom row; candidates take what is left of a strip
     // that may be shorter than the list, best matches nearest the query.
-    let rows = picker.visible().count().min(height - 1);
+    let rows = picker.visible(height - 1).count();
 
-    for (row, (index, candidate)) in picker.visible().take(rows).enumerate() {
+    for (row, (index, candidate)) in picker.visible(rows).enumerate() {
         let style = match index == picker.selected {
             true => CellStyle::Selected,
             false => CellStyle::Normal,
@@ -340,35 +340,35 @@ fn draw_prompt(
     }
 }
 
-/// The caret and the selection are painted by us, since the terminal's own
-/// cursor stays hidden everywhere in this editor.
+/// A field is a one-line text drawn through a window, the way a row of the
+/// text is: the same painter, with the window sliding so that the caret
+/// stays in it. The caret and the selection are painted by us, since the
+/// terminal's own cursor stays hidden everywhere in this editor.
 fn draw_field(grid: &mut Grid, x: usize, field: &Field, active: bool, y: usize, width: usize) {
     let contents = field.contents();
     let label = format!(" {} ", field.label);
-    let offset = layout::line_width(&label, PANEL_TAB_WIDTH);
-    let column_of = |byte| offset + layout::column_of_byte(&contents, byte, PANEL_TAB_WIDTH);
+    let offset = layout::line_width(&label, PANEL_TAB_WIDTH).min(width);
+    grid.put_str(x, y, &pad(&label, offset), CellStyle::Normal);
 
-    let caret = active.then(|| column_of(field.cursor));
+    let room = width - offset;
+    let column_of = |byte| layout::column_of_byte(&contents, byte, PANEL_TAB_WIDTH);
+    let caret = column_of(field.cursor);
+    let left = (caret + 1).saturating_sub(room);
+
     let selection = field.selection();
-    let selected = column_of(selection.start)..column_of(selection.end);
-
-    // Walked as cells rather than characters: the caret is placed in display
-    // columns, so counting anything else drifts away from it on wide glyphs.
-    let line = pad(&format!("{label}{contents}"), width);
-    for cell in layout::cells(&line, PANEL_TAB_WIDTH) {
-        let glyph = match cell.glyph {
-            Glyph::Text(text) => text,
-            _ => " ",
-        };
-        let style = if caret == Some(cell.column) {
-            CellStyle::Cursor
-        } else if active && selected.contains(&cell.column) {
-            CellStyle::Selected
-        } else {
-            CellStyle::Normal
-        };
-        grid.put(x + cell.column, y, glyph, cell.width, style);
-    }
+    let highlight = match active {
+        true => LineHighlight::field(caret, column_of(selection.start)..column_of(selection.end)),
+        false => LineHighlight::default(),
+    };
+    draw_row(
+        grid,
+        x + offset,
+        y,
+        left..left + room,
+        &contents,
+        PANEL_TAB_WIDTH,
+        &highlight,
+    );
 }
 
 /// Truncates or pads to exactly `width` columns, counting display width rather
@@ -563,6 +563,30 @@ mod tests {
 
         // The hit the search landed on is selected in the text above.
         assert_eq!(style_at(&grid, 2, 1), CellStyle::Selected);
+    }
+
+    /// A field slides under its caret, as the text does: what is typed past
+    /// the right edge stays in view with the caret on the last column.
+    #[test]
+    fn a_field_longer_than_the_strip_keeps_its_caret_in_view() {
+        let mut editor = editor_of("one\n", 20, 8);
+        editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::Search)));
+        editor.execute(Command::Edit(Edit::Insert(
+            "abcdefghijklmnopqrstuvwxyz".to_owned(),
+        )));
+        editor.resize(20, 8);
+        let grid = composed(&editor, 20, 8);
+
+        assert_eq!(grid.row_text(5), " Find: opqrstuvwxyz ");
+        assert_eq!(style_at(&grid, 19, 5), CellStyle::Cursor);
+
+        editor.execute(Command::Move {
+            motion: Motion::LineEdge(Direction::Backward),
+            extend: false,
+        });
+        let grid = composed(&editor, 20, 8);
+        assert_eq!(grid.row_text(5), " Find: abcdefghijklm");
+        assert_eq!(style_at(&grid, 7, 5), CellStyle::Cursor);
     }
 
     #[test]

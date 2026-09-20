@@ -45,7 +45,7 @@ impl Workspace {
         let id = self.focused_buffer();
         let area = self.views[self.focused.0].area;
         let mut view = View::new(id, &buffer);
-        view.resize(area, buffer.text().line_count());
+        view.resize(area, &buffer);
         self.buffers[id.0] = buffer;
         self.views[self.focused.0] = view;
         id

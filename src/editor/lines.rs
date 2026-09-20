@@ -7,6 +7,7 @@ use std::ops::Range;
 
 use crate::buffer::language::Indent;
 use crate::text::Text;
+use crate::text::layout::{self, indentation};
 use crate::text::movement::{Direction, Motion};
 use crate::text::selection::{Selection, SelectionSet};
 use crate::text::transaction::{self, Change, CursorAfter, Transaction};
@@ -23,10 +24,10 @@ pub fn newline(text: &Text, selections: &SelectionSet) -> Transaction {
         let content = text.line_str(line);
         let local = selection.min() - start;
 
-        let indent: String = content[..local]
-            .chars()
-            .take_while(|character| character.is_whitespace())
-            .collect();
+        // Only as much of the indentation as lies before the cursor; the
+        // rest stays with the text that follows.
+        let lead = indentation(&content);
+        let indent = &lead[..local.min(lead.len())];
 
         // A line holding nothing but this indent is left behind empty
         // rather than as a row of spaces — by the first cursor on it only.
@@ -77,11 +78,12 @@ pub fn outdent(text: &Text, selections: &SelectionSet, unit: Indent) -> Option<T
         .filter_map(|line| {
             let start = text.line_start(line);
             let content = text.line_str(line);
+            let lead = indentation(&content);
             let removed = match unit {
-                Indent::Tabs => content.starts_with('\t').then_some(1),
-                Indent::Spaces(width) => match content.starts_with('\t') {
+                Indent::Tabs => lead.starts_with('\t').then_some(1),
+                Indent::Spaces(width) => match lead.starts_with('\t') {
                     true => Some(1),
-                    false => match content.chars().take_while(|&c| c == ' ').count() {
+                    false => match lead.bytes().take_while(|&c| c == b' ').count() {
                         0 => None,
                         spaces => Some(spaces.min(width)),
                     },
@@ -100,7 +102,12 @@ pub fn outdent(text: &Text, selections: &SelectionSet, unit: Indent) -> Option<T
 /// Comments the touched lines, or uncomments them when every one of them is
 /// already commented. Blank lines are left out either way; `None` when there
 /// is nothing but blank lines.
-pub fn toggle_comment(text: &Text, selections: &SelectionSet, token: &str) -> Option<Transaction> {
+pub fn toggle_comment(
+    text: &Text,
+    selections: &SelectionSet,
+    token: &str,
+    tab_width: usize,
+) -> Option<Transaction> {
     let lines: Vec<usize> = selections
         .touched_lines(text)
         .into_iter()
@@ -110,9 +117,10 @@ pub fn toggle_comment(text: &Text, selections: &SelectionSet, token: &str) -> Op
         return None;
     }
 
-    let commented = lines
-        .iter()
-        .all(|&line| text.line_str(line).trim_start().starts_with(token));
+    let commented = lines.iter().all(|&line| {
+        let content = text.line_str(line);
+        content[indentation(&content).len()..].starts_with(token)
+    });
 
     let changes = match commented {
         true => lines
@@ -120,7 +128,7 @@ pub fn toggle_comment(text: &Text, selections: &SelectionSet, token: &str) -> Op
             .map(|&line| {
                 let start = text.line_start(line);
                 let content = text.line_str(line);
-                let at = content.len() - content.trim_start().len();
+                let at = indentation(&content).len();
                 let rest = &content[at + token.len()..];
                 let width = token.len() + usize::from(rest.starts_with(' '));
                 Change {
@@ -131,20 +139,21 @@ pub fn toggle_comment(text: &Text, selections: &SelectionSet, token: &str) -> Op
             .collect(),
         false => {
             // All the markers line up with the shallowest line, which is
-            // what keeps a commented-out block readable.
+            // what keeps a commented-out block readable. Lined up in display
+            // columns: a tab and two spaces are not the same depth, and a
+            // marker must not land inside another line's indentation.
             let column = lines
                 .iter()
-                .map(|&line| {
-                    let content = text.line_str(line);
-                    content.len() - content.trim_start().len()
-                })
+                .map(|&line| layout::line_width(indentation(&text.line_str(line)), tab_width))
                 .min()
                 .unwrap_or(0);
 
             lines
                 .iter()
                 .map(|&line| {
-                    let at = text.line_start(line) + column;
+                    let content = text.line_str(line);
+                    let at = text.line_start(line)
+                        + layout::byte_at_column(indentation(&content), column, tab_width);
                     Change {
                         range: at..at,
                         text: format!("{token} "),

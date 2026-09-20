@@ -51,11 +51,13 @@ impl Field {
         self.anchor.min(self.cursor)..self.anchor.max(self.cursor)
     }
 
+    /// One line is all there is: a break in pasted text becomes a space.
     pub fn insert(&mut self, inserted: &str) {
+        let inserted = inserted.replace('\n', " ");
         let selection = self.selection();
         self.cursor = selection.start;
         self.text.remove(selection);
-        self.text.insert(self.cursor, inserted);
+        self.text.insert(self.cursor, &inserted);
         self.cursor += inserted.len();
         self.anchor = self.cursor;
     }
@@ -88,9 +90,8 @@ impl Field {
     fn target(&self, motion: Motion) -> usize {
         match motion {
             Motion::Word(direction) => movement::word(&self.text, self.cursor, direction),
-            Motion::LineEdge(direction) | Motion::Document(direction) => {
-                movement::line_edge(&self.text, self.cursor, direction)
-            }
+            Motion::LineEdge(direction) => movement::line_edge(&self.text, self.cursor, direction),
+            Motion::Document(direction) => movement::document_edge(&self.text, direction),
             Motion::Grapheme(direction) => movement::grapheme(&self.text, self.cursor, direction),
             Motion::Row(_) | Motion::Page(_) => self.cursor,
         }
@@ -175,6 +176,21 @@ mod tests {
         prompt.insert("l");
 
         assert_eq!(prompt.contents(0), "hello");
+    }
+
+    #[test]
+    fn a_field_holds_one_line() {
+        let mut prompt = prompt(Purpose::Open, "two\nlines");
+        assert_eq!(prompt.contents(0), "two lines");
+
+        // Home stops at the text; Ctrl+Home goes to the very start.
+        prompt.move_cursor(Motion::Document(Direction::Backward), false);
+        prompt.insert("  ");
+        prompt.move_cursor(Motion::LineEdge(Direction::Forward), false);
+        prompt.move_cursor(Motion::LineEdge(Direction::Backward), false);
+        assert_eq!(prompt.fields[0].cursor, 2);
+        prompt.move_cursor(Motion::Document(Direction::Backward), false);
+        assert_eq!(prompt.fields[0].cursor, 0);
     }
 
     #[test]

@@ -16,6 +16,9 @@ pub enum Input {
     /// Bracketed paste: the whole text at once instead of a replay of
     /// keystrokes.
     Paste(String),
+    /// The terminal changed size. Nothing for the editor to do, but the
+    /// loop has to wake up and draw a frame that fits.
+    Resized,
 }
 
 /// The mouse speaks in screen cells; the editor knows which view they fall in.
@@ -44,6 +47,7 @@ impl Input {
             Input::Key(stroke) => keymap::resolve(stroke, editor),
             Input::Mouse(mouse) => Some(mouse.command()),
             Input::Paste(text) => Some(Command::Edit(Edit::Insert(text))),
+            Input::Resized => None,
         }
     }
 }

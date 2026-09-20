@@ -106,7 +106,8 @@ pub struct Buffer {
     pub backing: Backing,
     pub language: &'static Language,
     pub indent: Indent,
-    undo_stack: Vec<Group>,
+    /// Bounded, so the oldest step falls off the front.
+    undo_stack: VecDeque<Group>,
     redo_stack: Vec<Group>,
     last_edit: Option<(EditKind, SelectionSet)>,
     next_revision: Revision,
@@ -126,7 +127,8 @@ pub struct Buffer {
 /// disk and undoing back to it can be recognized.
 type Revision = u64;
 
-/// One undo step: everything that will be undone together, newest first.
+/// One undo step: everything that will be undone together, in the order
+/// it was done. Running the group means running it backwards.
 #[derive(Debug)]
 struct Group {
     revision: Revision,
@@ -150,7 +152,7 @@ impl Default for Buffer {
             backing: Backing::Scratch,
             language: &language::PLAIN,
             indent: language::PLAIN.indent,
-            undo_stack: Vec::new(),
+            undo_stack: VecDeque::new(),
             redo_stack: Vec::new(),
             last_edit: None,
             next_revision: 0,
@@ -291,7 +293,7 @@ impl Buffer {
     /// Undoing back to the edit that was saved clears it again, which is why
     /// this is a comparison rather than a flag.
     pub fn is_modified(&self) -> bool {
-        self.undo_stack.last().map(|group| group.revision) != self.saved
+        self.undo_stack.back().map(|group| group.revision) != self.saved
     }
 
     /// Returns where the cursors end up.
@@ -300,18 +302,16 @@ impl Buffer {
         let joins = self.joins_previous(&transaction, kind);
         let inverse = self.splice(transaction);
 
-        match self.undo_stack.last_mut().filter(|_| joins) {
-            // Groups are kept in the order they will be applied, and undoing
-            // runs newest first.
-            Some(group) => group.transactions.insert(0, inverse),
+        match self.undo_stack.back_mut().filter(|_| joins) {
+            Some(group) => group.transactions.push(inverse),
             None => {
                 self.next_revision += 1;
-                self.undo_stack.push(Group {
+                self.undo_stack.push_back(Group {
                     revision: self.next_revision,
                     transactions: vec![inverse],
                 });
                 if self.undo_stack.len() > UNDO_LIMIT {
-                    self.undo_stack.remove(0);
+                    self.undo_stack.pop_front();
                 }
             }
         }
@@ -333,7 +333,7 @@ impl Buffer {
     }
 
     pub fn undo(&mut self) -> Option<SelectionSet> {
-        let group = self.undo_stack.pop()?;
+        let group = self.undo_stack.pop_back()?;
         let (inverse, selections) = self.apply_group(group);
         self.redo_stack.push(inverse);
         self.last_edit = None;
@@ -343,23 +343,25 @@ impl Buffer {
     pub fn redo(&mut self) -> Option<SelectionSet> {
         let group = self.redo_stack.pop()?;
         let (inverse, selections) = self.apply_group(group);
-        self.undo_stack.push(inverse);
+        self.undo_stack.push_back(inverse);
         self.last_edit = None;
         Some(selections)
     }
 
-    /// The group that comes back carries the same revision, so that undoing and
-    /// redoing across a save is recognized as arriving where it started.
+    /// Runs the group backwards, newest transaction first, and hands back
+    /// the group that reverses it: the inverses in the order they were
+    /// applied, which running backwards again puts right. It carries the
+    /// same revision, so that undoing and redoing across a save is
+    /// recognized as arriving where it started.
     fn apply_group(&mut self, group: Group) -> (Group, SelectionSet) {
         let mut selections = SelectionSet::single(0);
         let mut transactions = Vec::with_capacity(group.transactions.len());
 
-        for transaction in group.transactions {
+        for transaction in group.transactions.into_iter().rev() {
             selections = transaction.selections_after().clone();
             transactions.push(self.splice(transaction));
         }
 
-        transactions.reverse();
         (
             Group {
                 revision: group.revision,
@@ -404,7 +406,7 @@ impl Buffer {
 
     /// What is in the buffer now is what the backing holds.
     fn mark_saved(&mut self) {
-        self.saved = self.undo_stack.last().map(|group| group.revision);
+        self.saved = self.undo_stack.back().map(|group| group.revision);
         // Typing after a save starts a group of its own, or it would go on
         // extending the revision that just reached the disk.
         self.last_edit = None;
@@ -560,16 +562,31 @@ fn write_atomically(path: &Path, contents: &str) -> Result<()> {
 }
 
 fn stage(staging: &Path, original: &Path, contents: &str) -> Result<()> {
-    let mut file = fs::File::create(staging)?;
+    // A file that already existed keeps the mode it had; a new one keeps
+    // whatever it was created with.
+    let permissions = fs::metadata(original)
+        .ok()
+        .map(|metadata| metadata.permissions());
+
+    let mut options = fs::File::options();
+    options.write(true).create(true).truncate(true);
+    // Created with that mode from the start, so that a private file is
+    // never readable by others for even a moment. The umask may narrow it,
+    // which is put right below once the contents are in.
+    #[cfg(unix)]
+    if let Some(permissions) = &permissions {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(permissions.mode());
+    }
+
+    let mut file = options.open(staging)?;
     file.write_all(contents.as_bytes())?;
     // Renaming over the original is only safe once the new contents have
     // reached the disk, or a crash could leave an empty file in its place.
     file.sync_all()?;
 
-    // A file that already existed keeps the mode it had; a new one keeps
-    // whatever it was created with.
-    if let Ok(metadata) = fs::metadata(original) {
-        let _ = fs::set_permissions(staging, metadata.permissions());
+    if let Some(permissions) = permissions {
+        let _ = fs::set_permissions(staging, permissions);
     }
     Ok(())
 }

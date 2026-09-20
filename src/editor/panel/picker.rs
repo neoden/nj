@@ -104,32 +104,53 @@ impl Picker {
         Some(&self.candidates[found.candidate])
     }
 
-    /// The window of matches on screen, kept around the selected one.
-    pub fn visible(&self) -> impl Iterator<Item = (usize, &Candidate)> {
-        let first = self.selected.saturating_sub(VISIBLE - 1);
+    /// The `rows` matches to show, kept around the selected one. How many
+    /// rows there are is the screen's decision, which may be fewer than
+    /// `VISIBLE` asked for.
+    pub fn visible(&self, rows: usize) -> impl Iterator<Item = (usize, &Candidate)> {
+        let first = self.selected.saturating_sub(rows.saturating_sub(1));
         self.matches
             .iter()
             .enumerate()
             .skip(first)
-            .take(VISIBLE)
+            .take(rows)
             .map(|(row, found)| (row, &self.candidates[found.candidate]))
     }
 
-    /// Takes a batch the worker reported. New candidates are placed straight
-    /// into the ranking, so the list stays sorted without re-scoring
-    /// everything seen so far (P9).
+    /// Takes a batch the worker reported. The batch is ranked on its own and
+    /// merged into the ranking so far — one pass over each, with nothing
+    /// seen before scored again (P9). Among equals the earlier arrival
+    /// stays ahead, which is the order a stable sort in `refilter` gives.
     pub fn accept(&mut self, batch: Vec<Candidate>) {
         let query = self.query.contents();
-        for candidate in batch {
-            if let Some(score) = fuzzy::score(&candidate.label, &query) {
-                let found = Match {
-                    candidate: self.candidates.len(),
+        let first = self.candidates.len();
+        let mut arrived: Vec<Match> = batch
+            .iter()
+            .enumerate()
+            .filter_map(|(index, candidate)| {
+                fuzzy::score(&candidate.label, &query).map(|score| Match {
+                    candidate: first + index,
                     score,
-                };
-                self.matches.insert(self.rank_of(score), found);
-            }
-            self.candidates.push(candidate);
+                })
+            })
+            .collect();
+        arrived.sort_by_key(|found| std::cmp::Reverse(found.score));
+
+        let mut merged = Vec::with_capacity(self.matches.len() + arrived.len());
+        let mut old = std::mem::take(&mut self.matches).into_iter().peekable();
+        let mut new = arrived.into_iter().peekable();
+        while let (Some(before), Some(after)) = (old.peek(), new.peek()) {
+            let next = match before.score >= after.score {
+                true => old.next(),
+                false => new.next(),
+            };
+            merged.extend(next);
         }
+        merged.extend(old);
+        merged.extend(new);
+
+        self.matches = merged;
+        self.candidates.extend(batch);
     }
 
     pub fn refilter(&mut self) {
@@ -153,13 +174,6 @@ impl Picker {
         }
         let last = self.matches.len() - 1;
         self.selected = self.selected.saturating_add_signed(delta).min(last);
-    }
-
-    /// Where a match of `score` goes: after every match at least as good,
-    /// so that among equals the earlier arrival stays ahead — the same order
-    /// a stable sort in `refilter` gives.
-    fn rank_of(&self, score: i32) -> usize {
-        self.matches.partition_point(|other| other.score >= score)
     }
 }
 
@@ -191,7 +205,7 @@ mod tests {
 
     fn shown(picker: &Picker) -> Vec<&str> {
         picker
-            .visible()
+            .visible(VISIBLE)
             .map(|(_, item)| item.label.as_str())
             .collect()
     }
@@ -255,6 +269,23 @@ mod tests {
 
         // Sorted by score, not by arrival.
         assert_eq!(shown(&picker), ["go", "gopher"]);
+
+        // A later batch merges in: better ahead, equals behind what came
+        // first, exactly as scoring everything at once would order it.
+        picker.accept(batch(&["ago", "go", "gopher"]));
+        let mut at_once = Picker::new(Pick::Language, JobId::default());
+        at_once.query.insert("go");
+        at_once.accept(batch(&["zebra", "go", "gopher", "ago", "go", "gopher"]));
+        assert_eq!(shown(&picker), shown(&at_once));
+        assert_eq!(shown(&picker), ["go", "go", "gopher", "gopher", "ago"]);
+    }
+
+    #[test]
+    fn a_short_strip_still_shows_the_selection() {
+        let mut picker = picker(&["one", "two", "three", "four"]);
+        picker.move_selection(3);
+        let rows: Vec<_> = picker.visible(2).map(|(row, _)| row).collect();
+        assert_eq!(rows, [2, 3]);
     }
 
     #[test]

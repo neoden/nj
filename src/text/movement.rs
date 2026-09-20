@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use super::Text;
+use super::layout;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -146,12 +147,10 @@ pub fn line_edge(text: &Text, offset: usize, direction: Direction) -> usize {
     }
 }
 
-/// The first byte of a line that is not a space or a tab, or the line's end
-/// when it is nothing but.
+/// The first byte of a line past its indentation, or the line's end when it
+/// is nothing but.
 fn first_nonblank(text: &Text, line: usize) -> usize {
-    let content = text.line_str(line);
-    let indent = content.len() - content.trim_start_matches([' ', '\t']).len();
-    text.line_start(line) + indent
+    text.line_start(line) + layout::indentation(&text.line_str(line)).len()
 }
 
 pub fn document_edge(text: &Text, direction: Direction) -> usize {

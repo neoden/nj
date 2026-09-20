@@ -165,7 +165,7 @@ fn the_palette_runs_a_command_by_name() {
     match editor.panel() {
         Some(Panel::Picker(picker)) => {
             let save = picker
-                .visible()
+                .visible(ned::editor::panel::picker::VISIBLE)
                 .map(|(_, c)| c)
                 .find(|c| c.label == "Save")
                 .expect("Save is listed");

@@ -7,6 +7,7 @@
 use std::ops::Range;
 
 use super::Editor;
+use crate::buffer::EditKind;
 use crate::text::movement::{self, Direction};
 use crate::text::search::Query;
 use crate::text::selection::{Selection, SelectionSet};
@@ -126,7 +127,7 @@ impl Editor {
 
         let selections = search.selections(0);
         self.view_mut().selections = selections;
-        self.insert(replacement);
+        self.insert(replacement, EditKind::Other);
         self.message = Some(format!("Replaced {hits}"));
     }
 
@@ -138,16 +139,25 @@ impl Editor {
         };
 
         let (view, buffer) = self.workspace.focus_mut();
+        let text = buffer.text();
+        let selected = |hit: &Range<usize>| view.selections.iter().any(|s| s.range() == *hit);
+
+        // Hits already under a cursor are passed over, not stopped at: the
+        // primary need not be the last one added. Coming back round to the
+        // first hit found means there is nothing left to add.
         let from = view.selections.primary().max();
-        let Some(hit) = query.find(buffer.text(), from, Direction::Forward) else {
+        let Some(first) = query.find(text, from, Direction::Forward) else {
             return;
         };
-        if view
-            .selections
-            .iter()
-            .any(|selection| selection.range() == hit)
-        {
-            return;
+        let mut hit = first.clone();
+        while selected(&hit) {
+            let Some(next) = query.find(text, hit.end, Direction::Forward) else {
+                return;
+            };
+            if next == first {
+                return;
+            }
+            hit = next;
         }
 
         view.selections.push(Query::selection(hit));

@@ -73,6 +73,18 @@ impl<'a> Iterator for Cells<'a> {
     }
 }
 
+/// The indentation of a line: its leading run of spaces and tabs, and
+/// nothing else — a no-break space is text. Everything that reasons about
+/// indentation reads it from here, so that they cannot disagree on what it
+/// is; its bytes, its width and what it is made of all follow from the slice.
+pub fn indentation(line: &str) -> &str {
+    let end = line
+        .bytes()
+        .position(|byte| byte != b' ' && byte != b'\t')
+        .unwrap_or(line.len());
+    &line[..end]
+}
+
 /// Display column at a byte offset, for placing the cursor.
 pub fn column_of_byte(line: &str, byte: usize, tab_width: usize) -> usize {
     cells(line, tab_width)
@@ -179,6 +191,15 @@ mod tests {
     fn a_click_inside_a_wide_character_lands_on_its_start() {
         assert_eq!(byte_at_column("日x", 1, TAB), 0);
         assert_eq!(byte_at_column("日x", 2, TAB), 3);
+    }
+
+    #[test]
+    fn indentation_is_the_leading_spaces_and_tabs() {
+        assert_eq!(indentation("  \tx"), "  \t");
+        assert_eq!(indentation("x  "), "");
+        assert_eq!(indentation("   "), "   ");
+        assert_eq!(indentation("\u{a0}x"), "");
+        assert_eq!(indentation(""), "");
     }
 
     #[test]

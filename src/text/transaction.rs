@@ -63,6 +63,7 @@ impl Transaction {
             collected.push(Change { range, text });
         }
 
+        debug_assert!(disjoint(&collected), "changes overlap: {collected:?}");
         Self {
             changes: collected,
             before: selections.clone(),
@@ -74,6 +75,7 @@ impl Transaction {
     /// a selection. Where the cursors end up is the caller's decision, since
     /// only it knows what the lines were supposed to become.
     pub fn over_lines(before: &SelectionSet, changes: Vec<Change>, after: SelectionSet) -> Self {
+        debug_assert!(disjoint(&changes), "changes overlap: {changes:?}");
         Self {
             changes,
             before: before.clone(),
@@ -140,6 +142,15 @@ impl Transaction {
             after: self.before,
         }
     }
+}
+
+/// What `apply` relies on: each change starts where the one before it ended
+/// or later, so applying them back to front leaves every offset valid. Two
+/// cursors reaching into the same text is how this gets broken.
+fn disjoint(changes: &[Change]) -> bool {
+    changes
+        .windows(2)
+        .all(|pair| pair[0].range.end <= pair[1].range.start)
 }
 
 /// Where a cursor ends up once these changes have been applied: an insertion

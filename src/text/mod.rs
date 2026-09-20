@@ -84,6 +84,12 @@ impl Text {
         self.rope.slice(range).to_string()
     }
 
+    /// The nearest valid position at or before `byte`: inside the text, on
+    /// a character boundary. For offsets that came from outside.
+    pub fn snap(&self, byte: usize) -> usize {
+        self.rope.floor_char_boundary(byte.min(self.len()))
+    }
+
     pub fn char_at(&self, byte: usize) -> Option<char> {
         (byte < self.len()).then(|| self.rope.char(byte))
     }

@@ -13,7 +13,7 @@ use super::selection::{Selection, SelectionSet};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Query {
     pub needle: String,
-    /// Only hits with no word character on either side: renaming `i`
+    /// Only hits bounded by a change of character class: renaming `i`
     /// leaves `if` alone.
     pub whole_word: bool,
 }
@@ -80,13 +80,22 @@ impl Query {
         text.matches_at(at, &self.needle) && self.accepts(text, &(at..at + self.needle.len()))
     }
 
+    /// A whole hit is bounded on each side by a change of class: a word
+    /// with no word character against it, and just as well a run of
+    /// punctuation with no punctuation against it. Reading the class off the
+    /// needle is what lets `.` be found next to identifiers.
     fn accepts(&self, text: &Text, hit: &Range<usize>) -> bool {
         if !self.whole_word {
             return true;
         }
-        let word = |at: usize| text.char_at(at).map(Class::of) == Some(Class::Word);
+        let (Some(first), Some(last)) = (self.needle.chars().next(), self.needle.chars().last())
+        else {
+            return true;
+        };
+        let continues =
+            |at: usize, edge: char| text.char_at(at).map(Class::of) == Some(Class::of(edge));
         let before = text.previous_grapheme(hit.start);
-        !(before != hit.start && word(before)) && !word(hit.end)
+        !(before != hit.start && continues(before, first)) && !continues(hit.end, last)
     }
 
     pub fn selection(hit: Range<usize>) -> Selection {
@@ -230,6 +239,13 @@ mod tests {
         let text = text("a ab a ba");
         let hits: Vec<_> = Query::word("a").all(&text).collect();
         assert_eq!(hits, [0..1, 5..6]);
+    }
+
+    #[test]
+    fn a_whole_run_of_punctuation_is_bounded_by_its_own_class() {
+        let text = text("a.b c.d e..f");
+        let hits: Vec<_> = Query::word(".").all(&text).collect();
+        assert_eq!(hits, [1..2, 5..6]);
     }
 
     #[test]

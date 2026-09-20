@@ -54,6 +54,12 @@ impl Terminal {
 
         enable_raw_mode()?;
         MODIFIED.store(true, Ordering::SeqCst);
+        // From here on a failure has something to undo, which is what
+        // dropping the guard does — so the guard exists before anything
+        // else can fail.
+        let mut terminal = Self {
+            keyboard_enhanced: false,
+        };
 
         let mut out = io::stdout();
         // Capturing the mouse takes the terminal's own selection away; holding
@@ -69,16 +75,16 @@ impl Terminal {
             cursor::Hide
         )?;
 
-        let keyboard_enhanced = matches!(supports_keyboard_enhancement(), Ok(true));
-        if keyboard_enhanced {
+        if matches!(supports_keyboard_enhancement(), Ok(true)) {
             execute!(
                 out,
                 PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
             )?;
             KEYBOARD_FLAGS_PUSHED.store(true, Ordering::SeqCst);
+            terminal.keyboard_enhanced = true;
         }
 
-        Ok(Self { keyboard_enhanced })
+        Ok(terminal)
     }
 }
 

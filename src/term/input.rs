@@ -15,6 +15,7 @@ pub fn translate(event: Event) -> Option<Input> {
         Event::Key(key) => Input::Key(keystroke(&key)?),
         Event::Mouse(mouse) => Input::Mouse(self::mouse(mouse)?),
         Event::Paste(text) => Input::Paste(text),
+        Event::Resize(..) => Input::Resized,
         _ => return None,
     })
 }
@@ -112,6 +113,11 @@ mod tests {
             pressed(key(TermKeyCode::BackTab, KeyModifiers::SHIFT)),
             Some(Key::new(KeyCode::Tab, Mods::SHIFT))
         );
+    }
+
+    #[test]
+    fn a_resize_reaches_the_loop() {
+        assert_eq!(translate(Event::Resize(80, 24)), Some(Input::Resized));
     }
 
     #[test]

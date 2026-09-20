@@ -210,14 +210,18 @@ impl Editor {
             view::gutter_width(line_count),
             panel,
         );
-        view.resize(self.screen.text, line_count);
+        view.resize(self.screen.text, buffer);
     }
 
     /// The only way in (ADR 16). Routes to the method that does the work;
     /// what a command means is decided here and nowhere else.
     pub fn execute(&mut self, command: Command) {
         // A message answers the last command; the next one supersedes it.
-        self.message = None;
+        // Scrolling answers nothing, and a wheel tick must not take the
+        // message with it.
+        if !matches!(command, Command::Scroll(_)) {
+            self.message = None;
+        }
 
         match command {
             // These go wherever the keyboard is: an open panel's field, or
@@ -234,7 +238,7 @@ impl Editor {
                     field.insert(&text);
                     true
                 },
-                |editor| editor.insert(&text),
+                |editor| editor.insert(&text, insert_kind(&text)),
             ),
             Command::Edit(Edit::Delete(motion)) => self.at_focus(
                 |field| {
@@ -346,9 +350,16 @@ impl Editor {
         }
     }
 
+    /// Offsets from outside are not trusted: a socket may send any number,
+    /// and a number past the end or inside a character is a panic later.
     fn set_selections(&mut self, selections: SelectionSet) {
         let (view, buffer) = self.workspace.focus_mut();
-        view.selections = selections;
+        let text = buffer.text();
+        view.selections = selections.mapped(|selection| Selection {
+            anchor: text.snap(selection.anchor),
+            head: text.snap(selection.head),
+            goal_column: None,
+        });
         view.scroll_to_cursor(buffer);
     }
 
@@ -561,13 +572,16 @@ impl Editor {
         view.move_selections(buffer, motion, extend);
     }
 
-    fn insert(&mut self, inserted: &str) {
+    /// What kind of edit this is comes from the caller: the same text is
+    /// typing at the keyboard and a replacement from a prompt, and only the
+    /// first of those belongs in a typing group.
+    fn insert(&mut self, inserted: &str, kind: EditKind) {
         let transaction = Transaction::edit(
             &self.view().selections,
             CursorAfter::EndOfChange,
             |selection| (selection.range(), inserted.to_owned()),
         );
-        self.apply(transaction, insert_kind(inserted));
+        self.apply(transaction, kind);
     }
 
     fn copy(&mut self) {
@@ -649,7 +663,9 @@ impl Editor {
             self.message = Some("No line comment for this language".to_owned());
             return;
         };
-        if let Some(transaction) = lines::toggle_comment(buffer.text(), &view.selections, token) {
+        if let Some(transaction) =
+            lines::toggle_comment(buffer.text(), &view.selections, token, buffer.tab_width())
+        {
             self.apply(transaction, EditKind::Other);
         }
     }
@@ -667,28 +683,31 @@ impl Editor {
     fn delete(&mut self, motion: Motion) {
         let text = self.buffer().text();
         let indent = self.buffer().indent;
-        let transaction = Transaction::edit(
-            &self.view().selections,
-            CursorAfter::EndOfChange,
-            |selection| {
-                let head = selection.head;
-                let range = if !selection.is_empty() {
-                    selection.range()
-                } else if let Some(range) = lines::deletion_to_tab_stop(text, indent, motion, head)
-                {
-                    range
-                } else {
-                    let target = match motion {
-                        Motion::Word(direction) => movement::word(text, head, direction),
-                        Motion::LineEdge(direction) => movement::line_edge(text, head, direction),
-                        Motion::Grapheme(direction) => movement::grapheme(text, head, direction),
-                        _ => head,
-                    };
-                    head.min(target)..head.max(target)
+        // Cursors are disjoint, but what each one reaches for is not: two
+        // cursors in one word both want the whole word. What an earlier
+        // cursor takes is not taken again.
+        let mut taken = 0;
+        let changes = self.view().selections.iter().map(|selection| {
+            let head = selection.head;
+            let range = if !selection.is_empty() {
+                selection.range()
+            } else if let Some(range) = lines::deletion_to_tab_stop(text, indent, motion, head) {
+                range
+            } else {
+                let target = match motion {
+                    Motion::Word(direction) => movement::word(text, head, direction),
+                    Motion::LineEdge(direction) => movement::line_edge(text, head, direction),
+                    Motion::Grapheme(direction) => movement::grapheme(text, head, direction),
+                    _ => head,
                 };
-                (range, String::new())
-            },
-        );
+                head.min(target)..head.max(target)
+            };
+            let range = range.start.max(taken)..range.end.max(taken);
+            taken = range.end;
+            (range, String::new())
+        });
+        let transaction =
+            Transaction::over(&self.view().selections, CursorAfter::EndOfChange, changes);
 
         let kind = match motion {
             Motion::Grapheme(direction) => EditKind::Delete(direction),

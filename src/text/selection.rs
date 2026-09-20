@@ -177,23 +177,34 @@ impl SelectionSet {
             .collect()
     }
 
+    /// The primary is marked before sorting and the mark travels through
+    /// the merge, since looking it up again by its head would be ambiguous
+    /// where two selections meet.
     fn normalize(&mut self) {
-        let primary_head = self.selections[self.primary].head;
-        self.selections.sort_by_key(|s| (s.min(), s.max()));
+        let mut tagged: Vec<(Selection, bool)> = self
+            .selections
+            .drain(..)
+            .enumerate()
+            .map(|(index, selection)| (selection, index == self.primary))
+            .collect();
+        tagged.sort_by_key(|(s, _)| (s.min(), s.max()));
 
-        let mut merged: Vec<Selection> = Vec::with_capacity(self.selections.len());
-        for selection in self.selections.drain(..) {
+        let mut merged: Vec<(Selection, bool)> = Vec::with_capacity(tagged.len());
+        for (selection, primary) in tagged {
             match merged.last_mut() {
-                Some(last) if overlap(last, &selection) => *last = union(last, &selection),
-                _ => merged.push(selection),
+                Some((last, was_primary)) if overlap(last, &selection) => {
+                    *last = union(last, &selection);
+                    *was_primary |= primary;
+                }
+                _ => merged.push((selection, primary)),
             }
         }
 
         self.primary = merged
             .iter()
-            .position(|s| s.contains(primary_head))
-            .unwrap_or(0);
-        self.selections = merged;
+            .position(|(_, primary)| *primary)
+            .expect("the primary is one of the selections");
+        self.selections = merged.into_iter().map(|(s, _)| s).collect();
     }
 }
 
@@ -291,6 +302,21 @@ mod tests {
         set.push(selection(10, 12));
         assert_eq!(set.primary(), selection(10, 12));
         assert_eq!(set.len(), 3);
+    }
+
+    /// Two selections meeting at one offset both contain it, so a head on
+    /// the seam must not be how the primary is found.
+    #[test]
+    fn the_primary_survives_a_shared_boundary() {
+        let mut set = SelectionSet::single(3);
+        set.push(selection(5, 5));
+        set = set.mapped(|s| selection(s.anchor, s.head - 2));
+        assert_eq!(set.primary(), selection(5, 3));
+
+        let mut set = SelectionSet::single(0);
+        set.push(selection(4, 2));
+        set.push(selection(0, 2));
+        assert_eq!(set.primary(), selection(0, 2));
     }
 
     #[test]

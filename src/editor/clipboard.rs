@@ -91,12 +91,24 @@ impl Clipboard {
             return (!transaction.is_empty()).then_some(transaction);
         }
 
-        let changes: Vec<Change> = selections
-            .touched_lines(text)
-            .into_iter()
-            .map(|line| Change {
-                range: line_range(text, line),
-                text: String::new(),
+        let lines = selections.touched_lines(text);
+        let changes: Vec<Change> = lines
+            .iter()
+            .enumerate()
+            .map(|(index, &line)| {
+                let mut range = line_range(text, line);
+                // The last line has no break after it, so the one before it
+                // goes instead — unless that break is the end of a line
+                // being cut as well, which takes it itself.
+                let last = line + 1 == text.line_count();
+                let joined = index > 0 && lines[index - 1] + 1 == line;
+                if last && !joined {
+                    range.start = range.start.saturating_sub(1);
+                }
+                Change {
+                    range,
+                    text: String::new(),
+                }
             })
             .collect();
         let after = selections

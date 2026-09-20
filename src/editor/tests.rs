@@ -46,7 +46,7 @@ fn add_cursor(editor: &mut Editor, offset: usize) {
 #[test]
 fn typing_lands_after_the_cursor() {
     let mut editor = editor("ac", 1);
-    editor.insert("b");
+    editor.insert("b", EditKind::Other);
 
     assert_eq!(content(&editor), "abc");
     assert_eq!(editor.view().selections.primary().head, 2);
@@ -56,7 +56,7 @@ fn typing_lands_after_the_cursor() {
 fn typing_replaces_a_selection() {
     let mut editor = editor("hello world", 0);
     select_range(&mut editor, 0, 5);
-    editor.insert("bye");
+    editor.insert("bye", EditKind::Other);
 
     assert_eq!(content(&editor), "bye world");
     assert!(editor.view().selections.primary().is_empty());
@@ -91,12 +91,40 @@ fn deleting_a_word_stops_at_its_boundary() {
     assert_eq!(content(&editor), "foo bar");
 }
 
+/// Two cursors in one word both reach for its start; what goes is the union
+/// of their reaches, taken once, not the same bytes twice.
+#[test]
+fn cursors_reaching_into_the_same_text_delete_it_once() {
+    let mut backwards = editor("abcd ef", 2);
+    add_cursor(&mut backwards, 3);
+    backwards.delete(Motion::Word(Direction::Backward));
+    assert_eq!(content(&backwards), "d ef");
+    assert_eq!(ranges(&backwards), [0..0]);
+
+    let mut forwards = editor("abcd ef", 0);
+    add_cursor(&mut forwards, 1);
+    forwards.delete(Motion::Word(Direction::Forward));
+    assert_eq!(content(&forwards), " ef");
+
+    let mut stops = indented("      x", Indent::Spaces(4), 2);
+    add_cursor(&mut stops, 4);
+    stops.delete(Motion::Grapheme(Direction::Backward));
+    assert_eq!(content(&stops), "  x");
+}
+
+#[test]
+fn selections_from_outside_are_snapped_into_the_text() {
+    let mut editor = editor("aф", 0);
+    select_range(&mut editor, 2, 99);
+    assert_eq!(ranges(&editor), [1..3]);
+}
+
 #[test]
 fn every_cursor_types_at_once() {
     let mut editor = editor("a a a", 0);
     add_cursor(&mut editor, 2);
     add_cursor(&mut editor, 4);
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
 
     assert_eq!(content(&editor), "!a !a !a");
     assert_eq!(editor.view().selections.len(), 3);
@@ -105,8 +133,8 @@ fn every_cursor_types_at_once() {
 #[test]
 fn undo_and_redo_walk_the_history() {
     let mut editor = editor("start", 5);
-    editor.insert(" one");
-    editor.insert(" two");
+    editor.insert(" one", EditKind::Other);
+    editor.insert(" two", EditKind::Other);
     assert_eq!(content(&editor), "start one two");
 
     editor.undo();
@@ -125,7 +153,7 @@ fn undo_and_redo_walk_the_history() {
 fn undo_puts_the_cursors_back() {
     let mut editor = editor("a a", 1);
     add_cursor(&mut editor, 3);
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     assert_eq!(content(&editor), "a! a!");
 
     editor.undo();
@@ -179,6 +207,29 @@ fn further_presses_add_occurrences_and_wrap() {
     assert_eq!(ranges(&editor), [0..3, 8..11, 16..19]);
 }
 
+/// Hits already selected are passed over, whichever selection is primary:
+/// a cursor added by hand in front of the others must not stop the walk.
+#[test]
+fn further_presses_pass_over_what_is_already_selected() {
+    let mut editor = editor("x x x", 2);
+    editor.select_next_occurrence();
+    add_cursor(&mut editor, 0);
+    editor.select_next_occurrence();
+    assert_eq!(ranges(&editor), [0..1, 2..3]);
+    assert_eq!(editor.view().selections.primary().range(), 0..1);
+
+    editor.select_next_occurrence();
+    assert_eq!(ranges(&editor), [0..1, 2..3, 4..5]);
+}
+
+#[test]
+fn punctuation_under_the_cursor_is_found_next_to_words() {
+    let mut editor = editor("a.b c.d", 1);
+    editor.select_next_occurrence();
+    editor.select_next_occurrence();
+    assert_eq!(ranges(&editor), [1..2, 5..6]);
+}
+
 #[test]
 fn a_whole_word_selection_skips_words_containing_it() {
     let mut editor = editor("foo foobar foo", 0);
@@ -220,7 +271,7 @@ fn every_occurrence_can_be_edited_at_once() {
     let mut editor = editor("id, id, id", 0);
     editor.select_next_occurrence();
     editor.select_all_occurrences();
-    editor.insert("key");
+    editor.insert("key", EditKind::Other);
 
     assert_eq!(content(&editor), "key, key, key");
 }
@@ -293,6 +344,19 @@ fn markers_line_up_with_the_shallowest_line() {
     editor.toggle_comment();
 
     assert_eq!(content(&editor), "  // one();\n  //     two();\n");
+}
+
+/// Depth is measured in columns, so a tab counts as its width and a marker
+/// never lands in the middle of a shallower line's spaces.
+#[test]
+fn markers_line_up_in_columns_across_mixed_indentation() {
+    let mut editor = rust_editor("\tone();\n  two();\n", 0);
+    select_range(&mut editor, 0, 16);
+    editor.toggle_comment();
+    assert_eq!(content(&editor), "// \tone();\n  // two();\n");
+
+    editor.toggle_comment();
+    assert_eq!(content(&editor), "\tone();\n  two();\n");
 }
 
 #[test]
@@ -543,7 +607,7 @@ fn undoing_back_to_what_was_saved_is_not_a_change() {
     select(&mut editor, SelectionSet::single(5));
     assert!(!editor.buffer().is_modified());
 
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     assert!(editor.buffer().is_modified());
 
     editor.save(After::Stay);
@@ -556,7 +620,7 @@ fn undoing_back_to_what_was_saved_is_not_a_change() {
     assert!(!editor.buffer().is_modified());
 
     // And an edit undone past the save is a change again.
-    editor.insert("?");
+    editor.insert("?", EditKind::Other);
     assert!(editor.buffer().is_modified());
     editor.undo();
     assert!(!editor.buffer().is_modified());
@@ -589,7 +653,7 @@ fn a_file_changed_elsewhere_is_not_overwritten_unasked() {
     std::fs::write(&path, "mine\n").unwrap();
 
     let mut editor = Editor::new(Buffer::open(&path).unwrap());
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     std::fs::write(&path, "theirs, and longer\n").unwrap();
 
     editor.execute(Command::File(File::Save));
@@ -620,7 +684,7 @@ fn a_report_of_a_changed_file_is_checked_before_it_is_believed() {
 
     // Our own save moves the stamp, and the report that follows it says
     // nothing.
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     editor.execute(Command::File(File::Save));
     editor.receive(Report::FileChanged(id));
     assert_eq!(editor.message(), None);
@@ -686,7 +750,7 @@ fn save_and_quit_still_quits_after_agreeing_to_overwrite() {
     std::fs::write(&path, "mine\n").unwrap();
 
     let mut editor = Editor::new(Buffer::open(&path).unwrap());
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     std::fs::write(&path, "theirs, and longer\n").unwrap();
 
     editor.execute(Command::Quit);
@@ -784,7 +848,7 @@ fn opening_over_unsaved_changes_asks_first() {
     std::fs::write(&theirs, "theirs\n").unwrap();
 
     let mut editor = Editor::new(Buffer::open(&mine).unwrap());
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     editor.execute(Command::File(File::Open(theirs.clone())));
     assert_eq!(
         confirm(&editor),
@@ -806,7 +870,7 @@ fn opening_over_unsaved_changes_asks_first() {
     assert_eq!(content(&editor), "theirs\n");
 
     // Or the changes are dropped on purpose.
-    editor.insert("?");
+    editor.insert("?", EditKind::Other);
     editor.execute(Command::File(File::Open(mine.clone())));
     editor.execute(Command::Panel(PanelCommand::Answer('d')));
     assert_eq!(content(&editor), "!mine\n");
@@ -821,7 +885,7 @@ fn opening_over_unsaved_changes_asks_first() {
 #[test]
 fn a_question_ignores_keys_that_answer_nothing() {
     let mut editor = editor("x", 0);
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     editor.execute(Command::Quit);
     editor.execute(Command::Panel(PanelCommand::Answer('d')));
     assert_eq!(
@@ -839,14 +903,14 @@ fn saving_as_names_a_scratch_buffer_and_asks_before_taking_a_file_that_exists() 
     std::fs::write(&taken, "taken\n").unwrap();
 
     let mut editor = editor("", 0);
-    editor.insert("text");
+    editor.insert("text", EditKind::Other);
     editor.execute(Command::File(File::SaveAs(fresh.clone())));
     assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "text");
     assert_eq!(editor.buffer().name(), fresh.display().to_string());
     assert!(!editor.buffer().is_modified());
 
     // Saving under the name it already has asks nothing.
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     editor.execute(Command::File(File::SaveAs(fresh.clone())));
     assert!(editor.panel.is_none());
     assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "text!");
@@ -854,7 +918,7 @@ fn saving_as_names_a_scratch_buffer_and_asks_before_taking_a_file_that_exists() 
     // Unless another writer got there first: then it is a plain save, and
     // asks what a plain save asks rather than overwriting them.
     std::fs::write(&fresh, "rewritten elsewhere\n").unwrap();
-    editor.insert("?");
+    editor.insert("?", EditKind::Other);
     editor.execute(Command::File(File::SaveAs(fresh.clone())));
     assert_eq!(confirm(&editor), Some(vec![Answer::Overwrite(After::Stay)]));
     editor.execute(Command::Panel(PanelCommand::Answer('o')));
@@ -921,7 +985,7 @@ fn an_abort_leaves_with_a_failure_and_asks_about_changes_first() {
     assert_eq!(clean.exit(), Some(Exit::Abort));
 
     let mut dirty = editor("text", 0);
-    dirty.insert("!");
+    dirty.insert("!", EditKind::Other);
     dirty.execute(Command::Abort);
     assert_eq!(confirm(&dirty), Some(vec![Answer::Abort]));
     assert_eq!(dirty.exit(), None);
@@ -937,7 +1001,7 @@ fn an_abort_leaves_with_a_failure_and_asks_about_changes_first() {
 #[test]
 fn unsaved_changes_ask_first() {
     let mut editor = editor("text", 0);
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     editor.request_quit();
 
     assert_eq!(editor.exit(), None);
@@ -947,7 +1011,7 @@ fn unsaved_changes_ask_first() {
 #[test]
 fn the_question_can_be_answered_or_dropped() {
     let mut editor = editor("text", 0);
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
 
     editor.request_quit();
     editor.close_panel();
@@ -962,7 +1026,7 @@ fn the_question_can_be_answered_or_dropped() {
 #[test]
 fn the_answer_key_is_the_physical_one() {
     let mut editor = editor("text", 0);
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     editor.request_quit();
 
     // `й` sits where `q` does on a US keyboard.
@@ -978,7 +1042,7 @@ fn saving_a_nameless_buffer_asks_for_a_name_and_carries_on() {
     let _ = std::fs::remove_file(&path);
 
     let mut editor = editor("text", 0);
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     editor.request_quit();
     editor.answer('s');
     assert_eq!(editor.exit(), None);
@@ -1011,7 +1075,7 @@ fn a_save_that_fails_cancels_the_quit() {
     // written back.
     let path = scratch_path("unwritable").join("below");
     let mut editor = Editor::new(Buffer::open(&path).unwrap());
-    editor.insert("!");
+    editor.insert("!", EditKind::Other);
     editor.request_quit();
     editor.answer('s');
 
@@ -1215,7 +1279,7 @@ fn every_hit_can_become_a_cursor() {
     // The hit we were standing on stays the primary one.
     assert_eq!(editor.view().selections.primary().range(), 4..6);
 
-    editor.insert("key");
+    editor.insert("key", EditKind::Other);
     assert_eq!(content(&editor), "key, key, key");
 }
 
@@ -1326,6 +1390,10 @@ fn replace_changes_every_occurrence_in_one_step() {
 
     assert_eq!(content(&editor), "1 two 1");
 
+    // Typing right after is a step of its own, not part of the replacement.
+    type_text(&mut editor, "!");
+    editor.undo();
+    assert_eq!(content(&editor), "1 two 1");
     editor.undo();
     assert_eq!(content(&editor), "one two one");
 }
@@ -1444,6 +1512,26 @@ fn cutting_a_line_removes_it_whole() {
     assert_eq!(content(&editor), "first\nthird\n");
 }
 
+/// The last line has no break of its own to take, so cutting it takes the
+/// break before it: the line is gone, not left as an empty one.
+#[test]
+fn cutting_the_last_line_takes_the_break_before_it() {
+    let mut bare = editor("first\nlast", 8);
+    bare.cut();
+    assert_eq!(content(&bare), "first");
+    assert_eq!(bare.clipboard.text(), "last\n");
+
+    let mut trailing = editor("first\nlast\n", 11);
+    trailing.cut();
+    assert_eq!(content(&trailing), "first\nlast");
+
+    // Cut together with the line above, whose break is taken once.
+    let mut both = editor("first\nlast", 0);
+    add_cursor(&mut both, 8);
+    both.cut();
+    assert_eq!(content(&both), "");
+}
+
 #[test]
 fn a_line_under_two_cursors_is_cut_once() {
     let mut editor = editor("one\ntwo\nthree\n", 0);
@@ -1545,7 +1633,8 @@ fn pasting_is_one_undo_step() {
 
 fn type_text(editor: &mut Editor, text: &str) {
     for character in text.chars() {
-        editor.insert(&character.to_string());
+        let typed = character.to_string();
+        editor.insert(&typed, insert_kind(&typed));
     }
 }
 
@@ -1576,7 +1665,7 @@ fn moving_the_cursor_starts_a_new_step() {
     let mut editor = editor("", 0);
     type_text(&mut editor, "ab");
     editor.move_selections(Motion::Grapheme(Direction::Backward), false);
-    editor.insert("c");
+    editor.insert("c", EditKind::Other);
     assert_eq!(content(&editor), "acb");
 
     editor.undo();
@@ -1587,7 +1676,7 @@ fn moving_the_cursor_starts_a_new_step() {
 fn a_line_break_stands_alone() {
     let mut editor = editor("", 0);
     type_text(&mut editor, "ab");
-    editor.insert("\n");
+    editor.insert("\n", EditKind::Other);
     type_text(&mut editor, "cd");
 
     editor.undo();
@@ -1600,7 +1689,7 @@ fn a_line_break_stands_alone() {
 fn pasted_text_stands_alone() {
     let mut editor = editor("", 0);
     type_text(&mut editor, "ab");
-    editor.insert("pasted");
+    editor.insert("pasted", EditKind::Other);
 
     editor.undo();
     assert_eq!(content(&editor), "ab");
@@ -1622,7 +1711,7 @@ fn backspaces_undo_together() {
 fn typing_after_deleting_starts_a_new_step() {
     let mut editor = editor("ab", 2);
     editor.delete(Motion::Grapheme(Direction::Backward));
-    editor.insert("c");
+    editor.insert("c", EditKind::Other);
 
     editor.undo();
     assert_eq!(content(&editor), "a");
@@ -1643,9 +1732,9 @@ fn redo_restores_a_whole_group() {
 #[test]
 fn editing_after_undo_forgets_the_redo() {
     let mut editor = editor("x", 1);
-    editor.insert("y");
+    editor.insert("y", EditKind::Other);
     editor.undo();
-    editor.insert("z");
+    editor.insert("z", EditKind::Other);
 
     assert_eq!(content(&editor), "xz");
     editor.redo();
