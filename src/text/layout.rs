@@ -106,6 +106,16 @@ pub fn line_width(line: &str, tab_width: usize) -> usize {
         .map_or(0, |cell| cell.end_column())
 }
 
+/// The column reached by printing `text` from `column`.
+pub fn advance(column: usize, text: &str, tab_width: usize) -> usize {
+    let cells = Cells {
+        graphemes: text.grapheme_indices(true),
+        column,
+        tab_width,
+    };
+    cells.last().map_or(column, |cell| cell.end_column())
+}
+
 fn is_control(grapheme: &str) -> bool {
     let mut chars = grapheme.chars();
     matches!((chars.next(), chars.next()), (Some(c), None) if c.is_control())
@@ -185,6 +195,15 @@ mod tests {
         assert_eq!(byte_at_column(line, 3, TAB), 1);
         assert_eq!(byte_at_column(line, 4, TAB), 2);
         assert_eq!(byte_at_column(line, 99, TAB), line.len());
+    }
+
+    #[test]
+    fn advancing_from_a_column_stretches_a_tab_from_there() {
+        assert_eq!(advance(0, "ab", TAB), 2);
+        assert_eq!(advance(3, "", TAB), 3);
+        // A tab printed from column 1 stops at 4; from column 4, at 8.
+        assert_eq!(advance(1, "\t", TAB), 4);
+        assert_eq!(advance(4, "\tb", TAB), 9);
     }
 
     #[test]

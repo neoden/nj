@@ -45,11 +45,43 @@ pub fn newline(text: &Text, selections: &SelectionSet) -> Transaction {
 
 /// What `Tab` inserts at a bare cursor: enough to reach the next stop, which
 /// is not the same as a whole level when the cursor sits mid-line.
-pub fn to_tab_stop(indent: Indent, column: usize) -> String {
+fn to_tab_stop(indent: Indent, column: usize) -> String {
     match indent {
         Indent::Tabs => "\t".to_owned(),
         Indent::Spaces(width) => " ".repeat(width - column % width),
     }
+}
+
+/// `Tab` at bare cursors: every cursor moves to the next tab stop. The new
+/// line is printed in the head, cursor to cursor, since a cursor's column
+/// depends on what the cursors before it on the line have inserted.
+pub fn tab_stops(
+    text: &Text,
+    selections: &SelectionSet,
+    indent: Indent,
+    tab_width: usize,
+) -> Transaction {
+    let first = selections.first_on_each_line(text, |selection| selection.head);
+
+    // Where printing has got to: the offset in the old text, and the column
+    // in the new one.
+    let mut printed = 0;
+    let mut column = 0;
+    let mut changes = Vec::with_capacity(selections.len());
+
+    for (selection, first) in selections.iter().zip(first) {
+        if first {
+            printed = text.line_start(text.line_of(selection.head));
+            column = 0;
+        }
+        column = layout::advance(column, &text.substring(printed..selection.head), tab_width);
+        let fill = to_tab_stop(indent, column);
+        column = layout::advance(column, &fill, tab_width);
+        printed = selection.head;
+
+        changes.push((selection.range(), fill));
+    }
+    Transaction::over(selections, CursorAfter::EndOfChange, changes)
 }
 
 /// One level in front of every touched line.

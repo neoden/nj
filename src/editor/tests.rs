@@ -473,6 +473,28 @@ fn every_cursor_reaches_its_own_next_stop() {
 }
 
 #[test]
+fn a_second_cursor_on_the_same_line_measures_from_where_the_first_left_it() {
+    let mut editor = indented("xyab", Indent::Spaces(4), 2);
+    add_cursor(&mut editor, 3);
+    editor.indent();
+
+    // The first cursor pushes `a` to column 4; `b` then stands on column 5
+    // and needs three spaces to reach 8, not the one it needed before.
+    assert_eq!(content(&editor), "xy  a   b");
+}
+
+#[test]
+fn a_tab_between_two_cursors_stretches_after_the_first_insertion() {
+    let mut editor = indented("a\tb", Indent::Spaces(4), 1);
+    add_cursor(&mut editor, 2);
+    editor.indent();
+
+    // Three spaces move the tab from column 1 to 4, where it reaches 8
+    // instead of 4; `b` is then on 8 and needs a whole level, not one space.
+    assert_eq!(content(&editor), "a   \t    b");
+}
+
+#[test]
 fn tab_inserts_a_tab_when_the_file_uses_them() {
     let mut editor = indented("ab", Indent::Tabs, 2);
     editor.indent();

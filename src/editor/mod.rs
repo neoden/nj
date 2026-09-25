@@ -639,13 +639,12 @@ impl Editor {
             .any(|selection| !selection.is_empty());
         let transaction = match selecting {
             true => lines::indent(buffer.text(), &view.selections, buffer.indent),
-            false => {
-                let (text, indent, tab_width) = (buffer.text(), buffer.indent, buffer.tab_width());
-                Transaction::edit(&view.selections, CursorAfter::EndOfChange, |selection| {
-                    let column = column_at(text, selection.head, tab_width);
-                    (selection.range(), lines::to_tab_stop(indent, column))
-                })
-            }
+            false => lines::tab_stops(
+                buffer.text(),
+                &view.selections,
+                buffer.indent,
+                buffer.tab_width(),
+            ),
         };
         self.apply(transaction, EditKind::Other);
     }
