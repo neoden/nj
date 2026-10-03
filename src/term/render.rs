@@ -10,8 +10,8 @@ use anyhow::Result;
 use super::grid::{CONTROL_PLACEHOLDER, Grid};
 use crate::editor::Editor;
 use crate::editor::panel::Panel;
+use crate::editor::panel::field::Field;
 use crate::editor::panel::picker::Picker;
-use crate::editor::panel::prompt::{Field, Prompt};
 use crate::editor::style::CellStyle;
 use crate::editor::view::LineHighlight;
 use crate::text::layout::{self, Glyph};
@@ -109,7 +109,19 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
         let top = screen.panel_top() + 1;
         rule(grid, x, screen.panel_top(), width);
         match panel {
-            Panel::Prompt(prompt) => draw_prompt(grid, x, prompt, top, width, body),
+            Panel::Find(find) => draw_field(grid, x, &find.query, true, top, width),
+            Panel::GotoLine(goto_line) => draw_field(grid, x, &goto_line.line, true, top, width),
+            Panel::OpenFile(open_file) => draw_field(grid, x, &open_file.path, true, top, width),
+            Panel::Replace(replace) => {
+                let fields = [
+                    (&replace.query, !replace.on_replacement),
+                    (&replace.replacement, replace.on_replacement),
+                ];
+                for (row, (field, active)) in fields.into_iter().take(body).enumerate() {
+                    draw_field(grid, x, field, active, top + row, width);
+                }
+            }
+            Panel::SaveAs(save_as) => draw_field(grid, x, &save_as.path, true, top, width),
             Panel::Picker(picker) => draw_picker(grid, x, picker, top, width, body),
             Panel::Confirm(confirm) => {
                 for (row, line) in confirm.rows().iter().take(body).enumerate() {
@@ -328,21 +340,6 @@ fn tail(text: &str, columns: usize) -> String {
     pad(&format!("…{}", &text[from..]), columns)
 }
 
-/// Each field is a labelled line with the caret drawn on it, since the real
-/// terminal cursor stays hidden and we paint our own everywhere else.
-fn draw_prompt(
-    grid: &mut Grid,
-    x: usize,
-    prompt: &Prompt,
-    top: usize,
-    width: usize,
-    height: usize,
-) {
-    for (index, field) in prompt.fields.iter().take(height).enumerate() {
-        draw_field(grid, x, field, index == prompt.active, top + index, width);
-    }
-}
-
 /// A field is a one-line text drawn through a window, the way a row of the
 /// text is: the same painter, with the window sliding so that the caret
 /// stays in it. The caret and the selection are painted by us, since the
@@ -401,7 +398,6 @@ mod tests {
     use super::*;
     use crate::buffer::Buffer;
     use crate::editor::command::{Command, Edit, PanelCommand, Select};
-    use crate::editor::panel::prompt::Purpose;
     use crate::text::Text;
     use crate::text::movement::{Direction, Motion};
     use crate::text::selection::Selection;
@@ -549,12 +545,12 @@ mod tests {
     #[test]
     fn a_prompt_takes_its_rows_from_the_text_and_carries_its_caret() {
         let mut editor = editor_of("one\ntwo\n", 40, 8);
-        editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::Search)));
+        editor.execute(Command::Panel(PanelCommand::Find));
         editor.execute(Command::Edit(Edit::Insert("tw".to_owned())));
         // `Enter` starts the search and closes the strip; opened again, it
         // holds the hit that is selected.
-        editor.execute(Command::Panel(PanelCommand::Submit { backwards: false }));
-        editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::Search)));
+        editor.execute(Command::Panel(PanelCommand::Search(Direction::Forward)));
+        editor.execute(Command::Panel(PanelCommand::Find));
         editor.resize(40, 8);
         let grid = composed(&editor, 40, 8);
 
@@ -577,7 +573,7 @@ mod tests {
     #[test]
     fn a_field_longer_than_the_strip_keeps_its_caret_in_view() {
         let mut editor = editor_of("one\n", 20, 8);
-        editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::Search)));
+        editor.execute(Command::Panel(PanelCommand::Find));
         editor.execute(Command::Edit(Edit::Insert(
             "abcdefghijklmnopqrstuvwxyz".to_owned(),
         )));

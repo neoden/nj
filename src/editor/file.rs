@@ -9,7 +9,6 @@ use std::time::Duration;
 use anyhow::Result;
 
 use super::job::Report;
-use super::panel::prompt::Purpose;
 use super::panel::{After, Answer, Confirm, Panel};
 use super::workspace::BufferId;
 use super::{Editor, Exit, key};
@@ -53,7 +52,7 @@ impl Editor {
         // A buffer with no name yet is asked for one; what the save was for
         // rides along.
         if self.buffer().is_unnamed() {
-            return self.open_prompt(Purpose::SaveAs(after));
+            return self.open_save_as(after);
         }
         if self.write(after.clone()) {
             self.proceed(after);

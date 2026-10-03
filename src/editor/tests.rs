@@ -304,9 +304,17 @@ fn a_stacked_cursor_keeps_the_goal_column_over_a_short_line() {
     assert_eq!(ranges(&editor), [3..3, 6..6, 10..10]);
 }
 
+/// The search field's line of input, which has to be open.
+fn find_query(editor: &Editor) -> &Field {
+    match editor.panel() {
+        Some(Panel::Find(find)) => &find.query,
+        _ => panic!("the search field is open"),
+    }
+}
+
 /// Goes through `execute` so that the focus routing is what puts the
-/// text into the prompt and runs the search again.
-fn type_into_prompt(editor: &mut Editor, typed: &str) {
+/// text into the open form's field.
+fn type_into_field(editor: &mut Editor, typed: &str) {
     for character in typed.chars() {
         editor.execute(Command::Edit(Edit::Insert(character.to_string())));
     }
@@ -759,8 +767,8 @@ fn a_prompt_replaces_whatever_panel_was_open() {
     };
     let job = picker.job;
 
-    editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::GotoLine)));
-    assert!(editor.prompt().is_some());
+    editor.execute(Command::Panel(PanelCommand::GotoLine));
+    assert!(matches!(editor.panel(), Some(Panel::GotoLine(_))));
     assert!(!editor.jobs.is_live(job));
 }
 
@@ -824,9 +832,9 @@ fn opening_replaces_the_buffer_and_starts_the_view_over() {
     std::fs::write(&path, "one\ntwo\n").unwrap();
 
     let mut editor = editor("scratch text", 8);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "text");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "text");
+    editor.submit_find(Direction::Forward);
     assert!(editor.search.is_some());
 
     editor.execute(Command::File(File::Open(path.clone())));
@@ -1070,22 +1078,22 @@ fn saving_a_nameless_buffer_asks_for_a_name_and_carries_on() {
     editor.request_quit();
     editor.answer('s');
     assert_eq!(editor.exit(), None);
-    assert_eq!(
-        editor.prompt().map(|prompt| prompt.purpose.clone()),
-        Some(Purpose::SaveAs(After::Quit))
-    );
+    let Some(Panel::SaveAs(save_as)) = editor.panel() else {
+        panic!("a name is asked for");
+    };
+    assert_eq!(save_as.after, After::Quit);
 
     // Nothing typed: nothing happens, and the intention is dropped with
-    // the prompt.
-    editor.submit_prompt(false);
+    // the field.
+    editor.submit_save_as();
     assert!(editor.panel.is_none());
     assert_eq!(editor.exit(), None);
     assert!(editor.buffer().is_modified());
 
     editor.request_quit();
     editor.answer('s');
-    type_into_prompt(&mut editor, &path.display().to_string());
-    editor.submit_prompt(false);
+    type_into_field(&mut editor, &path.display().to_string());
+    editor.submit_save_as();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "!text");
     assert_eq!(editor.exit(), Some(Exit::Quit));
 
@@ -1126,21 +1134,19 @@ fn the_path_prompts_open_and_save_what_is_typed() {
     let _ = std::fs::remove_file(&second);
 
     let mut editor = editor("", 0);
-    editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::Open)));
-    type_into_prompt(&mut editor, &format!(" {} ", first.display()));
-    editor.submit_prompt(false);
+    editor.execute(Command::Panel(PanelCommand::OpenFile));
+    type_into_field(&mut editor, &format!(" {} ", first.display()));
+    editor.submit_open_file();
     assert_eq!(content(&editor), "first\n");
 
-    editor.execute(Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(
-        After::Stay,
-    ))));
-    assert_eq!(
-        editor.prompt().unwrap().contents(0),
-        first.display().to_string()
-    );
+    editor.execute(Command::Panel(PanelCommand::SaveAs(After::Stay)));
+    let Some(Panel::SaveAs(save_as)) = editor.panel() else {
+        panic!("a name is asked for");
+    };
+    assert_eq!(save_as.path.contents(), first.display().to_string());
     editor.execute(Command::Select(Select::All));
-    type_into_prompt(&mut editor, &second.display().to_string());
-    editor.submit_prompt(false);
+    type_into_field(&mut editor, &second.display().to_string());
+    editor.submit_save_as();
     assert_eq!(std::fs::read_to_string(&second).unwrap(), "first\n");
     assert_eq!(editor.buffer().name(), second.display().to_string());
 
@@ -1151,9 +1157,9 @@ fn the_path_prompts_open_and_save_what_is_typed() {
 #[test]
 fn goto_line_moves_the_cursor_to_its_start() {
     let mut editor = editor("one\ntwo\nthree\n", 0);
-    editor.open_prompt(Purpose::GotoLine);
-    type_into_prompt(&mut editor, "3");
-    editor.submit_prompt(false);
+    editor.open_goto_line();
+    type_into_field(&mut editor, "3");
+    editor.submit_goto_line();
 
     assert_eq!(editor.view().selections.primary().head, 8);
     assert!(editor.panel.is_none());
@@ -1162,9 +1168,9 @@ fn goto_line_moves_the_cursor_to_its_start() {
 #[test]
 fn goto_line_complains_about_nonsense() {
     let mut editor = editor("one\ntwo\n", 0);
-    editor.open_prompt(Purpose::GotoLine);
-    type_into_prompt(&mut editor, "later");
-    editor.submit_prompt(false);
+    editor.open_goto_line();
+    type_into_field(&mut editor, "later");
+    editor.submit_goto_line();
 
     assert_eq!(editor.view().selections.primary().head, 0);
     assert!(editor.message.is_some());
@@ -1202,12 +1208,12 @@ fn scrolling_leaves_the_cursors_alone() {
 fn opening_search_takes_the_selected_text() {
     let mut editor = editor("alpha beta gamma", 0);
     select_range(&mut editor, 6, 10);
-    editor.open_prompt(Purpose::Search);
+    editor.open_find();
 
-    let prompt = editor.prompt().unwrap();
-    assert_eq!(prompt.contents(0), "beta");
+    let query = find_query(&editor);
+    assert_eq!(query.contents(), "beta");
     // Seeded and selected, so the next keystroke replaces it.
-    assert_eq!(prompt.fields[0].selection(), 0..4);
+    assert_eq!(query.selection(), 0..4);
     // The match under the cursor stays put rather than jumping ahead.
     assert_eq!(editor.view().selections.primary().range(), 6..10);
 }
@@ -1215,42 +1221,42 @@ fn opening_search_takes_the_selected_text() {
 #[test]
 fn opening_search_again_brings_the_query_back() {
     let mut editor = editor("x . x . x", 0);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "x");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "x");
+    editor.submit_find(Direction::Forward);
     select(&mut editor, SelectionSet::single(2));
 
-    editor.open_prompt(Purpose::Search);
-    let prompt = editor.prompt().unwrap();
-    assert_eq!(prompt.contents(0), "x");
+    editor.open_find();
+    let query = find_query(&editor);
+    assert_eq!(query.contents(), "x");
     // Selected, so that typing starts a new query.
-    assert_eq!(prompt.fields[0].selection(), 0..1);
+    assert_eq!(query.selection(), 0..1);
     // Opening lights the hits and moves nothing.
     assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
     assert_eq!(ranges(&editor), [2..2]);
 
-    editor.submit_prompt(false);
+    editor.submit_find(Direction::Forward);
     assert_eq!(ranges(&editor), [4..5]);
 
     // A search `Esc` ended is remembered just the same.
     editor.end_search();
-    editor.open_prompt(Purpose::Search);
-    assert_eq!(editor.prompt().unwrap().contents(0), "x");
+    editor.open_find();
+    assert_eq!(find_query(&editor).contents(), "x");
 }
 
 #[test]
 fn a_prompt_closed_empty_leaves_the_last_query_alone() {
     let mut editor = editor("x . x . x", 0);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "x");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "x");
+    editor.submit_find(Direction::Forward);
 
     // The query comes back selected, and one keystroke wipes it.
-    editor.open_prompt(Purpose::Search);
+    editor.open_find();
     editor.execute(Command::Edit(Edit::Delete(Motion::Grapheme(
         Direction::Backward,
     ))));
-    assert_eq!(editor.prompt().unwrap().contents(0), "");
+    assert_eq!(find_query(&editor).contents(), "");
     editor.close_panel();
     // Nothing was started, so the search there was goes on.
     assert!(editor.has_search());
@@ -1264,17 +1270,17 @@ fn a_prompt_closed_empty_leaves_the_last_query_alone() {
 fn a_selection_across_lines_does_not_seed_the_query() {
     let mut editor = editor("one\ntwo", 0);
     select_range(&mut editor, 0, 7);
-    editor.open_prompt(Purpose::Search);
+    editor.open_find();
 
-    assert_eq!(editor.prompt().unwrap().contents(0), "");
+    assert_eq!(find_query(&editor).contents(), "");
 }
 
 #[test]
 fn enter_closes_the_prompt_and_leaves_the_search_running() {
     let mut editor = editor("alpha beta", 2);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "beta");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "beta");
+    editor.submit_find(Direction::Forward);
 
     assert_eq!(editor.view().selections.primary().range(), 6..10);
     assert!(editor.panel.is_none());
@@ -1289,12 +1295,12 @@ fn enter_closes_the_prompt_and_leaves_the_search_running() {
 #[test]
 fn another_prompt_leaves_the_search_alone() {
     let mut editor = editor("1 x 1", 0);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "x");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "x");
+    editor.submit_find(Direction::Forward);
 
-    editor.open_prompt(Purpose::GotoLine);
-    type_into_prompt(&mut editor, "1");
+    editor.open_goto_line();
+    type_into_field(&mut editor, "1");
     assert_eq!(editor.matches(), [2..3]);
     assert_eq!(editor.view().selections.primary().range(), 2..3);
 }
@@ -1302,10 +1308,10 @@ fn another_prompt_leaves_the_search_alone() {
 #[test]
 fn enter_starts_the_search_and_closes_the_field() {
     let mut editor = editor("x . x . x", 2);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "x");
+    editor.open_find();
+    type_into_field(&mut editor, "x");
 
-    editor.submit_prompt(false);
+    editor.submit_find(Direction::Forward);
     // The first hit from where the cursor stood, not from the top.
     assert_eq!(ranges(&editor), [4..5]);
     assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
@@ -1313,15 +1319,15 @@ fn enter_starts_the_search_and_closes_the_field() {
 
     // Backwards it is the first one before the cursor.
     select(&mut editor, SelectionSet::single(2));
-    editor.open_prompt(Purpose::Search);
-    editor.submit_prompt(true);
+    editor.open_find();
+    editor.submit_find(Direction::Backward);
     assert_eq!(ranges(&editor), [0..1]);
 
     // Nothing found: the field closes and the cursor stays.
     select(&mut editor, SelectionSet::single(2));
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "q");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "q");
+    editor.submit_find(Direction::Forward);
     assert_eq!(ranges(&editor), [2..2]);
     assert_eq!(editor.message(), Some("Not found"));
     assert!(editor.panel.is_none());
@@ -1330,9 +1336,9 @@ fn enter_starts_the_search_and_closes_the_field() {
 #[test]
 fn every_hit_is_collected_and_counted() {
     let mut editor = editor("x . x . x", 0);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "x");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "x");
+    editor.submit_find(Direction::Forward);
 
     assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
     assert_eq!(editor.panel_status(), "1/3 \"x\"");
@@ -1344,9 +1350,9 @@ fn every_hit_is_collected_and_counted() {
 #[test]
 fn the_status_names_the_search_once_its_prompt_is_gone() {
     let mut editor = editor("x . x . x", 0);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "x");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "x");
+    editor.submit_find(Direction::Forward);
     assert_eq!(editor.panel_status(), "1/3 \"x\"");
 
     // Off the hit there is no current one to number.
@@ -1372,9 +1378,9 @@ fn a_long_query_is_cut_short_in_the_status() {
 #[test]
 fn every_hit_can_become_a_cursor() {
     let mut editor = editor("id, id, id", 0);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "id");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "id");
+    editor.submit_find(Direction::Forward);
     editor.execute(Command::FindNext(Direction::Forward));
 
     editor.select_all_matches();
@@ -1398,9 +1404,9 @@ fn too_many_hits_are_refused_rather_than_partly_selected() {
     assert_eq!(ranges(&over), [0..1]);
     assert!(over.message().unwrap().starts_with("More than"));
 
-    over.open_prompt(Purpose::Search);
-    type_into_prompt(&mut over, "x");
-    over.execute(Command::Panel(PanelCommand::Submit { backwards: false }));
+    over.open_find();
+    type_into_field(&mut over, "x");
+    over.execute(Command::Panel(PanelCommand::Search(Direction::Forward)));
     assert_eq!(over.message(), None);
     over.execute(Command::Select(Select::AllOccurrences));
     assert_eq!(over.view().selections.len(), 1);
@@ -1418,9 +1424,9 @@ fn too_many_hits_are_refused_rather_than_partly_selected() {
 #[test]
 fn a_query_with_no_hits_counts_zero() {
     let mut editor = editor("nothing here", 0);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "zzz");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "zzz");
+    editor.submit_find(Direction::Forward);
 
     assert!(editor.matches().is_empty());
     assert_eq!(editor.panel_status(), "0 \"zzz\"");
@@ -1430,9 +1436,9 @@ fn a_query_with_no_hits_counts_zero() {
 fn the_hits_keep_up_with_the_text() {
     let mut editor = editor("x . x", 0);
     editor.insert("x ", EditKind::Other);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "x");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "x");
+    editor.submit_find(Direction::Forward);
     assert_eq!(editor.matches(), [0..1, 2..3, 6..7]);
 
     editor.undo();
@@ -1443,9 +1449,9 @@ fn the_hits_keep_up_with_the_text() {
 #[test]
 fn f3_still_works_once_the_strip_is_closed() {
     let mut editor = editor("x . x", 0);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "x");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "x");
+    editor.submit_find(Direction::Forward);
 
     editor.search_next(Direction::Forward);
     assert_eq!(editor.view().selections.primary().range(), 4..5);
@@ -1456,25 +1462,25 @@ fn f3_still_works_once_the_strip_is_closed() {
 #[test]
 fn f3_in_a_panel_that_is_not_a_search_does_nothing() {
     let mut editor = editor("x . x", 0);
-    editor.open_prompt(Purpose::Search);
-    type_into_prompt(&mut editor, "x");
-    editor.submit_prompt(false);
+    editor.open_find();
+    type_into_field(&mut editor, "x");
+    editor.submit_find(Direction::Forward);
 
-    editor.open_prompt(Purpose::GotoLine);
+    editor.open_goto_line();
     editor.execute(Command::FindNext(Direction::Forward));
     assert_eq!(editor.message(), None);
     assert_eq!(editor.view().selections.primary().range(), 0..1);
-    assert!(editor.prompt().is_some());
+    assert!(matches!(editor.panel(), Some(Panel::GotoLine(_))));
 }
 
 #[test]
 fn replace_changes_every_occurrence_in_one_step() {
     let mut editor = editor("one two one", 0);
-    editor.open_prompt(Purpose::Replace);
-    type_into_prompt(&mut editor, "one");
+    editor.open_replace();
+    type_into_field(&mut editor, "one");
     editor.execute(Command::Panel(PanelCommand::NextField));
-    type_into_prompt(&mut editor, "1");
-    editor.submit_prompt(false);
+    type_into_field(&mut editor, "1");
+    editor.submit_replace();
     editor.execute(Command::Panel(PanelCommand::ReplaceAll));
 
     assert_eq!(content(&editor), "1 two 1");

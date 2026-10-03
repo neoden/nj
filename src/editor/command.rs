@@ -10,7 +10,6 @@ use std::path::PathBuf;
 
 use super::panel::After;
 use super::panel::picker::Pick;
-use super::panel::prompt::Purpose;
 use crate::text::movement::{Direction, Motion};
 use crate::text::selection::SelectionSet;
 
@@ -97,13 +96,31 @@ pub enum File {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PanelCommand {
-    Prompt(Purpose),
+    /// Opens the search field.
+    Find,
+    /// `Enter` in the search field: starts the search and goes to its first
+    /// hit from the cursor in this direction.
+    Search(Direction),
+    /// Opens the replace fields.
+    Replace,
+    /// `Enter` in the replace fields: starts the search and asks at its
+    /// first hit.
+    StartReplacing,
+    /// Opens the line number field.
+    GotoLine,
+    /// `Enter` in the line number field: goes to the line typed there.
+    Jump,
+    /// Opens the field a path to open is typed into.
+    OpenFile,
+    /// `Enter` in that field: opens the file at the path typed there.
+    OpenPath,
+    /// Opens the field a name to save under is typed into; carries what the
+    /// save is for.
+    SaveAs(After),
+    /// `Enter` in that field: saves under the name typed there.
+    SavePath,
     Picker(Pick),
     Close,
-    /// Backwards for `Shift+Enter` while searching.
-    Submit {
-        backwards: bool,
-    },
     /// Takes the picker's highlighted candidate.
     Pick,
     /// A single-key answer to a question.
@@ -124,15 +141,9 @@ pub enum PanelCommand {
 /// Movement is not — nobody opens a palette to go left — and neither is
 /// anything that only makes sense inside a panel.
 pub const PALETTE: &[(&str, Command)] = &[
-    (
-        "Open file",
-        Command::Panel(PanelCommand::Prompt(Purpose::Open)),
-    ),
+    ("Open file", Command::Panel(PanelCommand::OpenFile)),
     ("Save", Command::File(File::Save)),
-    (
-        "Save as",
-        Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay))),
-    ),
+    ("Save as", Command::Panel(PanelCommand::SaveAs(After::Stay))),
     ("Quit", Command::Quit),
     ("Abort", Command::Abort),
     ("Undo", Command::Edit(Edit::Undo)),
@@ -143,20 +154,11 @@ pub const PALETTE: &[(&str, Command)] = &[
     ("Indent", Command::Edit(Edit::Indent)),
     ("Outdent", Command::Edit(Edit::Outdent)),
     ("Toggle comment", Command::Edit(Edit::ToggleComment)),
-    (
-        "Find",
-        Command::Panel(PanelCommand::Prompt(Purpose::Search)),
-    ),
-    (
-        "Replace",
-        Command::Panel(PanelCommand::Prompt(Purpose::Replace)),
-    ),
+    ("Find", Command::Panel(PanelCommand::Find)),
+    ("Replace", Command::Panel(PanelCommand::Replace)),
     ("Find next", Command::FindNext(Direction::Forward)),
     ("Find previous", Command::FindNext(Direction::Backward)),
-    (
-        "Go to line",
-        Command::Panel(PanelCommand::Prompt(Purpose::GotoLine)),
-    ),
+    ("Go to line", Command::Panel(PanelCommand::GotoLine)),
     ("Select all", Command::Select(Select::All)),
     ("Select line", Command::Select(Select::Line)),
     (

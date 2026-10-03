@@ -1,15 +1,26 @@
-//! The strip above the status bar: a prompt, a picker or a question.
+//! The strip above the status bar: a form of one kind or another, each
+//! serving one case.
 
+pub mod field;
+pub mod find;
 mod fuzzy;
+pub mod goto_line;
+pub mod open_file;
 pub mod picker;
-pub mod prompt;
+pub mod replace;
 pub mod replacing;
+pub mod save_as;
 
 use std::path::PathBuf;
 
+use field::Field;
+use find::Find;
+use goto_line::GotoLine;
+use open_file::OpenFile;
 use picker::Picker;
-use prompt::{Field, Prompt};
+use replace::Replace;
 use replacing::Replacing;
+use save_as::SaveAs;
 
 /// A question with single-key answers. `Esc` always means "never mind".
 /// Each choice carries what it does, so there is no separate record of
@@ -155,7 +166,11 @@ impl Confirm {
 /// that mean something in both places go to the panel's field first.
 #[derive(Debug)]
 pub enum Panel {
-    Prompt(Prompt),
+    Find(Find),
+    Replace(Replace),
+    GotoLine(GotoLine),
+    OpenFile(OpenFile),
+    SaveAs(SaveAs),
     Picker(Picker),
     Confirm(Confirm),
     Replacing(Replacing),
@@ -166,7 +181,8 @@ impl Panel {
     /// the text and the status bar.
     pub fn height(&self) -> usize {
         2 + match self {
-            Panel::Prompt(prompt) => prompt.height(),
+            Panel::Find(_) | Panel::GotoLine(_) | Panel::OpenFile(_) | Panel::SaveAs(_) => 1,
+            Panel::Replace(_) => 2,
             Panel::Picker(picker) => picker.height(),
             Panel::Confirm(confirm) => confirm.rows().len(),
             Panel::Replacing(_) => 1,
@@ -178,16 +194,13 @@ impl Panel {
     /// else.
     pub fn field_mut(&mut self) -> Option<&mut Field> {
         match self {
-            Panel::Prompt(prompt) => Some(prompt.field_mut()),
+            Panel::Find(find) => Some(&mut find.query),
+            Panel::Replace(replace) => Some(replace.field_mut()),
+            Panel::GotoLine(goto_line) => Some(&mut goto_line.line),
+            Panel::OpenFile(open_file) => Some(&mut open_file.path),
+            Panel::SaveAs(save_as) => Some(&mut save_as.path),
             Panel::Picker(picker) => Some(&mut picker.query),
             Panel::Confirm(_) | Panel::Replacing(_) => None,
-        }
-    }
-
-    pub fn as_prompt(&self) -> Option<&Prompt> {
-        match self {
-            Panel::Prompt(prompt) => Some(prompt),
-            _ => None,
         }
     }
 }

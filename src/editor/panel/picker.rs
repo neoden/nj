@@ -1,5 +1,5 @@
+use super::field::Field;
 use super::fuzzy;
-use super::prompt::Field;
 use crate::editor::job::{JobId, Report, Worker};
 
 /// Rows of candidates shown at once. The query line sits above them.

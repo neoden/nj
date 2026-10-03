@@ -11,7 +11,6 @@ use super::Editor;
 use super::command::{Command, Edit, File, PanelCommand, Select};
 use super::key::{Key, KeyCode, Keystroke, Mods};
 use super::panel::picker::{self, Pick};
-use super::panel::prompt::Purpose;
 use super::panel::{After, Panel};
 use crate::text::movement::{Direction, Motion};
 
@@ -26,7 +25,16 @@ pub enum Context {
     /// The text, with a search in progress.
     Searching,
     Panel,
-    Prompt,
+    /// The search field is open.
+    Find,
+    /// The replace fields are open.
+    Replace,
+    /// The line number field is open.
+    GotoLine,
+    /// The field for a path to open is open.
+    OpenFile,
+    /// The field for a name to save under is open.
+    SaveAs,
     Picker,
     Confirm,
     /// A replacement is asking at each hit.
@@ -43,7 +51,11 @@ impl Context {
             }
             Context::Searching => editor.panel().is_none() && editor.has_search(),
             Context::Panel => editor.panel().is_some(),
-            Context::Prompt => matches!(editor.panel(), Some(Panel::Prompt(_))),
+            Context::Find => matches!(editor.panel(), Some(Panel::Find(_))),
+            Context::Replace => matches!(editor.panel(), Some(Panel::Replace(_))),
+            Context::GotoLine => matches!(editor.panel(), Some(Panel::GotoLine(_))),
+            Context::OpenFile => matches!(editor.panel(), Some(Panel::OpenFile(_))),
+            Context::SaveAs => matches!(editor.panel(), Some(Panel::SaveAs(_))),
             Context::Picker => matches!(editor.panel(), Some(Panel::Picker(_))),
             Context::Confirm => matches!(editor.panel(), Some(Panel::Confirm(_))),
             Context::Replacing => matches!(editor.panel(), Some(Panel::Replacing(_))),
@@ -59,7 +71,11 @@ impl Context {
         self == other
             || self == Any
             || (self == Text && matches!(other, MultipleCursors | Searching))
-            || (self == Panel && matches!(other, Prompt | Picker | Confirm | Replacing))
+            || (self == Panel
+                && matches!(
+                    other,
+                    Find | Replace | GotoLine | OpenFile | SaveAs | Picker | Confirm | Replacing
+                ))
     }
 }
 
@@ -133,8 +149,9 @@ const fn mv(code: KeyCode, mods: Mods, motion: Motion) -> Binding {
 }
 
 use Context::{
-    Any, MultipleCursors, Panel as InPanel, Picker as InPicker, Prompt as InPrompt,
-    Replacing as InReplacing, Searching, Text,
+    Any, Find as InFind, GotoLine as InGotoLine, MultipleCursors, OpenFile as InOpenFile,
+    Panel as InPanel, Picker as InPicker, Replace as InReplace, Replacing as InReplacing,
+    SaveAs as InSaveAs, Searching, Text,
 };
 use Direction::{Backward, Forward};
 use KeyCode::{
@@ -148,16 +165,40 @@ pub static KEYMAP: &[Binding] = &[
     bind(
         Enter,
         NONE,
-        InPrompt,
-        Command::Panel(PanelCommand::Submit { backwards: false }),
+        InFind,
+        Command::Panel(PanelCommand::Search(Forward)),
     ),
     bind(
         Enter,
         SHIFT,
-        InPrompt,
-        Command::Panel(PanelCommand::Submit { backwards: true }),
+        InFind,
+        Command::Panel(PanelCommand::Search(Backward)),
     ),
-    bind(Tab, NONE, InPrompt, Command::Panel(PanelCommand::NextField)),
+    bind(
+        Enter,
+        NONE,
+        InSaveAs,
+        Command::Panel(PanelCommand::SavePath),
+    ),
+    bind(
+        Enter,
+        NONE,
+        InReplace,
+        Command::Panel(PanelCommand::StartReplacing),
+    ),
+    bind(
+        Tab,
+        NONE,
+        InReplace,
+        Command::Panel(PanelCommand::NextField),
+    ),
+    bind(Enter, NONE, InGotoLine, Command::Panel(PanelCommand::Jump)),
+    bind(
+        Enter,
+        NONE,
+        InOpenFile,
+        Command::Panel(PanelCommand::OpenPath),
+    ),
     bind(
         Char('a'),
         NONE,
@@ -229,32 +270,22 @@ pub static KEYMAP: &[Binding] = &[
         Char('s'),
         CTRL_SHIFT,
         Text,
-        Command::Panel(PanelCommand::Prompt(Purpose::SaveAs(After::Stay))),
+        Command::Panel(PanelCommand::SaveAs(After::Stay)),
     ),
     bind(
         Char('o'),
         CTRL,
         Text,
-        Command::Panel(PanelCommand::Prompt(Purpose::Open)),
+        Command::Panel(PanelCommand::OpenFile),
     ),
     bind(
         Char('g'),
         CTRL,
         Text,
-        Command::Panel(PanelCommand::Prompt(Purpose::GotoLine)),
+        Command::Panel(PanelCommand::GotoLine),
     ),
-    bind(
-        Char('f'),
-        CTRL,
-        Text,
-        Command::Panel(PanelCommand::Prompt(Purpose::Search)),
-    ),
-    bind(
-        Char('h'),
-        CTRL,
-        Text,
-        Command::Panel(PanelCommand::Prompt(Purpose::Replace)),
-    ),
+    bind(Char('f'), CTRL, Text, Command::Panel(PanelCommand::Find)),
+    bind(Char('h'), CTRL, Text, Command::Panel(PanelCommand::Replace)),
     bind(
         Char('p'),
         CTRL_SHIFT,
@@ -379,7 +410,7 @@ mod tests {
         assert!(Text.covers(Searching));
         assert!(!Searching.covers(MultipleCursors));
         assert!(Panel.covers(Confirm));
-        assert!(!Prompt.covers(Picker));
+        assert!(!Find.covers(Picker));
         assert!(!Text.covers(Panel));
     }
 }

@@ -1,5 +1,5 @@
-//! Finding things in the text: the search a prompt starts, walking its hits,
-//! repeating it once the prompt is gone, and the selection-driven kind —
+//! Finding things in the text: the search the search field starts, walking
+//! its hits, replacing them one at a time, and the selection-driven kind —
 //! `Ctrl+D` and `Ctrl+Shift+L` — that starts from the word under the cursor.
 //! One engine (`text::search`) serves them all; what differs is the query
 //! and where the hits go.

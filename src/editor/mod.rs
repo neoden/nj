@@ -33,8 +33,13 @@ use clipboard::{Clipboard, Desktop};
 use command::{Command, Edit, File, PanelCommand, Select};
 use find::Occurrences;
 use job::{JobId, Jobs, Message, Report};
+use panel::field::Field;
+use panel::find::Find;
+use panel::goto_line::GotoLine;
+use panel::open_file::OpenFile;
 use panel::picker::{self, Candidate, Pick, Picker};
-use panel::prompt::{Field, Prompt, Purpose};
+use panel::replace::Replace;
+use panel::save_as::SaveAs;
 use panel::{After, Panel};
 use screen::Screen;
 use view::View;
@@ -61,11 +66,12 @@ pub struct Editor {
     panel: Option<Panel>,
     /// Shown on the status bar until the next command.
     message: Option<String>,
-    /// The search in progress. A prompt starts it and it stays when the
-    /// prompt closes, so its hits are found again whenever the text changes.
+    /// The search in progress. The search field starts it and it stays when
+    /// the field closes, so its hits are found again whenever the text
+    /// changes.
     search: Option<Session>,
     /// The query searched for last, for when no search is going on: `F3`
-    /// brings it back, and a search prompt opens holding it.
+    /// brings it back, and the search field opens holding it.
     last: Option<Query>,
     /// Set once the loop should stop; how says what the process ends with.
     exit: Option<Exit>,
@@ -309,18 +315,26 @@ impl Editor {
                 None => self.message = Some(format!("No language called {name}")),
             },
 
-            Command::Panel(PanelCommand::Prompt(purpose)) => self.open_prompt(purpose),
+            Command::Panel(PanelCommand::Find) => self.open_find(),
+            Command::Panel(PanelCommand::Search(direction)) => self.submit_find(direction),
+            Command::Panel(PanelCommand::Replace) => self.open_replace(),
+            Command::Panel(PanelCommand::StartReplacing) => self.submit_replace(),
+            Command::Panel(PanelCommand::GotoLine) => self.open_goto_line(),
+            Command::Panel(PanelCommand::Jump) => self.submit_goto_line(),
+            Command::Panel(PanelCommand::OpenFile) => self.open_open_file(),
+            Command::Panel(PanelCommand::OpenPath) => self.submit_open_file(),
+            Command::Panel(PanelCommand::SaveAs(after)) => self.open_save_as(after),
+            Command::Panel(PanelCommand::SavePath) => self.submit_save_as(),
             Command::Panel(PanelCommand::Picker(pick)) => self.open_picker(pick),
             Command::Panel(PanelCommand::Close) => self.close_panel(),
-            Command::Panel(PanelCommand::Submit { backwards }) => self.submit_prompt(backwards),
             Command::Panel(PanelCommand::Pick) => self.accept_pick(),
             Command::Panel(PanelCommand::Answer(answer)) => self.answer(answer),
             Command::Panel(PanelCommand::ReplaceHit) => self.replace_hit(),
             Command::Panel(PanelCommand::SkipHit) => self.skip_hit(),
             Command::Panel(PanelCommand::ReplaceAll) => self.replace_rest(),
             Command::Panel(PanelCommand::NextField) => {
-                if let Some(Panel::Prompt(prompt)) = &mut self.panel {
-                    prompt.focus_next_field();
+                if let Some(Panel::Replace(replace)) = &mut self.panel {
+                    replace.switch_field();
                 }
             }
             Command::Panel(PanelCommand::MoveChoice(delta)) => {
@@ -351,8 +365,8 @@ impl Editor {
         }
     }
 
-    /// An edited query sifts a picker's list as it is typed. A prompt's
-    /// fields drive nothing until `Enter`.
+    /// An edited query sifts a picker's list as it is typed. The fields of
+    /// the other forms drive nothing until `Enter`.
     fn field_edited(&mut self) {
         if let Some(Panel::Picker(picker)) = &mut self.panel {
             picker.refilter();
@@ -418,42 +432,112 @@ impl Editor {
         view.scroll_to_cursor(buffer);
     }
 
-    fn open_prompt(&mut self, purpose: Purpose) {
-        self.close_panel();
-        let mut prompt = Prompt::new(purpose.clone());
-
-        if purpose.searches() {
-            // Opening starts nothing and ends nothing: a search going on
-            // goes on until `Enter` puts another in its place.
-            let previous = self
-                .search
-                .as_ref()
-                .map(Session::query)
-                .or(self.last.as_ref())
-                .map(|query| query.needle.clone());
-            // A selection spanning lines means something else entirely, so
-            // only a fragment seeds the query; with nothing selected it is
-            // the query searched for last. What is seeded stays selected, so
-            // typing replaces it instead of appending to it.
-            let seed = self
-                .selected_text()
-                .filter(|text| !text.contains('\n'))
-                .or(previous);
-            if let Some(seed) = seed {
-                prompt.insert(&seed);
-                prompt.select_all();
-            }
-        }
-        // A file's own name is the likeliest start of the new one.
-        if let (Purpose::SaveAs(_), Some(path)) = (&purpose, self.buffer().path()) {
-            prompt.insert(&path.display().to_string());
-        }
-
-        self.panel = Some(Panel::Prompt(prompt));
+    /// What a query field opens holding. A selection spanning lines means
+    /// something else entirely, so only a fragment is taken; with nothing
+    /// selected it is the query of the search going on, or of the last one.
+    fn query_seed(&self) -> Option<String> {
+        let previous = self
+            .search
+            .as_ref()
+            .map(Session::query)
+            .or(self.last.as_ref())
+            .map(|query| query.needle.clone());
+        self.selected_text()
+            .filter(|text| !text.contains('\n'))
+            .or(previous)
     }
 
-    pub fn prompt(&self) -> Option<&Prompt> {
-        self.panel.as_ref()?.as_prompt()
+    /// Opening starts nothing and ends nothing: a search going on goes on
+    /// until `Enter` puts another in its place.
+    fn open_find(&mut self) {
+        self.close_panel();
+        let seed = self.query_seed();
+        self.panel = Some(Panel::Find(Find::new(seed.as_deref())));
+    }
+
+    /// `Enter` in the search field: it closes, and the search starts.
+    fn submit_find(&mut self, direction: Direction) {
+        let Some(Panel::Find(find)) = &self.panel else {
+            return;
+        };
+        let needle = find.query.contents();
+        self.close_panel();
+        self.start_search(needle, direction);
+    }
+
+    /// Like the search field, opening the replace fields touches no search.
+    fn open_replace(&mut self) {
+        self.close_panel();
+        let seed = self.query_seed();
+        self.panel = Some(Panel::Replace(Replace::new(seed.as_deref())));
+    }
+
+    /// `Enter` in the replace fields: they close, and the question is asked
+    /// at the first hit.
+    fn submit_replace(&mut self) {
+        let Some(Panel::Replace(replace)) = &self.panel else {
+            return;
+        };
+        let (needle, replacement) = (replace.query.contents(), replace.replacement.contents());
+        self.close_panel();
+        self.start_replacing(needle, replacement);
+    }
+
+    fn open_goto_line(&mut self) {
+        self.close_panel();
+        self.panel = Some(Panel::GotoLine(GotoLine::new()));
+    }
+
+    /// `Enter` in the line number field: it closes, and the cursor goes to
+    /// the line, or the bar says that what was typed is not one.
+    fn submit_goto_line(&mut self) {
+        let Some(Panel::GotoLine(goto_line)) = &self.panel else {
+            return;
+        };
+        let typed = goto_line.line.contents();
+        self.close_panel();
+        match parse_line_number(&typed) {
+            Some(line) => self.goto_line(line),
+            None => self.message = Some("Not a line number".to_owned()),
+        }
+    }
+
+    fn open_open_file(&mut self) {
+        self.close_panel();
+        self.panel = Some(Panel::OpenFile(OpenFile::new()));
+    }
+
+    /// `Enter` in the field for a path to open: it closes, and the file is
+    /// opened. With nothing typed there is nothing to open.
+    fn submit_open_file(&mut self) {
+        let Some(Panel::OpenFile(open_file)) = &self.panel else {
+            return;
+        };
+        let typed = open_file.path.contents();
+        self.close_panel();
+        if !typed.trim().is_empty() {
+            self.open(PathBuf::from(typed.trim()));
+        }
+    }
+
+    pub(super) fn open_save_as(&mut self, after: After) {
+        self.close_panel();
+        let name = self.buffer().path().map(|path| path.display().to_string());
+        self.panel = Some(Panel::SaveAs(SaveAs::new(after, name.as_deref())));
+    }
+
+    /// `Enter` in the field for a name to save under: it closes, and the
+    /// buffer is saved there. With nothing typed there is nothing to do, and
+    /// what the save was for is dropped with the field.
+    fn submit_save_as(&mut self) {
+        let Some(Panel::SaveAs(save_as)) = &self.panel else {
+            return;
+        };
+        let (typed, after) = (save_as.path.contents(), save_as.after.clone());
+        self.close_panel();
+        if !typed.trim().is_empty() {
+            self.save_as(PathBuf::from(typed.trim()), after);
+        }
     }
 
     /// The candidates are read on a worker and arrive as reports, however
@@ -548,48 +632,6 @@ impl Editor {
         self.panel = None;
     }
 
-    /// `Enter` answers what the strip asked and closes it.
-    fn submit_prompt(&mut self, backwards: bool) {
-        let Some(prompt) = self.prompt() else {
-            return;
-        };
-        let purpose = prompt.purpose.clone();
-        let first = prompt.contents(0);
-
-        match purpose {
-            Purpose::Search => {
-                self.start_search(
-                    first,
-                    match backwards {
-                        true => Direction::Backward,
-                        false => Direction::Forward,
-                    },
-                );
-            }
-            Purpose::GotoLine => match parse_line_number(&first) {
-                Some(line) => self.goto_line(line),
-                None => self.message = Some("Not a line number".to_owned()),
-            },
-            Purpose::Replace => {
-                let replacement = prompt.contents(1);
-                self.close_panel();
-                return self.start_replacing(first, replacement);
-            }
-            // Empty means nothing to do; the panel closes all the same.
-            Purpose::Open | Purpose::SaveAs(_) if first.trim().is_empty() => {}
-            Purpose::Open => {
-                self.close_panel();
-                return self.open(PathBuf::from(first.trim()));
-            }
-            Purpose::SaveAs(after) => {
-                self.close_panel();
-                return self.save_as(PathBuf::from(first.trim()), after);
-            }
-        }
-
-        self.close_panel();
-    }
-
     fn goto_line(&mut self, line: usize) {
         let (view, buffer) = self.workspace.focus_mut();
         let text = buffer.text();
@@ -615,7 +657,7 @@ impl Editor {
     }
 
     /// What kind of edit this is comes from the caller: the same text is
-    /// typing at the keyboard and a replacement from a prompt, and only the
+    /// typing at the keyboard and a replacement at a hit, and only the
     /// first of those belongs in a typing group.
     fn insert(&mut self, inserted: &str, kind: EditKind) {
         let transaction = Transaction::edit(

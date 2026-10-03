@@ -183,7 +183,7 @@ fn the_palette_runs_a_command_by_name() {
     open_palette(&mut editor);
     typed(&mut editor, "find");
     press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
-    assert!(editor.prompt().is_some());
+    assert!(matches!(editor.panel(), Some(Panel::Find(_))));
 }
 
 #[test]
@@ -275,20 +275,21 @@ fn tab_indents_by_what_is_selected_and_back_tab_outdents() {
     assert_eq!(content(&editor), "a   b");
 }
 
-/// In a prompt, `Tab` moves between fields instead of indenting anything.
+/// In the replace fields, `Tab` moves between them instead of indenting
+/// anything.
 #[test]
-fn tab_in_a_prompt_moves_to_the_next_field() {
+fn tab_in_replace_moves_to_the_other_field() {
     let mut editor = editor_with("x");
     ctrl(&mut editor, 'h');
     typed(&mut editor, "x");
     press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
     typed(&mut editor, "y");
 
-    let prompt = editor.prompt().expect("the replace prompt is open");
-    assert_eq!(
-        (prompt.contents(0), prompt.contents(1)),
-        ("x".into(), "y".into())
-    );
+    let Some(Panel::Replace(replace)) = editor.panel() else {
+        panic!("the replace fields are open");
+    };
+    assert_eq!(replace.query.contents(), "x");
+    assert_eq!(replace.replacement.contents(), "y");
     assert_eq!(content(&editor), "x");
 }
 
@@ -660,7 +661,7 @@ fn an_unbound_combination_inserts_nothing() {
 }
 
 #[test]
-fn enter_in_goto_line_jumps_and_closes_the_prompt() {
+fn enter_in_goto_line_jumps_and_closes_the_field() {
     let mut editor = editor_with("ab\ncd\nef");
     ctrl(&mut editor, 'g');
     typed(&mut editor, "3");
@@ -683,7 +684,7 @@ fn a_confirm_takes_bare_letters_only_and_a_nameless_save_asks_for_a_name() {
 
     press(&mut editor, KeyCode::Char('s'), KeyModifiers::NONE);
     assert_eq!(editor.exit(), None);
-    assert!(matches!(editor.panel(), Some(Panel::Prompt(_))));
+    assert!(matches!(editor.panel(), Some(Panel::SaveAs(_))));
 
     press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
     assert_eq!(editor.exit(), None);
