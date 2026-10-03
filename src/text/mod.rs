@@ -3,7 +3,6 @@
 //! files, screens or commands.
 
 pub mod anchor;
-pub mod fuzzy;
 pub mod layout;
 pub mod movement;
 pub mod search;

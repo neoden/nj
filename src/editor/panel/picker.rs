@@ -1,6 +1,6 @@
+use super::fuzzy;
 use super::prompt::Field;
 use crate::editor::job::{JobId, Report, Worker};
-use crate::text::fuzzy;
 
 /// Rows of candidates shown at once. The query line sits above them.
 pub const VISIBLE: usize = 10;

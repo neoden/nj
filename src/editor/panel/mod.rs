@@ -1,5 +1,6 @@
 //! The strip above the status bar: a prompt, a picker or a question.
 
+mod fuzzy;
 pub mod picker;
 pub mod prompt;
 
