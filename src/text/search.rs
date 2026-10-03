@@ -10,7 +10,7 @@ use super::Text;
 use super::movement::{Class, Direction};
 use super::selection::{Selection, SelectionSet};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Query {
     pub needle: String,
     /// Only hits bounded by a change of character class: renaming `i`
@@ -107,28 +107,17 @@ impl Query {
     }
 }
 
-/// A search being typed: the query so far and every hit of it, kept so that
-/// a longer query sifts them rather than reading the text again, and so that
-/// walking and counting need no second pass.
-#[derive(Debug)]
+/// A search in progress: the query and every hit of it, kept so that a
+/// longer query sifts them rather than reading the text again, and so that
+/// walking and counting need no second pass. Starts out looking for nothing.
+#[derive(Debug, Default)]
 pub struct Session {
     query: Query,
     /// Sorted and disjoint, like the matches they came from.
     hits: Vec<Range<usize>>,
-    /// Where the cursors stood when the search opened, so that typing starts
-    /// over from there and `Esc` can put them back.
-    pub origin: SelectionSet,
 }
 
 impl Session {
-    pub fn new(origin: SelectionSet) -> Self {
-        Self {
-            query: Query::literal(""),
-            hits: Vec::new(),
-            origin,
-        }
-    }
-
     pub fn query(&self) -> &Query {
         &self.query
     }
@@ -161,6 +150,12 @@ impl Session {
             false => self.hits = query.all(text).collect(),
         }
         self.query = query;
+    }
+
+    /// Finds the hits again in a text that has changed. An edit can make or
+    /// break a hit anywhere, so none of the old ones are trusted.
+    pub fn refresh(&mut self, text: &Text) {
+        self.hits = self.query.all(text).collect();
     }
 
     /// The first hit at or after `from`, or the first of all: where an
@@ -205,17 +200,15 @@ impl Session {
         SelectionSet::from_selections(selections, primary)
     }
 
-    /// `Found: 3/17`, counting the hit at `at` as the current one.
-    pub fn status(&self, at: usize) -> String {
-        if self.hits.is_empty() {
-            return "Found: none".to_owned();
+    /// `3/17` when a hit starts at `at`, which makes it the current one, and
+    /// `17` when none does. Which hit is current is read off the cursor
+    /// rather than kept, so it cannot go stale when the cursor moves.
+    pub fn count(&self, at: usize) -> String {
+        let total = self.hits.len();
+        match self.hits.iter().position(|hit| hit.start == at) {
+            Some(index) => format!("{}/{total}", index + 1),
+            None => total.to_string(),
         }
-        let current = self
-            .hits
-            .iter()
-            .position(|hit| hit.start == at)
-            .map_or(0, |index| index + 1);
-        format!("Found: {current}/{}", self.hits.len())
     }
 }
 
@@ -281,7 +274,7 @@ mod tests {
     #[test]
     fn a_session_narrows_as_the_query_grows() {
         let text = text("ab abc ab abcd");
-        let mut session = Session::new(SelectionSet::single(0));
+        let mut session = Session::default();
 
         session.retarget(Query::literal("ab"), &text);
         assert_eq!(session.hits(), [0..2, 3..5, 7..9, 10..12]);
@@ -302,7 +295,7 @@ mod tests {
     #[test]
     fn narrowing_keeps_the_hits_disjoint() {
         let text = text("aaaaa");
-        let mut session = Session::new(SelectionSet::single(0));
+        let mut session = Session::default();
         session.retarget(Query::literal("a"), &text);
         session.retarget(Query::literal("aa"), &text);
 
@@ -314,7 +307,7 @@ mod tests {
     #[test]
     fn a_session_walks_its_hits_and_counts_them() {
         let text = text("a a a");
-        let mut session = Session::new(SelectionSet::single(0));
+        let mut session = Session::default();
         session.retarget(Query::literal("a"), &text);
 
         assert_eq!(session.landing(1), Some(2..3));
@@ -324,12 +317,12 @@ mod tests {
         assert_eq!(session.next_hit(2, Direction::Backward), Some(0..1));
         assert_eq!(session.next_hit(0, Direction::Backward), Some(4..5));
 
-        assert_eq!(session.status(2), "Found: 2/3");
-        assert_eq!(session.status(1), "Found: 0/3");
+        assert_eq!(session.count(2), "2/3");
+        assert_eq!(session.count(1), "3");
         assert_eq!(session.selections(2).primary().range(), 2..3);
         assert_eq!(session.selections(2).len(), 3);
 
         session.retarget(Query::literal("zz"), &text);
-        assert_eq!(session.status(0), "Found: none");
+        assert_eq!(session.count(0), "0");
     }
 }

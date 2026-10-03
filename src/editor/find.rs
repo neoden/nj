@@ -9,7 +9,7 @@ use std::ops::Range;
 use super::Editor;
 use crate::buffer::EditKind;
 use crate::text::movement::{self, Direction};
-use crate::text::search::Query;
+use crate::text::search::{Query, Session};
 use crate::text::selection::{Selection, SelectionSet};
 
 /// More cursors than this and every keystroke is an edit of that many
@@ -33,18 +33,19 @@ impl Editor {
     /// on the first hit at or after where the cursor stood when the prompt
     /// opened, so the match never drifts forward as the query grows.
     pub(super) fn prompt_changed(&mut self) {
-        let Some(needle) = self.prompt().map(|prompt| prompt.contents(0)) else {
+        // The search is there with any prompt open, and only a search prompt
+        // has a query to give it.
+        let Some(prompt) = self.prompt().filter(|prompt| prompt.purpose.searches()) else {
             return;
         };
+        let needle = prompt.contents(0);
+        let origin = prompt.origin.clone();
         let Some(search) = &mut self.search else {
             return;
         };
 
-        let query = Query::literal(needle);
-        search.retarget(query.clone(), self.workspace.focus().1.text());
-        self.last = (!query.is_empty()).then_some(query);
+        search.retarget(Query::literal(needle), self.workspace.focus().1.text());
 
-        let origin = search.origin.clone();
         match search.landing(origin.primary().min()) {
             Some(hit) => self.select_hit(hit),
             None => self.view_mut().selections = origin,
@@ -52,7 +53,8 @@ impl Editor {
     }
 
     /// Turns the hits into cursors and hands the keyboard back to the text,
-    /// which is the only reason anyone wants a cursor on every hit.
+    /// which is the only reason anyone wants a cursor on every hit. The
+    /// search is over with that: its hits are what is selected now.
     pub(super) fn select_all_matches(&mut self) {
         let Some(search) = &self.search else {
             return;
@@ -70,6 +72,7 @@ impl Editor {
         view.selections = selections;
         view.scroll_to_cursor(buffer);
         self.close_panel();
+        self.end_search();
     }
 
     /// Walks the hits the prompt has in hand.
@@ -85,15 +88,29 @@ impl Editor {
         }
     }
 
-    /// Repeats the last search against the text, with the prompt gone.
+    /// `F3` with the prompt gone: walks the search in progress, bringing
+    /// back the one `Esc` ended if there is none.
     pub(super) fn search_next(&mut self, direction: Direction) {
-        let Some(query) = &self.last else {
-            return;
-        };
-        let from = self.from(direction);
-        match query.find(self.buffer().text(), from, direction) {
-            Some(hit) => self.select_hit(hit),
-            None => self.message = Some("Not found".to_owned()),
+        if self.search.is_none()
+            && let Some(query) = self.last.take()
+        {
+            let mut search = Session::default();
+            search.retarget(query, self.buffer().text());
+            self.search = Some(search);
+        }
+        if self.has_search() {
+            self.go_to_match(direction);
+        }
+    }
+
+    /// The query is kept for `F3` to bring back. The hits are not, so that
+    /// a search nobody is looking at costs nothing to keep. A search for
+    /// nothing has no query worth keeping over the one before it.
+    pub(super) fn end_search(&mut self) {
+        if let Some(search) = self.search.take()
+            && !search.query().is_empty()
+        {
+            self.last = Some(search.query().clone());
         }
     }
 
@@ -114,7 +131,8 @@ impl Editor {
     }
 
     /// Every hit of the session becomes a cursor, and one insertion does the
-    /// rest — so a replacement is one undo step.
+    /// rest — so a replacement is one undo step. The search is over before
+    /// the insertion, or it would be left looking for what is no longer there.
     pub(super) fn replace_all(&mut self, replacement: &str) {
         let Some(search) = &self.search else {
             return;
@@ -127,6 +145,7 @@ impl Editor {
 
         let selections = search.selections(0);
         self.view_mut().selections = selections;
+        self.end_search();
         self.insert(replacement, EditKind::Other);
         self.message = Some(format!("Replaced {hits}"));
     }

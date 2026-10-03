@@ -175,6 +175,7 @@ impl Editor {
         self.occurrences = None;
         self.message = None;
         let id = self.workspace.replace(buffer);
+        self.refresh_search();
         self.watch(id);
     }
 

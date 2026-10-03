@@ -558,7 +558,7 @@ mod tests {
         assert!(grid.row_text(6).starts_with("───"));
         // The status bar is composed from the editor as well: the search
         // reports there, in the left half, while it is open.
-        assert!(grid.row_text(7).starts_with(" Found: 1/1"));
+        assert!(grid.row_text(7).starts_with(" 1/1 "));
         assert_eq!(style_at(&grid, 0, 7), CellStyle::Status);
 
         // The hit the search landed on is selected in the text above.

@@ -27,6 +27,9 @@ pub enum Command {
     /// The next hit of the open query, or of the last search once the
     /// prompt has closed.
     FindNext(Direction),
+    /// Puts out the highlighted hits, until `FindNext` brings them back.
+    /// The selections stay where they are.
+    EndSearch,
     Edit(Edit),
     Select(Select),
     File(File),
@@ -62,7 +65,7 @@ pub enum Select {
     RemoveSecondary,
     AddCursor(Direction),
     NextOccurrence,
-    /// Every hit of the open query while a panel is up; otherwise every
+    /// Every hit of the search while one is going on; otherwise every
     /// whole-word occurrence of what is selected.
     AllOccurrences,
     /// Replaces the selections outright: what a socket sends to open a file

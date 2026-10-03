@@ -61,10 +61,11 @@ pub struct Editor {
     panel: Option<Panel>,
     /// Shown on the status bar until the next command.
     message: Option<String>,
-    /// The search a prompt is typing. Lives only while the prompt does, so
-    /// nothing has to remember to invalidate its hits.
+    /// The search in progress. A prompt starts it and it stays when the
+    /// prompt closes, so its hits are found again whenever the text changes.
     search: Option<Session>,
-    /// What `F3` repeats once the prompt has closed.
+    /// The query searched for last, for when no search is going on: `F3`
+    /// brings it back, and a search prompt opens holding it.
     last: Option<Query>,
     /// Set once the loop should stop; how says what the process ends with.
     exit: Option<Exit>,
@@ -179,9 +180,17 @@ impl Editor {
         self.message.as_deref()
     }
 
-    /// The hits of the search being typed, for the renderer to underline.
+    /// The hits of the search in progress, for the renderer to underline.
     pub fn matches(&self) -> &[Range<usize>] {
         self.search.as_ref().map_or(&[], Session::hits)
+    }
+
+    /// Whether a search is in progress: one with something to look for,
+    /// whether or not it has found any.
+    pub fn has_search(&self) -> bool {
+        self.search
+            .as_ref()
+            .is_some_and(|search| !search.query().is_empty())
     }
 
     pub fn screen(&self) -> &Screen {
@@ -254,22 +263,26 @@ impl Editor {
                 },
                 |editor| editor.select_all(),
             ),
-            // While a search is up its hits are in hand and get walked; with
-            // no panel at all the last query is run against the text again.
-            // A panel that is not a search has nothing to find.
-            Command::FindNext(direction) => match (self.search.is_some(), self.panel.is_some()) {
+            // The hits get walked while a query is being typed and once its
+            // prompt has closed. A panel that is not a search has nothing to
+            // find.
+            Command::FindNext(direction) => match (self.searching(), self.panel.is_some()) {
                 (true, _) => self.go_to_match(direction),
                 (false, false) => self.search_next(direction),
                 (false, true) => {}
             },
             Command::Select(Select::AllOccurrences) => {
-                match (self.search.is_some(), self.panel.is_some()) {
+                match (self.searching(), self.panel.is_some()) {
                     (true, _) => self.select_all_matches(),
+                    // What is lit is what gets the cursors, wherever the
+                    // cursor happens to stand.
+                    (false, false) if self.has_search() => self.select_all_matches(),
                     (false, false) => self.select_all_occurrences(),
                     (false, true) => {}
                 }
             }
 
+            Command::EndSearch => self.end_search(),
             Command::Scroll(rows) => self.scroll(rows),
             Command::Quit => self.request_quit(),
             Command::Abort => self.request_abort(),
@@ -399,17 +412,32 @@ impl Editor {
 
     fn open_prompt(&mut self, purpose: Purpose) {
         self.close_panel();
-        let mut prompt = Prompt::new(purpose.clone());
+        let mut prompt = Prompt::new(purpose.clone(), self.view().selections.clone());
 
         if purpose.searches() {
-            self.search = Some(Session::new(self.view().selections.clone()));
+            // The search going on gives way to the one this prompt types.
+            // Its query is kept, not taken: a prompt closed with nothing in
+            // it leaves `F3` the search there was before.
+            self.end_search();
+            let previous = self.last.as_ref().map(|query| query.needle.clone());
             // A selection spanning lines means something else entirely, so
-            // only a fragment seeds the query. What is seeded stays selected,
-            // so typing replaces it instead of appending to it.
-            if let Some(selected) = self.selected_text().filter(|text| !text.contains('\n')) {
-                prompt.insert(&selected);
+            // only a fragment seeds the query; with nothing selected it is
+            // the query searched for last. What is seeded stays selected, so
+            // typing replaces it instead of appending to it.
+            let seed = self
+                .selected_text()
+                .filter(|text| !text.contains('\n'))
+                .or(previous);
+            if let Some(seed) = seed {
+                prompt.insert(&seed);
                 prompt.select_all();
             }
+
+            // Opening moves no cursor. The hits of the seed light up, and
+            // going to one is left to the first keystroke or `Enter`.
+            let mut search = Session::default();
+            search.retarget(Query::literal(prompt.contents(0)), self.buffer().text());
+            self.search = Some(search);
         }
         // A file's own name is the likeliest start of the new one.
         if let (Purpose::SaveAs(_), Some(path)) = (&purpose, self.buffer().path()) {
@@ -417,7 +445,6 @@ impl Editor {
         }
 
         self.panel = Some(Panel::Prompt(prompt));
-        self.prompt_changed();
     }
 
     pub fn prompt(&self) -> Option<&Prompt> {
@@ -482,13 +509,30 @@ impl Editor {
         self.panel.as_ref().map_or(0, Panel::height)
     }
 
-    /// The situational half of the status bar belongs to whatever is open.
+    /// The situational half of the status bar belongs to whatever is going
+    /// on: an open picker, or a search.
     pub fn panel_status(&self) -> String {
-        match (&self.panel, &self.search) {
-            (Some(Panel::Picker(picker)), _) => format!("{}/{}", picker.matched(), picker.total()),
-            (Some(_), Some(search)) => search.status(self.view().selections.primary().min()),
-            _ => String::new(),
+        if let Some(Panel::Picker(picker)) = &self.panel {
+            return format!("{}/{}", picker.matched(), picker.total());
         }
+        let Some(search) = self.search.as_ref().filter(|_| self.has_search()) else {
+            return String::new();
+        };
+        let count = search.count(self.view().selections.primary().min());
+
+        match (self.panel.is_some(), self.searching()) {
+            // The query is in the field right above; the count is the news.
+            (true, true) => count,
+            (true, false) => String::new(),
+            (false, _) => format!("{count} {}", quoted(&search.query().needle)),
+        }
+    }
+
+    /// Whether the open panel is a prompt whose query drives the search. The
+    /// search itself outlives it, so its being there says nothing of this.
+    fn searching(&self) -> bool {
+        self.prompt()
+            .is_some_and(|prompt| prompt.purpose.searches())
     }
 
     fn selected_text(&self) -> Option<String> {
@@ -506,7 +550,10 @@ impl Editor {
             self.jobs.cancel(picker.job);
         }
         self.panel = None;
-        self.search = None;
+        // A search prompt closed with nothing in it started no search.
+        if !self.has_search() {
+            self.search = None;
+        }
     }
 
     /// `Enter` walks the hits while searching; for anything else it answers
@@ -776,6 +823,7 @@ impl Editor {
             view.selections = selections;
             view.mark_current(buffer);
             view.scroll_to_cursor(buffer);
+            self.refresh_search();
         }
     }
 
@@ -785,6 +833,7 @@ impl Editor {
             view.selections = selections;
             view.mark_current(buffer);
             view.scroll_to_cursor(buffer);
+            self.refresh_search();
         }
     }
 
@@ -795,6 +844,15 @@ impl Editor {
         view.selections = buffer.apply(transaction, kind);
         view.mark_current(buffer);
         view.scroll_to_cursor(buffer);
+        self.refresh_search();
+    }
+
+    /// The hits are offsets into the text as it was when they were found.
+    /// Called from the three places the text changes: `apply`, `undo`, `redo`.
+    fn refresh_search(&mut self) {
+        if let Some(search) = &mut self.search {
+            search.refresh(self.workspace.focus().1.text());
+        }
     }
 }
 
@@ -806,6 +864,22 @@ fn column_at(text: &Text, offset: usize, tab_width: usize) -> usize {
         offset - text.line_start(line),
         tab_width,
     )
+}
+
+/// Columns of a query the status bar has room for; the count beside it and
+/// the document on the right matter more than the rest of a long one.
+const QUERY_COLUMNS: usize = 24;
+
+/// A query for the status bar: in quotes, so that a space at either end
+/// shows, and cut at the end when it is long, since a query is told by how
+/// it starts.
+fn quoted(needle: &str) -> String {
+    // A tab counts as one column, as it does everywhere on the status bar.
+    if layout::line_width(needle, 1) <= QUERY_COLUMNS {
+        return format!("\"{needle}\"");
+    }
+    let end = layout::byte_at_column(needle, QUERY_COLUMNS - 1, 1);
+    format!("\"{}…\"", &needle[..end])
 }
 
 /// Line numbers are what people count from one.

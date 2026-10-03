@@ -327,6 +327,95 @@ fn f3_walks_the_matches_inside_the_prompt_and_after_it_closes() {
     assert_eq!(ranges(&editor), [2..3]);
 }
 
+/// `Esc` gives up one thing at a time: the prompt, then the search, then
+/// what is selected.
+#[test]
+fn esc_ends_the_search_before_it_touches_the_selection() {
+    let mut editor = editor_with("a a a");
+    ctrl(&mut editor, 'f');
+    typed(&mut editor, "a");
+
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(editor.panel().is_none());
+    assert_eq!(editor.matches(), [0..1, 2..3, 4..5]);
+
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(editor.matches().is_empty());
+    assert_eq!(ranges(&editor), [0..1]);
+
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!(ranges(&editor), [1..1]);
+}
+
+/// With a search lit, `Ctrl+Shift+L` takes what is lit and not the word the
+/// cursor happens to be in.
+#[test]
+fn ctrl_shift_l_takes_the_hits_of_a_search_going_on() {
+    let mut editor = editor_with("a ab a");
+    ctrl(&mut editor, 'f');
+    typed(&mut editor, "a");
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    // Into `ab`, off the hit the search left selected.
+    press(&mut editor, KeyCode::Right, KeyModifiers::NONE);
+    press(&mut editor, KeyCode::Right, KeyModifiers::NONE);
+    assert_eq!(ranges(&editor), [3..3]);
+
+    press(
+        &mut editor,
+        KeyCode::Char('l'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    assert_eq!(ranges(&editor), [0..1, 2..3, 5..6]);
+    assert!(editor.matches().is_empty());
+}
+
+/// A command that puts the hits to use ends the search, so the next `Esc`
+/// is for the cursors it left rather than for a search nobody can see.
+#[test]
+fn one_esc_drops_the_cursors_a_search_left() {
+    let mut editor = editor_with("a ab a");
+    ctrl(&mut editor, 'f');
+    typed(&mut editor, "a");
+    press(
+        &mut editor,
+        KeyCode::Char('l'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    assert_eq!(ranges(&editor), [0..1, 2..3, 5..6]);
+    assert!(editor.matches().is_empty());
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!(ranges(&editor), [0..1]);
+
+    let mut editor = editor_with("one two one");
+    ctrl(&mut editor, 'h');
+    typed(&mut editor, "one");
+    press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
+    typed(&mut editor, "1");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(content(&editor), "1 two 1");
+    assert_eq!(editor.panel_status(), "");
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!(ranges(&editor), [1..1]);
+
+    // The query is not forgotten: `F3` looks for it again.
+    press(&mut editor, KeyCode::F(3), KeyModifiers::NONE);
+    assert_eq!(editor.message(), Some("Not found"));
+}
+
+#[test]
+fn f3_brings_back_the_search_esc_ended() {
+    let mut editor = editor_with("a a a");
+    ctrl(&mut editor, 'f');
+    typed(&mut editor, "a");
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(editor.matches().is_empty());
+
+    press(&mut editor, KeyCode::F(3), KeyModifiers::NONE);
+    assert_eq!(editor.matches(), [0..1, 2..3, 4..5]);
+    assert_eq!(ranges(&editor), [2..3]);
+}
+
 /// `Ctrl+Shift+L` puts a cursor on every hit of the open query; the same
 /// key with the prompt closed searches for the word under the cursor, and
 /// so respects word boundaries. That the two differ is S2, not a decision —

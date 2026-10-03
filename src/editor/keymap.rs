@@ -23,6 +23,8 @@ pub enum Context {
     Text,
     /// The text, with more than one cursor.
     MultipleCursors,
+    /// The text, with a search in progress.
+    Searching,
     Panel,
     Prompt,
     Picker,
@@ -37,6 +39,7 @@ impl Context {
             Context::MultipleCursors => {
                 editor.panel().is_none() && editor.view().selections.len() > 1
             }
+            Context::Searching => editor.panel().is_none() && editor.has_search(),
             Context::Panel => editor.panel().is_some(),
             Context::Prompt => matches!(editor.panel(), Some(Panel::Prompt(_))),
             Context::Picker => matches!(editor.panel(), Some(Panel::Picker(_))),
@@ -52,7 +55,7 @@ impl Context {
         use Context::*;
         self == other
             || self == Any
-            || (self == Text && other == MultipleCursors)
+            || (self == Text && matches!(other, MultipleCursors | Searching))
             || (self == Panel && matches!(other, Prompt | Picker | Confirm))
     }
 }
@@ -127,7 +130,7 @@ const fn mv(code: KeyCode, mods: Mods, motion: Motion) -> Binding {
 }
 
 use Context::{
-    Any, MultipleCursors, Panel as InPanel, Picker as InPicker, Prompt as InPrompt, Text,
+    Any, MultipleCursors, Panel as InPanel, Picker as InPicker, Prompt as InPrompt, Searching, Text,
 };
 use Direction::{Backward, Forward};
 use KeyCode::{
@@ -183,6 +186,9 @@ pub static KEYMAP: &[Binding] = &[
     // The text.
     bind(Char('q'), CTRL, Text, Command::Quit),
     bind(Char('q'), CTRL_SHIFT, Text, Command::Abort),
+    // `Esc` gives up one thing at a time: the search, then the extra
+    // cursors, then what is selected.
+    bind(Esc, NONE, Searching, Command::EndSearch),
     bind(
         Esc,
         NONE,
@@ -348,6 +354,8 @@ mod tests {
         assert!(Any.covers(Text));
         assert!(Text.covers(MultipleCursors));
         assert!(!MultipleCursors.covers(Text));
+        assert!(Text.covers(Searching));
+        assert!(!Searching.covers(MultipleCursors));
         assert!(Panel.covers(Confirm));
         assert!(!Prompt.covers(Picker));
         assert!(!Text.covers(Panel));

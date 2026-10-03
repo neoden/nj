@@ -833,7 +833,9 @@ fn opening_replaces_the_buffer_and_starts_the_view_over() {
     assert_eq!(content(&editor), "one\ntwo\n");
     assert_eq!(editor.buffer().name(), path.display().to_string());
     assert_eq!(ranges(&editor), [0..0]);
-    assert!(editor.search.is_none());
+    // The search goes on over the new text, where nothing is a hit; the
+    // hit in the old one, 8..12, went with it.
+    assert!(editor.matches().is_empty());
     assert!(editor.panel.is_none());
     // The view keeps its place on the screen: it can still be drawn into.
     assert!(editor.view().width() > 0);
@@ -1211,6 +1213,54 @@ fn opening_search_takes_the_selected_text() {
 }
 
 #[test]
+fn opening_search_again_brings_the_query_back() {
+    let mut editor = editor("x . x . x", 0);
+    editor.open_prompt(Purpose::Search);
+    type_into_prompt(&mut editor, "x");
+    editor.close_panel();
+    select(&mut editor, SelectionSet::single(2));
+
+    editor.open_prompt(Purpose::Search);
+    let prompt = editor.prompt().unwrap();
+    assert_eq!(prompt.contents(0), "x");
+    // Selected, so that typing starts a new query.
+    assert_eq!(prompt.fields[0].selection(), 0..1);
+    // Opening lights the hits and moves nothing.
+    assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
+    assert_eq!(ranges(&editor), [2..2]);
+
+    editor.submit_prompt(false);
+    assert_eq!(ranges(&editor), [4..5]);
+
+    // A search `Esc` ended is remembered just the same.
+    editor.close_panel();
+    editor.end_search();
+    editor.open_prompt(Purpose::Search);
+    assert_eq!(editor.prompt().unwrap().contents(0), "x");
+}
+
+#[test]
+fn a_prompt_closed_empty_leaves_the_last_query_alone() {
+    let mut editor = editor("x . x . x", 0);
+    editor.open_prompt(Purpose::Search);
+    type_into_prompt(&mut editor, "x");
+    editor.close_panel();
+
+    // The query comes back selected, and one keystroke wipes it.
+    editor.open_prompt(Purpose::Search);
+    editor.execute(Command::Edit(Edit::Delete(Motion::Grapheme(
+        Direction::Backward,
+    ))));
+    assert_eq!(editor.prompt().unwrap().contents(0), "");
+    editor.close_panel();
+    assert!(!editor.has_search());
+
+    editor.search_next(Direction::Forward);
+    assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
+    assert_eq!(ranges(&editor), [4..5]);
+}
+
+#[test]
 fn a_selection_across_lines_does_not_seed_the_query() {
     let mut editor = editor("one\ntwo", 0);
     select_range(&mut editor, 0, 7);
@@ -1242,7 +1292,7 @@ fn search_starts_over_from_where_it_opened() {
 }
 
 #[test]
-fn escape_closes_the_search_where_it_left_off() {
+fn escape_closes_the_prompt_and_leaves_the_search_running() {
     let mut editor = editor("alpha beta", 2);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "beta");
@@ -1250,7 +1300,25 @@ fn escape_closes_the_search_where_it_left_off() {
 
     assert_eq!(editor.view().selections.primary().range(), 6..10);
     assert!(editor.panel.is_none());
-    assert!(editor.matches().is_empty());
+    assert_eq!(editor.matches(), [6..10]);
+
+    // Typing in the text is an edit like any other to the search.
+    type_text(&mut editor, "beta beta");
+    assert_eq!(editor.matches(), [6..10, 11..15]);
+}
+
+/// What is typed into a prompt that is not a search is not a query.
+#[test]
+fn another_prompt_leaves_the_search_alone() {
+    let mut editor = editor("1 x 1", 0);
+    editor.open_prompt(Purpose::Search);
+    type_into_prompt(&mut editor, "x");
+    editor.close_panel();
+
+    editor.open_prompt(Purpose::GotoLine);
+    type_into_prompt(&mut editor, "1");
+    assert_eq!(editor.matches(), [2..3]);
+    assert_eq!(editor.view().selections.primary().range(), 2..3);
 }
 
 #[test]
@@ -1281,10 +1349,38 @@ fn every_hit_is_collected_and_counted() {
     type_into_prompt(&mut editor, "x");
 
     assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
-    assert_eq!(editor.panel_status(), "Found: 1/3");
+    assert_eq!(editor.panel_status(), "1/3");
 
     editor.submit_prompt(false);
-    assert_eq!(editor.panel_status(), "Found: 2/3");
+    assert_eq!(editor.panel_status(), "2/3");
+}
+
+#[test]
+fn the_status_names_the_search_once_its_prompt_is_gone() {
+    let mut editor = editor("x . x . x", 0);
+    editor.open_prompt(Purpose::Search);
+    type_into_prompt(&mut editor, "x");
+    editor.close_panel();
+    assert_eq!(editor.panel_status(), "1/3 \"x\"");
+
+    // Off the hit there is no current one to number.
+    editor.move_selections(Motion::Grapheme(Direction::Forward), false);
+    assert_eq!(editor.panel_status(), "3 \"x\"");
+
+    editor.end_search();
+    assert_eq!(editor.panel_status(), "");
+}
+
+#[test]
+fn a_long_query_is_cut_short_in_the_status() {
+    assert_eq!(quoted("foo "), "\"foo \"");
+    assert_eq!(quoted(&"a".repeat(24)), format!("\"{}\"", "a".repeat(24)));
+    assert_eq!(quoted(&"a".repeat(25)), format!("\"{}…\"", "a".repeat(23)));
+    // A wide character goes whole or not at all.
+    assert_eq!(
+        quoted(&"日".repeat(13)),
+        format!("\"{}…\"", "日".repeat(11))
+    );
 }
 
 #[test]
@@ -1371,7 +1467,20 @@ fn a_query_with_no_hits_counts_zero() {
     type_into_prompt(&mut editor, "zzz");
 
     assert!(editor.matches().is_empty());
-    assert_eq!(editor.panel_status(), "Found: none");
+    assert_eq!(editor.panel_status(), "0");
+}
+
+#[test]
+fn the_hits_keep_up_with_the_text() {
+    let mut editor = editor("x . x", 0);
+    editor.insert("x ", EditKind::Other);
+    editor.open_prompt(Purpose::Search);
+    type_into_prompt(&mut editor, "x");
+    assert_eq!(editor.matches(), [0..1, 2..3, 6..7]);
+
+    editor.undo();
+    assert_eq!(content(&editor), "x . x");
+    assert_eq!(editor.matches(), [0..1, 4..5]);
 }
 
 #[test]
