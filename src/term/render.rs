@@ -116,6 +116,9 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
                     grid.put_str(x, top + row, &pad(line, width), CellStyle::Normal);
                 }
             }
+            Panel::Replacing(replacing) => {
+                grid.put_str(x, top, &pad(&replacing.line(), width), CellStyle::Normal);
+            }
         }
         rule(grid, x, screen.status_row() - 1, width);
     }

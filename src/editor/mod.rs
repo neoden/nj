@@ -185,12 +185,10 @@ impl Editor {
         self.search.as_ref().map_or(&[], Session::hits)
     }
 
-    /// Whether a search is in progress: one with something to look for,
-    /// whether or not it has found any.
+    /// Whether a search is in progress, whether or not it has found
+    /// anything.
     pub fn has_search(&self) -> bool {
-        self.search
-            .as_ref()
-            .is_some_and(|search| !search.query().is_empty())
+        self.search.is_some()
     }
 
     pub fn screen(&self) -> &Screen {
@@ -263,22 +261,19 @@ impl Editor {
                 },
                 |editor| editor.select_all(),
             ),
-            // The hits get walked while a query is being typed and once its
-            // prompt has closed. A panel that is not a search has nothing to
-            // find.
-            Command::FindNext(direction) => match (self.searching(), self.panel.is_some()) {
-                (true, _) => self.go_to_match(direction),
-                (false, false) => self.search_next(direction),
-                (false, true) => {}
+            // Both are commands of the text. An open panel has the keyboard
+            // and no hits of its own, whatever it is for.
+            Command::FindNext(direction) => match self.panel.is_some() {
+                true => {}
+                false => self.search_next(direction),
             },
             Command::Select(Select::AllOccurrences) => {
-                match (self.searching(), self.panel.is_some()) {
-                    (true, _) => self.select_all_matches(),
+                match (self.panel.is_some(), self.has_search()) {
+                    (true, _) => {}
                     // What is lit is what gets the cursors, wherever the
                     // cursor happens to stand.
-                    (false, false) if self.has_search() => self.select_all_matches(),
+                    (false, true) => self.select_all_matches(),
                     (false, false) => self.select_all_occurrences(),
-                    (false, true) => {}
                 }
             }
 
@@ -320,6 +315,9 @@ impl Editor {
             Command::Panel(PanelCommand::Submit { backwards }) => self.submit_prompt(backwards),
             Command::Panel(PanelCommand::Pick) => self.accept_pick(),
             Command::Panel(PanelCommand::Answer(answer)) => self.answer(answer),
+            Command::Panel(PanelCommand::ReplaceHit) => self.replace_hit(),
+            Command::Panel(PanelCommand::SkipHit) => self.skip_hit(),
+            Command::Panel(PanelCommand::ReplaceAll) => self.replace_rest(),
             Command::Panel(PanelCommand::NextField) => {
                 if let Some(Panel::Prompt(prompt)) = &mut self.panel {
                     prompt.focus_next_field();
@@ -389,7 +387,7 @@ impl Editor {
         // A click in the text takes the keyboard back there: a field or a
         // list gives way to it. A question does not, having to be answered.
         match &self.panel {
-            Some(Panel::Confirm(_)) => return,
+            Some(Panel::Confirm(_) | Panel::Replacing(_)) => return,
             Some(_) => self.close_panel(),
             None => {}
         }
@@ -425,11 +423,14 @@ impl Editor {
         let mut prompt = Prompt::new(purpose.clone());
 
         if purpose.searches() {
-            // The search going on gives way to the one this prompt types.
-            // Its query is kept, not taken: a prompt closed with nothing in
-            // it leaves `F3` the search there was before.
-            self.end_search();
-            let previous = self.last.as_ref().map(|query| query.needle.clone());
+            // Opening starts nothing and ends nothing: a search going on
+            // goes on until `Enter` puts another in its place.
+            let previous = self
+                .search
+                .as_ref()
+                .map(Session::query)
+                .or(self.last.as_ref())
+                .map(|query| query.needle.clone());
             // A selection spanning lines means something else entirely, so
             // only a fragment seeds the query; with nothing selected it is
             // the query searched for last. What is seeded stays selected, so
@@ -442,12 +443,6 @@ impl Editor {
                 prompt.insert(&seed);
                 prompt.select_all();
             }
-
-            // Opening moves no cursor. The hits of the seed light up, and
-            // going to one is left to `Enter`.
-            let mut search = Session::default();
-            search.retarget(Query::literal(prompt.contents(0)), self.buffer().text());
-            self.search = Some(search);
         }
         // A file's own name is the likeliest start of the new one.
         if let (Purpose::SaveAs(_), Some(path)) = (&purpose, self.buffer().path()) {
@@ -525,24 +520,11 @@ impl Editor {
         if let Some(Panel::Picker(picker)) = &self.panel {
             return format!("{}/{}", picker.matched(), picker.total());
         }
-        let Some(search) = self.search.as_ref().filter(|_| self.has_search()) else {
+        let Some(search) = &self.search else {
             return String::new();
         };
         let count = search.count(self.view().selections.primary().min());
-
-        match (self.panel.is_some(), self.searching()) {
-            // The query is in the field right above; the count is the news.
-            (true, true) => count,
-            (true, false) => String::new(),
-            (false, _) => format!("{count} {}", quoted(&search.query().needle)),
-        }
-    }
-
-    /// Whether the open panel is a prompt whose query drives the search. The
-    /// search itself outlives it, so its being there says nothing of this.
-    fn searching(&self) -> bool {
-        self.prompt()
-            .is_some_and(|prompt| prompt.purpose.searches())
+        format!("{count} {}", quoted(&search.query().needle))
     }
 
     fn selected_text(&self) -> Option<String> {
@@ -553,17 +535,17 @@ impl Editor {
         }
     }
 
-    /// Closes the panel where the search left off. There is no separate
-    /// "accept", so leaving is how you keep what you found.
+    /// Closes the panel. A search going on is not the panel's, and stays.
     fn close_panel(&mut self) {
         if let Some(Panel::Picker(picker)) = &self.panel {
             self.jobs.cancel(picker.job);
         }
-        self.panel = None;
-        // A search prompt closed with nothing in it started no search.
-        if !self.has_search() {
-            self.search = None;
+        // A replacement is over when its question closes, however it closes.
+        if let Some(Panel::Replacing(replacing)) = &self.panel {
+            self.message = Some(format!("Replaced {}", replacing.replaced));
+            self.end_search();
         }
+        self.panel = None;
     }
 
     /// `Enter` answers what the strip asked and closes it.
@@ -590,12 +572,8 @@ impl Editor {
             },
             Purpose::Replace => {
                 let replacement = prompt.contents(1);
-                // With no query there is nothing to replace, and the hits
-                // still in hand are those of another search.
-                if !first.is_empty() {
-                    self.start_search(first, Direction::Forward);
-                    self.replace_all(&replacement);
-                }
+                self.close_panel();
+                return self.start_replacing(first, replacement);
             }
             // Empty means nothing to do; the panel closes all the same.
             Purpose::Open | Purpose::SaveAs(_) if first.trim().is_empty() => {}

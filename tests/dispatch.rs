@@ -392,6 +392,7 @@ fn one_esc_drops_the_cursors_a_search_left() {
     press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
     typed(&mut editor, "1");
     press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    typed(&mut editor, "a");
     assert_eq!(content(&editor), "1 two 1");
     assert_eq!(editor.panel_status(), "");
     press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
@@ -400,6 +401,127 @@ fn one_esc_drops_the_cursors_a_search_left() {
     // The query is not forgotten: `F3` looks for it again.
     press(&mut editor, KeyCode::F(3), KeyModifiers::NONE);
     assert_eq!(editor.message(), Some("Not found"));
+}
+
+/// `Enter` in `Ctrl+H` replaces nothing: it goes to the first hit and asks.
+#[test]
+fn enter_in_replace_asks_at_the_first_hit() {
+    let mut editor = editor_with("one two one");
+    ctrl(&mut editor, 'h');
+    typed(&mut editor, "one");
+    press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
+    typed(&mut editor, "1");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(matches!(editor.panel(), Some(Panel::Replacing(_))));
+    assert_eq!(ranges(&editor), [0..3]);
+    assert_eq!(content(&editor), "one two one");
+
+    // `Esc` stops, and stopping ends the search.
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(editor.panel().is_none());
+    assert_eq!(content(&editor), "one two one");
+    assert!(editor.matches().is_empty());
+    assert_eq!(editor.message(), Some("Replaced 0"));
+
+    // With no hit there is nothing to ask about.
+    ctrl(&mut editor, 'h');
+    typed(&mut editor, "zzz");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(editor.panel().is_none());
+    assert_eq!(editor.message(), Some("Not found"));
+}
+
+/// `n` leaves the hit and goes to the next, once round the text from where
+/// the cursor stood; after the last one the question is gone.
+#[test]
+fn n_skips_each_hit_once_and_the_walk_ends() {
+    let mut editor = editor_with("one two one");
+    press(&mut editor, KeyCode::End, KeyModifiers::NONE);
+    press(&mut editor, KeyCode::Left, KeyModifiers::NONE);
+    ctrl(&mut editor, 'h');
+    typed(&mut editor, "one");
+    press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
+    typed(&mut editor, "1");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(ranges(&editor), [0..3]);
+
+    typed(&mut editor, "n");
+    assert_eq!(ranges(&editor), [8..11]);
+    assert!(matches!(editor.panel(), Some(Panel::Replacing(_))));
+
+    typed(&mut editor, "n");
+    assert!(editor.panel().is_none());
+    assert_eq!(content(&editor), "one two one");
+}
+
+/// `y` replaces the hit and goes to the next; each one is undone by itself.
+#[test]
+fn y_replaces_one_hit_at_a_time() {
+    let mut editor = editor_with("one two one");
+    ctrl(&mut editor, 'h');
+    typed(&mut editor, "one");
+    press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
+    typed(&mut editor, "1");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+
+    typed(&mut editor, "y");
+    assert_eq!(content(&editor), "1 two one");
+    assert_eq!(ranges(&editor), [6..9]);
+    assert!(matches!(editor.panel(), Some(Panel::Replacing(_))));
+
+    typed(&mut editor, "y");
+    assert_eq!(content(&editor), "1 two 1");
+    assert!(editor.panel().is_none());
+    assert!(editor.matches().is_empty());
+    assert_eq!(editor.message(), Some("Replaced 2"));
+
+    ctrl(&mut editor, 'z');
+    assert_eq!(content(&editor), "1 two one");
+    ctrl(&mut editor, 'z');
+    assert_eq!(content(&editor), "one two one");
+
+    // A replacement that contains the query is not offered to itself.
+    let mut editor = editor_with("a a");
+    ctrl(&mut editor, 'h');
+    typed(&mut editor, "a");
+    press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
+    typed(&mut editor, "aa");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    typed(&mut editor, "y");
+    assert_eq!(ranges(&editor), [3..4]);
+    typed(&mut editor, "y");
+    assert_eq!(content(&editor), "aa aa");
+    assert!(editor.panel().is_none());
+}
+
+/// `a` replaces what has not been answered for: a hit skipped before it
+/// stays, and the rest go in one undo step.
+#[test]
+fn a_replaces_the_hits_not_answered_for_yet() {
+    let mut editor = editor_with("x x x x");
+    press(&mut editor, KeyCode::Right, KeyModifiers::NONE);
+    ctrl(&mut editor, 'h');
+    typed(&mut editor, "x");
+    press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
+    typed(&mut editor, "yy");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(ranges(&editor), [2..3]);
+
+    // Skip the second `x` and replace the third; the fourth and, round the
+    // end, the first are left.
+    typed(&mut editor, "n");
+    typed(&mut editor, "y");
+    typed(&mut editor, "a");
+    assert_eq!(content(&editor), "yy x yy yy");
+    assert!(editor.panel().is_none());
+    // All that were replaced are counted, one at a time or together.
+    assert_eq!(editor.message(), Some("Replaced 3"));
+    assert!(editor.matches().is_empty());
+
+    ctrl(&mut editor, 'z');
+    assert_eq!(content(&editor), "x x yy x");
+    ctrl(&mut editor, 'z');
+    assert_eq!(content(&editor), "x x x x");
 }
 
 #[test]

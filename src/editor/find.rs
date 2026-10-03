@@ -7,6 +7,8 @@
 use std::ops::Range;
 
 use super::Editor;
+use super::panel::Panel;
+use super::panel::replacing::Replacing;
 use crate::buffer::EditKind;
 use crate::text::movement::{self, Direction};
 use crate::text::search::{Query, Session};
@@ -29,9 +31,8 @@ pub(super) struct Occurrences {
 }
 
 impl Editor {
-    /// Turns the hits into cursors and hands the keyboard back to the text,
-    /// which is the only reason anyone wants a cursor on every hit. The
-    /// search is over with that: its hits are what is selected now.
+    /// Turns the hits into cursors. The search is over with that: its hits
+    /// are what is selected now.
     pub(super) fn select_all_matches(&mut self) {
         let Some(search) = &self.search else {
             return;
@@ -48,7 +49,6 @@ impl Editor {
         let (view, buffer) = self.workspace.focus_mut();
         view.selections = selections;
         view.scroll_to_cursor(buffer);
-        self.close_panel();
         self.end_search();
     }
 
@@ -56,17 +56,59 @@ impl Editor {
     /// selection goes to its first hit from the cursor. A field with nothing
     /// in it starts no search.
     pub(super) fn start_search(&mut self, needle: String, direction: Direction) {
-        let query = Query::literal(needle);
-        if query.is_empty() {
+        let Some(search) = Session::new(Query::literal(needle), self.buffer().text()) else {
             return;
-        }
-        let mut search = Session::default();
-        search.retarget(query, self.buffer().text());
+        };
         self.search = Some(search);
         self.go_to_match(direction);
     }
 
-    /// Walks the hits the prompt has in hand.
+    /// `Enter` in the replace fields: the search starts as it does from the
+    /// search field, and with a hit to stand on the question is asked.
+    pub(super) fn start_replacing(&mut self, needle: String, replacement: String) {
+        let Some(search) = Session::new(Query::literal(needle), self.buffer().text()) else {
+            return;
+        };
+        let left = search.hits().len();
+        self.search = Some(search);
+        self.go_to_match(Direction::Forward);
+        if left > 0 {
+            self.panel = Some(Panel::Replacing(Replacing {
+                replacement,
+                left,
+                replaced: 0,
+            }));
+        }
+    }
+
+    /// `y` while replacing: the selected hit becomes the replacement, as an
+    /// undo step of its own. The next hit is looked for after what was put
+    /// in, so a replacement that contains the query is not offered to itself.
+    pub(super) fn replace_hit(&mut self) {
+        let Some(Panel::Replacing(replacing)) = &mut self.panel else {
+            return;
+        };
+        replacing.replaced += 1;
+        let replacement = replacing.replacement.clone();
+        self.insert(&replacement, EditKind::Other);
+        // From here it is the same as leaving it: one fewer to ask about.
+        self.skip_hit();
+    }
+
+    /// `n` while replacing: the selected hit stays as it is. With none left
+    /// to ask about, the walk is over.
+    pub(super) fn skip_hit(&mut self) {
+        let Some(Panel::Replacing(replacing)) = &mut self.panel else {
+            return;
+        };
+        replacing.left -= 1;
+        match replacing.left {
+            0 => self.close_panel(),
+            _ => self.go_to_match(Direction::Forward),
+        }
+    }
+
+    /// Walks the hits of the search going on.
     pub(super) fn go_to_match(&mut self, direction: Direction) {
         let from = self.from(direction);
         let hit = self
@@ -79,15 +121,13 @@ impl Editor {
         }
     }
 
-    /// `F3` with the prompt gone: walks the search in progress, bringing
-    /// back the one `Esc` ended if there is none.
+    /// `F3`: walks the search in progress, bringing back the one `Esc` ended
+    /// if there is none.
     pub(super) fn search_next(&mut self, direction: Direction) {
         if self.search.is_none()
             && let Some(query) = self.last.take()
         {
-            let mut search = Session::default();
-            search.retarget(query, self.buffer().text());
-            self.search = Some(search);
+            self.search = Session::new(query, self.buffer().text());
         }
         if self.has_search() {
             self.go_to_match(direction);
@@ -95,12 +135,9 @@ impl Editor {
     }
 
     /// The query is kept for `F3` to bring back. The hits are not, so that
-    /// a search nobody is looking at costs nothing to keep. A search for
-    /// nothing has no query worth keeping over the one before it.
+    /// a search nobody is looking at costs nothing to keep.
     pub(super) fn end_search(&mut self) {
-        if let Some(search) = self.search.take()
-            && !search.query().is_empty()
-        {
+        if let Some(search) = self.search.take() {
             self.last = Some(search.query().clone());
         }
     }
@@ -121,24 +158,26 @@ impl Editor {
         view.scroll_to_cursor(buffer);
     }
 
-    /// Every hit of the session becomes a cursor, and one insertion does the
-    /// rest — so a replacement is one undo step. The search is over before
-    /// the insertion, or it would be left looking for what is no longer there.
-    pub(super) fn replace_all(&mut self, replacement: &str) {
+    /// `a` while replacing: every hit not answered for yet becomes the
+    /// replacement — the selected one and those the walk had still to come
+    /// to. They become cursors and one insertion does the rest, so it is one
+    /// undo step. Closing the question ends the search, and that comes
+    /// before the insertion, or the search would be left looking for what is
+    /// no longer there.
+    pub(super) fn replace_rest(&mut self) {
+        let Some(Panel::Replacing(replacing)) = &mut self.panel else {
+            return;
+        };
+        replacing.replaced += replacing.left;
+        let (replacement, left) = (replacing.replacement.clone(), replacing.left);
         let Some(search) = &self.search else {
             return;
         };
-        let hits = search.hits().len();
-        if hits == 0 {
-            self.message = Some("Not found".to_owned());
-            return;
-        }
 
-        let selections = search.selections(0);
+        let selections = search.rest(self.view().selections.primary().min(), left);
         self.view_mut().selections = selections;
-        self.end_search();
-        self.insert(replacement, EditKind::Other);
-        self.message = Some(format!("Replaced {hits}"));
+        self.close_panel();
+        self.insert(&replacement, EditKind::Other);
     }
 
     /// First press selects the word under each cursor; every press after that

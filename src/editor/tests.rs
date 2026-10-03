@@ -1400,9 +1400,13 @@ fn too_many_hits_are_refused_rather_than_partly_selected() {
 
     over.open_prompt(Purpose::Search);
     type_into_prompt(&mut over, "x");
-    over.select_all_matches();
+    over.execute(Command::Panel(PanelCommand::Submit { backwards: false }));
+    assert_eq!(over.message(), None);
+    over.execute(Command::Select(Select::AllOccurrences));
     assert_eq!(over.view().selections.len(), 1);
-    assert!(over.panel.is_some());
+    assert!(over.message().unwrap().starts_with("More than"));
+    // Refused, so the search was not used up.
+    assert!(over.has_search());
 
     // One fewer and the command goes through.
     let mut under = editor(&"x ".repeat(MAX_CURSORS), 0);
@@ -1471,6 +1475,7 @@ fn replace_changes_every_occurrence_in_one_step() {
     editor.execute(Command::Panel(PanelCommand::NextField));
     type_into_prompt(&mut editor, "1");
     editor.submit_prompt(false);
+    editor.execute(Command::Panel(PanelCommand::ReplaceAll));
 
     assert_eq!(content(&editor), "1 two 1");
 

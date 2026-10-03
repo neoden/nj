@@ -29,6 +29,8 @@ pub enum Context {
     Prompt,
     Picker,
     Confirm,
+    /// A replacement is asking at each hit.
+    Replacing,
 }
 
 impl Context {
@@ -44,6 +46,7 @@ impl Context {
             Context::Prompt => matches!(editor.panel(), Some(Panel::Prompt(_))),
             Context::Picker => matches!(editor.panel(), Some(Panel::Picker(_))),
             Context::Confirm => matches!(editor.panel(), Some(Panel::Confirm(_))),
+            Context::Replacing => matches!(editor.panel(), Some(Panel::Replacing(_))),
         }
     }
 
@@ -56,7 +59,7 @@ impl Context {
         self == other
             || self == Any
             || (self == Text && matches!(other, MultipleCursors | Searching))
-            || (self == Panel && matches!(other, Prompt | Picker | Confirm))
+            || (self == Panel && matches!(other, Prompt | Picker | Confirm | Replacing))
     }
 }
 
@@ -130,7 +133,8 @@ const fn mv(code: KeyCode, mods: Mods, motion: Motion) -> Binding {
 }
 
 use Context::{
-    Any, MultipleCursors, Panel as InPanel, Picker as InPicker, Prompt as InPrompt, Searching, Text,
+    Any, MultipleCursors, Panel as InPanel, Picker as InPicker, Prompt as InPrompt,
+    Replacing as InReplacing, Searching, Text,
 };
 use Direction::{Backward, Forward};
 use KeyCode::{
@@ -154,6 +158,24 @@ pub static KEYMAP: &[Binding] = &[
         Command::Panel(PanelCommand::Submit { backwards: true }),
     ),
     bind(Tab, NONE, InPrompt, Command::Panel(PanelCommand::NextField)),
+    bind(
+        Char('a'),
+        NONE,
+        InReplacing,
+        Command::Panel(PanelCommand::ReplaceAll),
+    ),
+    bind(
+        Char('y'),
+        NONE,
+        InReplacing,
+        Command::Panel(PanelCommand::ReplaceHit),
+    ),
+    bind(
+        Char('n'),
+        NONE,
+        InReplacing,
+        Command::Panel(PanelCommand::SkipHit),
+    ),
     bind(Enter, NONE, InPicker, Command::Panel(PanelCommand::Pick)),
     // The list grows upwards from the query, so moving up the screen means
     // moving away from the best match.

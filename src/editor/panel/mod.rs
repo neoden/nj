@@ -3,11 +3,13 @@
 mod fuzzy;
 pub mod picker;
 pub mod prompt;
+pub mod replacing;
 
 use std::path::PathBuf;
 
 use picker::Picker;
 use prompt::{Field, Prompt};
+use replacing::Replacing;
 
 /// A question with single-key answers. `Esc` always means "never mind".
 /// Each choice carries what it does, so there is no separate record of
@@ -156,6 +158,7 @@ pub enum Panel {
     Prompt(Prompt),
     Picker(Picker),
     Confirm(Confirm),
+    Replacing(Replacing),
 }
 
 impl Panel {
@@ -166,6 +169,7 @@ impl Panel {
             Panel::Prompt(prompt) => prompt.height(),
             Panel::Picker(picker) => picker.height(),
             Panel::Confirm(confirm) => confirm.rows().len(),
+            Panel::Replacing(_) => 1,
         }
     }
 
@@ -176,7 +180,7 @@ impl Panel {
         match self {
             Panel::Prompt(prompt) => Some(prompt.field_mut()),
             Panel::Picker(picker) => Some(&mut picker.query),
-            Panel::Confirm(_) => None,
+            Panel::Confirm(_) | Panel::Replacing(_) => None,
         }
     }
 

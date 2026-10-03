@@ -138,13 +138,6 @@ impl Text {
         }
     }
 
-    /// Whether `needle` sits at `at`. The boundary check is what keeps the
-    /// slice from splitting a character in half.
-    pub fn matches_at(&self, at: usize, needle: &str) -> bool {
-        let end = at + needle.len();
-        end <= self.len() && self.rope.is_char_boundary(end) && self.rope.slice(at..end) == *needle
-    }
-
     /// Every hit, left to right.
     pub fn matches<'a>(&'a self, needle: &'a str) -> Matches<'a> {
         Matches {
@@ -493,16 +486,6 @@ mod tests {
         // Overlapping candidates are not counted twice.
         assert_eq!(Text::from_str("aaaa").matches("aa").count(), 2);
         assert_eq!(Text::from_str("abc").matches("").count(), 0);
-    }
-
-    #[test]
-    fn matching_at_a_position_never_splits_a_character() {
-        let text = Text::from_str("aфb");
-        assert!(text.matches_at(0, "a"));
-        assert!(text.matches_at(1, "ф"));
-        // Two bytes in from the start lands inside `ф`.
-        assert!(!text.matches_at(0, "ab"));
-        assert!(!text.matches_at(0, "aфbc"));
     }
 
     #[test]

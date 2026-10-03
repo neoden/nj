@@ -31,5 +31,6 @@ Format: context, decision, consequences ([Nygard][nygard]).
 | [21](0021-one-thread-owns-the-editor.md) | One thread owns the editor; workers get snapshots and send messages | Accepted, resolves R3 |
 | [22](0022-a-search-outlives-its-prompt.md) | A search outlives its prompt | Accepted, amends 12 |
 | [23](0023-a-search-starts-on-enter.md) | A search starts on Enter; a replacement asks at each hit | Accepted, amends 22 |
+| [24](0024-a-form-for-each-case.md) | A form for each case | Accepted, refines 12, amends 23 |
 
 [nygard]: https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions

@@ -24,8 +24,8 @@ pub enum Command {
     },
     /// Rows; the cursors stay where they are.
     Scroll(isize),
-    /// The next hit of the open query, or of the last search once the
-    /// prompt has closed.
+    /// The next hit of the search going on, or of the last one, brought
+    /// back. A command of the text: an open panel does not take it.
     FindNext(Direction),
     /// Puts out the highlighted hits, until `FindNext` brings them back.
     /// The selections stay where they are.
@@ -108,6 +108,13 @@ pub enum PanelCommand {
     Pick,
     /// A single-key answer to a question.
     Answer(char),
+    /// While a replacement asks at each hit: replaces this one and every
+    /// one not answered for yet, which at the first question is all of them.
+    ReplaceAll,
+    /// While a replacement asks at each hit: replaces this one and goes on.
+    ReplaceHit,
+    /// While a replacement asks at each hit: leaves this one and goes on.
+    SkipHit,
     NextField,
     /// Moves the picker's highlight; positive is away from the query.
     MoveChoice(isize),
