@@ -3,7 +3,6 @@ use std::ops::Range;
 use super::After;
 use crate::text::Text;
 use crate::text::movement::{self, Motion};
-use crate::text::selection::SelectionSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Purpose {
@@ -105,13 +104,10 @@ pub struct Prompt {
     pub purpose: Purpose,
     pub fields: Vec<Field>,
     pub active: usize,
-    /// Where the cursors stood when the strip opened. A search looks from
-    /// there at every keystroke, and puts them back when it finds nothing.
-    pub origin: SelectionSet,
 }
 
 impl Prompt {
-    pub fn new(purpose: Purpose, origin: SelectionSet) -> Self {
+    pub fn new(purpose: Purpose) -> Self {
         let fields = purpose
             .labels()
             .iter()
@@ -124,7 +120,6 @@ impl Prompt {
             purpose,
             fields,
             active: 0,
-            origin,
         }
     }
 
@@ -169,7 +164,7 @@ mod tests {
     use crate::text::movement::Direction;
 
     fn prompt(purpose: Purpose, typed: &str) -> Prompt {
-        let mut prompt = Prompt::new(purpose, SelectionSet::single(0));
+        let mut prompt = Prompt::new(purpose);
         prompt.insert(typed);
         prompt
     }

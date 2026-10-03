@@ -30,5 +30,6 @@ Format: context, decision, consequences ([Nygard][nygard]).
 | [20](0020-an-external-change-is-an-ordinary-transaction.md) | An external change is an ordinary transaction | Accepted |
 | [21](0021-one-thread-owns-the-editor.md) | One thread owns the editor; workers get snapshots and send messages | Accepted, resolves R3 |
 | [22](0022-a-search-outlives-its-prompt.md) | A search outlives its prompt | Accepted, amends 12 |
+| [23](0023-a-search-starts-on-enter.md) | A search starts on Enter; a replacement asks at each hit | Accepted, amends 22 |
 
 [nygard]: https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions

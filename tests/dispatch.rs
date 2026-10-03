@@ -292,50 +292,49 @@ fn tab_in_a_prompt_moves_to_the_next_field() {
     assert_eq!(content(&editor), "x");
 }
 
-/// `Enter` walks the hits forwards and `Shift+Enter` backwards, wrapping
-/// both ways.
+/// `Enter` starts the search forwards from the cursor and `Shift+Enter`
+/// backwards, wrapping; either closes the field.
 #[test]
-fn enter_in_a_search_walks_the_matches_in_both_directions() {
+fn enter_in_a_search_starts_it_in_either_direction() {
     let mut editor = editor_with("a a a");
     ctrl(&mut editor, 'f');
     typed(&mut editor, "a");
-    assert_eq!(ranges(&editor), [0..1]);
-
     press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
-    assert_eq!(ranges(&editor), [2..3]);
-
-    press(&mut editor, KeyCode::Enter, KeyModifiers::SHIFT);
     assert_eq!(ranges(&editor), [0..1]);
+    assert!(editor.panel().is_none());
+
+    // The field opens holding the hit that is selected.
+    ctrl(&mut editor, 'f');
     press(&mut editor, KeyCode::Enter, KeyModifiers::SHIFT);
     assert_eq!(ranges(&editor), [4..5]);
+    assert!(editor.panel().is_none());
 }
 
-/// `F3` means the same thing whether the prompt is open or closed: the next
-/// hit of the last search.
+/// `F3` walks the search `Enter` started, forwards and with `Shift`
+/// backwards.
 #[test]
-fn f3_walks_the_matches_inside_the_prompt_and_after_it_closes() {
+fn f3_walks_the_matches_of_the_search_enter_started() {
     let mut editor = editor_with("a a a");
     ctrl(&mut editor, 'f');
     typed(&mut editor, "a");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
     press(&mut editor, KeyCode::F(3), KeyModifiers::NONE);
     assert_eq!(ranges(&editor), [2..3]);
 
-    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
     press(&mut editor, KeyCode::F(3), KeyModifiers::NONE);
     assert_eq!(ranges(&editor), [4..5]);
     press(&mut editor, KeyCode::F(3), KeyModifiers::SHIFT);
     assert_eq!(ranges(&editor), [2..3]);
 }
 
-/// `Esc` gives up one thing at a time: the prompt, then the search, then
-/// what is selected.
+/// `Esc` gives up one thing at a time: the search, then what is selected.
 #[test]
 fn esc_ends_the_search_before_it_touches_the_selection() {
     let mut editor = editor_with("a a a");
     ctrl(&mut editor, 'f');
     typed(&mut editor, "a");
 
-    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
     assert!(editor.panel().is_none());
     assert_eq!(editor.matches(), [0..1, 2..3, 4..5]);
 
@@ -354,7 +353,7 @@ fn ctrl_shift_l_takes_the_hits_of_a_search_going_on() {
     let mut editor = editor_with("a ab a");
     ctrl(&mut editor, 'f');
     typed(&mut editor, "a");
-    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
     // Into `ab`, off the hit the search left selected.
     press(&mut editor, KeyCode::Right, KeyModifiers::NONE);
     press(&mut editor, KeyCode::Right, KeyModifiers::NONE);
@@ -376,6 +375,7 @@ fn one_esc_drops_the_cursors_a_search_left() {
     let mut editor = editor_with("a ab a");
     ctrl(&mut editor, 'f');
     typed(&mut editor, "a");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
     press(
         &mut editor,
         KeyCode::Char('l'),
@@ -407,7 +407,7 @@ fn f3_brings_back_the_search_esc_ended() {
     let mut editor = editor_with("a a a");
     ctrl(&mut editor, 'f');
     typed(&mut editor, "a");
-    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
     press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
     assert!(editor.matches().is_empty());
 
@@ -416,15 +416,16 @@ fn f3_brings_back_the_search_esc_ended() {
     assert_eq!(ranges(&editor), [2..3]);
 }
 
-/// `Ctrl+Shift+L` puts a cursor on every hit of the open query; the same
-/// key with the prompt closed searches for the word under the cursor, and
-/// so respects word boundaries. That the two differ is S2, not a decision —
+/// `Ctrl+Shift+L` puts a cursor on every hit of the search going on; the
+/// same key with no search looks for the word under the cursor, and so
+/// respects word boundaries. That the two differ is S2, not a decision —
 /// but until it is resolved the table has to reproduce both.
 #[test]
 fn ctrl_shift_l_takes_every_match_of_the_query_or_of_the_word() {
     let mut editor = editor_with("a ab a");
     ctrl(&mut editor, 'f');
     typed(&mut editor, "a");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
     press(
         &mut editor,
         KeyCode::Char('l'),
@@ -602,12 +603,11 @@ fn a_click_in_the_text_closes_a_prompt_and_leaves_a_question() {
 
     ctrl(&mut editor, 'f');
     typed(&mut editor, "o");
-    assert_eq!(ranges(&editor), [4..5]);
     mouse(&mut editor, down, gutter + 3, 1, KeyModifiers::NONE);
     assert!(editor.panel().is_none());
     assert_eq!(ranges(&editor), [9..9]);
-    // The search it typed goes on, as after `Esc`.
-    assert_eq!(editor.matches(), [4..5, 7..8]);
+    // What was typed started no search, as after `Esc`.
+    assert!(editor.matches().is_empty());
 
     ctrl(&mut editor, 'q');
     assert!(matches!(editor.panel(), Some(Panel::Confirm(_))));

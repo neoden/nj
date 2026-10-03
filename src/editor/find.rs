@@ -1,4 +1,4 @@
-//! Finding things in the text: the search a prompt types, walking its hits,
+//! Finding things in the text: the search a prompt starts, walking its hits,
 //! repeating it once the prompt is gone, and the selection-driven kind —
 //! `Ctrl+D` and `Ctrl+Shift+L` — that starts from the word under the cursor.
 //! One engine (`text::search`) serves them all; what differs is the query
@@ -29,29 +29,6 @@ pub(super) struct Occurrences {
 }
 
 impl Editor {
-    /// Incremental search: every keystroke retargets the session and lands
-    /// on the first hit at or after where the cursor stood when the prompt
-    /// opened, so the match never drifts forward as the query grows.
-    pub(super) fn prompt_changed(&mut self) {
-        // The search is there with any prompt open, and only a search prompt
-        // has a query to give it.
-        let Some(prompt) = self.prompt().filter(|prompt| prompt.purpose.searches()) else {
-            return;
-        };
-        let needle = prompt.contents(0);
-        let origin = prompt.origin.clone();
-        let Some(search) = &mut self.search else {
-            return;
-        };
-
-        search.retarget(Query::literal(needle), self.workspace.focus().1.text());
-
-        match search.landing(origin.primary().min()) {
-            Some(hit) => self.select_hit(hit),
-            None => self.view_mut().selections = origin,
-        }
-    }
-
     /// Turns the hits into cursors and hands the keyboard back to the text,
     /// which is the only reason anyone wants a cursor on every hit. The
     /// search is over with that: its hits are what is selected now.
@@ -73,6 +50,20 @@ impl Editor {
         view.scroll_to_cursor(buffer);
         self.close_panel();
         self.end_search();
+    }
+
+    /// `Enter` in a search field: what is in it becomes the search, and the
+    /// selection goes to its first hit from the cursor. A field with nothing
+    /// in it starts no search.
+    pub(super) fn start_search(&mut self, needle: String, direction: Direction) {
+        let query = Query::literal(needle);
+        if query.is_empty() {
+            return;
+        }
+        let mut search = Session::default();
+        search.retarget(query, self.buffer().text());
+        self.search = Some(search);
+        self.go_to_match(direction);
     }
 
     /// Walks the hits the prompt has in hand.

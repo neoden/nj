@@ -353,13 +353,11 @@ impl Editor {
         }
     }
 
-    /// An edited query drives whatever the panel is for; a moved caret does
-    /// not, or a search would drag the cursor back to the first hit.
+    /// An edited query sifts a picker's list as it is typed. A prompt's
+    /// fields drive nothing until `Enter`.
     fn field_edited(&mut self) {
-        match &mut self.panel {
-            Some(Panel::Picker(picker)) => picker.refilter(),
-            Some(Panel::Prompt(_)) => self.prompt_changed(),
-            _ => {}
+        if let Some(Panel::Picker(picker)) = &mut self.panel {
+            picker.refilter();
         }
     }
 
@@ -424,7 +422,7 @@ impl Editor {
 
     fn open_prompt(&mut self, purpose: Purpose) {
         self.close_panel();
-        let mut prompt = Prompt::new(purpose.clone(), self.view().selections.clone());
+        let mut prompt = Prompt::new(purpose.clone());
 
         if purpose.searches() {
             // The search going on gives way to the one this prompt types.
@@ -446,7 +444,7 @@ impl Editor {
             }
 
             // Opening moves no cursor. The hits of the seed light up, and
-            // going to one is left to the first keystroke or `Enter`.
+            // going to one is left to `Enter`.
             let mut search = Session::default();
             search.retarget(Query::literal(prompt.contents(0)), self.buffer().text());
             self.search = Some(search);
@@ -568,8 +566,7 @@ impl Editor {
         }
     }
 
-    /// `Enter` walks the hits while searching; for anything else it answers
-    /// the question and closes the strip.
+    /// `Enter` answers what the strip asked and closes it.
     fn submit_prompt(&mut self, backwards: bool) {
         let Some(prompt) = self.prompt() else {
             return;
@@ -579,10 +576,13 @@ impl Editor {
 
         match purpose {
             Purpose::Search => {
-                return self.go_to_match(match backwards {
-                    true => Direction::Backward,
-                    false => Direction::Forward,
-                });
+                self.start_search(
+                    first,
+                    match backwards {
+                        true => Direction::Backward,
+                        false => Direction::Forward,
+                    },
+                );
             }
             Purpose::GotoLine => match parse_line_number(&first) {
                 Some(line) => self.goto_line(line),
@@ -590,7 +590,12 @@ impl Editor {
             },
             Purpose::Replace => {
                 let replacement = prompt.contents(1);
-                self.replace_all(&replacement);
+                // With no query there is nothing to replace, and the hits
+                // still in hand are those of another search.
+                if !first.is_empty() {
+                    self.start_search(first, Direction::Forward);
+                    self.replace_all(&replacement);
+                }
             }
             // Empty means nothing to do; the panel closes all the same.
             Purpose::Open | Purpose::SaveAs(_) if first.trim().is_empty() => {}

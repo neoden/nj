@@ -1217,7 +1217,7 @@ fn opening_search_again_brings_the_query_back() {
     let mut editor = editor("x . x . x", 0);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "x");
-    editor.close_panel();
+    editor.submit_prompt(false);
     select(&mut editor, SelectionSet::single(2));
 
     editor.open_prompt(Purpose::Search);
@@ -1233,7 +1233,6 @@ fn opening_search_again_brings_the_query_back() {
     assert_eq!(ranges(&editor), [4..5]);
 
     // A search `Esc` ended is remembered just the same.
-    editor.close_panel();
     editor.end_search();
     editor.open_prompt(Purpose::Search);
     assert_eq!(editor.prompt().unwrap().contents(0), "x");
@@ -1244,7 +1243,7 @@ fn a_prompt_closed_empty_leaves_the_last_query_alone() {
     let mut editor = editor("x . x . x", 0);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "x");
-    editor.close_panel();
+    editor.submit_prompt(false);
 
     // The query comes back selected, and one keystroke wipes it.
     editor.open_prompt(Purpose::Search);
@@ -1253,7 +1252,8 @@ fn a_prompt_closed_empty_leaves_the_last_query_alone() {
     ))));
     assert_eq!(editor.prompt().unwrap().contents(0), "");
     editor.close_panel();
-    assert!(!editor.has_search());
+    // Nothing was started, so the search there was goes on.
+    assert!(editor.has_search());
 
     editor.search_next(Direction::Forward);
     assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
@@ -1270,33 +1270,11 @@ fn a_selection_across_lines_does_not_seed_the_query() {
 }
 
 #[test]
-fn search_follows_every_keystroke() {
-    let mut editor = editor("alpha beta gamma", 0);
-    editor.open_prompt(Purpose::Search);
-
-    type_into_prompt(&mut editor, "b");
-    assert_eq!(editor.view().selections.primary().range(), 6..7);
-
-    type_into_prompt(&mut editor, "eta");
-    assert_eq!(editor.view().selections.primary().range(), 6..10);
-}
-
-#[test]
-fn search_starts_over_from_where_it_opened() {
-    let mut editor = editor("aa ab", 0);
-    editor.open_prompt(Purpose::Search);
-
-    // Typing `a` then `b` must not chase the first match forward.
-    type_into_prompt(&mut editor, "ab");
-    assert_eq!(editor.view().selections.primary().range(), 3..5);
-}
-
-#[test]
-fn escape_closes_the_prompt_and_leaves_the_search_running() {
+fn enter_closes_the_prompt_and_leaves_the_search_running() {
     let mut editor = editor("alpha beta", 2);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "beta");
-    editor.close_panel();
+    editor.submit_prompt(false);
 
     assert_eq!(editor.view().selections.primary().range(), 6..10);
     assert!(editor.panel.is_none());
@@ -1313,7 +1291,7 @@ fn another_prompt_leaves_the_search_alone() {
     let mut editor = editor("1 x 1", 0);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "x");
-    editor.close_panel();
+    editor.submit_prompt(false);
 
     editor.open_prompt(Purpose::GotoLine);
     type_into_prompt(&mut editor, "1");
@@ -1322,24 +1300,31 @@ fn another_prompt_leaves_the_search_alone() {
 }
 
 #[test]
-fn enter_walks_the_matches_and_wraps() {
-    let mut editor = editor("x . x . x", 0);
+fn enter_starts_the_search_and_closes_the_field() {
+    let mut editor = editor("x . x . x", 2);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "x");
-    assert_eq!(editor.view().selections.primary().range(), 0..1);
 
     editor.submit_prompt(false);
-    assert_eq!(editor.view().selections.primary().range(), 4..5);
-    editor.submit_prompt(false);
-    assert_eq!(editor.view().selections.primary().range(), 8..9);
-    editor.submit_prompt(false);
-    assert_eq!(editor.view().selections.primary().range(), 0..1);
+    // The first hit from where the cursor stood, not from the top.
+    assert_eq!(ranges(&editor), [4..5]);
+    assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
+    assert!(editor.panel.is_none());
 
+    // Backwards it is the first one before the cursor.
+    select(&mut editor, SelectionSet::single(2));
+    editor.open_prompt(Purpose::Search);
     editor.submit_prompt(true);
-    assert_eq!(editor.view().selections.primary().range(), 8..9);
+    assert_eq!(ranges(&editor), [0..1]);
 
-    // Walking the hits keeps the panel open.
-    assert!(editor.panel.is_some());
+    // Nothing found: the field closes and the cursor stays.
+    select(&mut editor, SelectionSet::single(2));
+    editor.open_prompt(Purpose::Search);
+    type_into_prompt(&mut editor, "q");
+    editor.submit_prompt(false);
+    assert_eq!(ranges(&editor), [2..2]);
+    assert_eq!(editor.message(), Some("Not found"));
+    assert!(editor.panel.is_none());
 }
 
 #[test]
@@ -1347,12 +1332,13 @@ fn every_hit_is_collected_and_counted() {
     let mut editor = editor("x . x . x", 0);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "x");
+    editor.submit_prompt(false);
 
     assert_eq!(editor.matches(), [0..1, 4..5, 8..9]);
-    assert_eq!(editor.panel_status(), "1/3");
+    assert_eq!(editor.panel_status(), "1/3 \"x\"");
 
-    editor.submit_prompt(false);
-    assert_eq!(editor.panel_status(), "2/3");
+    editor.execute(Command::FindNext(Direction::Forward));
+    assert_eq!(editor.panel_status(), "2/3 \"x\"");
 }
 
 #[test]
@@ -1360,7 +1346,7 @@ fn the_status_names_the_search_once_its_prompt_is_gone() {
     let mut editor = editor("x . x . x", 0);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "x");
-    editor.close_panel();
+    editor.submit_prompt(false);
     assert_eq!(editor.panel_status(), "1/3 \"x\"");
 
     // Off the hit there is no current one to number.
@@ -1389,11 +1375,10 @@ fn every_hit_can_become_a_cursor() {
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "id");
     editor.submit_prompt(false);
+    editor.execute(Command::FindNext(Direction::Forward));
 
     editor.select_all_matches();
     assert_eq!(ranges(&editor), [0..2, 4..6, 8..10]);
-    // The keyboard goes back to the text, which is the point.
-    assert!(editor.panel.is_none());
     // The hit we were standing on stays the primary one.
     assert_eq!(editor.view().selections.primary().range(), 4..6);
 
@@ -1415,7 +1400,6 @@ fn too_many_hits_are_refused_rather_than_partly_selected() {
 
     over.open_prompt(Purpose::Search);
     type_into_prompt(&mut over, "x");
-    over.submit_prompt(false);
     over.select_all_matches();
     assert_eq!(over.view().selections.len(), 1);
     assert!(over.panel.is_some());
@@ -1428,46 +1412,14 @@ fn too_many_hits_are_refused_rather_than_partly_selected() {
 }
 
 #[test]
-fn narrowing_a_query_finds_what_scanning_would() {
-    let mut editor = editor("ab abc abcd", 0);
-    editor.open_prompt(Purpose::Search);
-
-    type_into_prompt(&mut editor, "a");
-    assert_eq!(editor.matches(), [0..1, 3..4, 7..8]);
-
-    type_into_prompt(&mut editor, "b");
-    assert_eq!(editor.matches(), [0..2, 3..5, 7..9]);
-
-    type_into_prompt(&mut editor, "cd");
-    assert_eq!(editor.matches(), vec![7..11]);
-
-    // Backspace cannot narrow, so this one has to read the document again.
-    editor.execute(Command::Edit(Edit::Delete(Motion::Grapheme(
-        Direction::Backward,
-    ))));
-    assert_eq!(editor.matches(), [3..6, 7..10]);
-}
-
-#[test]
-fn narrowing_does_not_cut_a_character_in_half() {
-    let mut editor = editor("аб абв", 0);
-    editor.open_prompt(Purpose::Search);
-
-    type_into_prompt(&mut editor, "а");
-    assert_eq!(editor.matches(), [0..2, 5..7]);
-
-    type_into_prompt(&mut editor, "бв");
-    assert_eq!(editor.matches(), vec![5..11]);
-}
-
-#[test]
 fn a_query_with_no_hits_counts_zero() {
     let mut editor = editor("nothing here", 0);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "zzz");
+    editor.submit_prompt(false);
 
     assert!(editor.matches().is_empty());
-    assert_eq!(editor.panel_status(), "0");
+    assert_eq!(editor.panel_status(), "0 \"zzz\"");
 }
 
 #[test]
@@ -1476,6 +1428,7 @@ fn the_hits_keep_up_with_the_text() {
     editor.insert("x ", EditKind::Other);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "x");
+    editor.submit_prompt(false);
     assert_eq!(editor.matches(), [0..1, 2..3, 6..7]);
 
     editor.undo();
@@ -1488,7 +1441,7 @@ fn f3_still_works_once_the_strip_is_closed() {
     let mut editor = editor("x . x", 0);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "x");
-    editor.close_panel();
+    editor.submit_prompt(false);
 
     editor.search_next(Direction::Forward);
     assert_eq!(editor.view().selections.primary().range(), 4..5);
@@ -1501,7 +1454,7 @@ fn f3_in_a_panel_that_is_not_a_search_does_nothing() {
     let mut editor = editor("x . x", 0);
     editor.open_prompt(Purpose::Search);
     type_into_prompt(&mut editor, "x");
-    editor.close_panel();
+    editor.submit_prompt(false);
 
     editor.open_prompt(Purpose::GotoLine);
     editor.execute(Command::FindNext(Direction::Forward));
