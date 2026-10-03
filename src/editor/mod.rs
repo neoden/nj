@@ -388,6 +388,13 @@ impl Editor {
         let Some((row, column)) = self.cell_in_view(row, column) else {
             return;
         };
+        // A click in the text takes the keyboard back there: a field or a
+        // list gives way to it. A question does not, having to be answered.
+        match &self.panel {
+            Some(Panel::Confirm(_)) => return,
+            Some(_) => self.close_panel(),
+            None => {}
+        }
         let (view, buffer) = self.workspace.focus_mut();
         let offset = view.offset_at_screen(buffer, row, column);
         match add {
@@ -396,7 +403,12 @@ impl Editor {
         }
     }
 
+    /// A drag follows a click, which closed any panel that gives way. One
+    /// still open is a question, or the button went down outside the text.
     fn drag(&mut self, row: usize, column: usize) {
+        if self.panel.is_some() {
+            return;
+        }
         let Some((row, column)) = self.cell_in_view(row, column) else {
             return;
         };

@@ -591,6 +591,32 @@ fn clicks_land_past_the_gutter_and_drags_extend() {
     assert_eq!(ranges(&editor), [0..8]);
 }
 
+/// An open panel has the keyboard, and the mouse does not go round it: a
+/// click in the text closes a field, and a question is not clicked away.
+#[test]
+fn a_click_in_the_text_closes_a_prompt_and_leaves_a_question() {
+    let mut editor = editor_with("hello\nworld");
+    let gutter = editor.view().gutter as u16;
+    let down = MouseEventKind::Down(MouseButton::Left);
+    let drag = MouseEventKind::Drag(MouseButton::Left);
+
+    ctrl(&mut editor, 'f');
+    typed(&mut editor, "o");
+    assert_eq!(ranges(&editor), [4..5]);
+    mouse(&mut editor, down, gutter + 3, 1, KeyModifiers::NONE);
+    assert!(editor.panel().is_none());
+    assert_eq!(ranges(&editor), [9..9]);
+    // The search it typed goes on, as after `Esc`.
+    assert_eq!(editor.matches(), [4..5, 7..8]);
+
+    ctrl(&mut editor, 'q');
+    assert!(matches!(editor.panel(), Some(Panel::Confirm(_))));
+    mouse(&mut editor, down, gutter, 0, KeyModifiers::NONE);
+    mouse(&mut editor, drag, gutter + 2, 0, KeyModifiers::NONE);
+    assert!(matches!(editor.panel(), Some(Panel::Confirm(_))));
+    assert_eq!(ranges(&editor), [9..9]);
+}
+
 #[test]
 fn the_wheel_scrolls_without_moving_the_cursor() {
     let mut editor = editor_with(&"line\n".repeat(100));
