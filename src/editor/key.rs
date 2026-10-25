@@ -235,7 +235,11 @@ mod tests {
             KeyCode::F(12),
         ];
         for code in codes {
-            for mods in [Mods::empty(), Mods::SHIFT, Mods::CTRL | Mods::ALT | Mods::SHIFT] {
+            for mods in [
+                Mods::empty(),
+                Mods::SHIFT,
+                Mods::CTRL | Mods::ALT | Mods::SHIFT,
+            ] {
                 let key = Key::new(code, mods);
                 assert_eq!(key.to_string().parse::<Key>().unwrap(), key, "{key}");
             }

@@ -12,7 +12,9 @@
 //!   drag X Y [MODS]    the pointer moving there with the button held;
 //!   scroll up|down X Y [MODS]   the wheel. MODS is `Ctrl+Shift` and so on
 //!   wait           let every background job finish
-//!   screen         print the frame
+//!   screen         print the frame: the first one whole, each later one
+//!                  as the rows that changed since the one before, or
+//!                  `same` when none did
 //!
 //! Resizing is `size`: the loop takes the terminal's size before every
 //! frame, and a resize event only wakes it up.
@@ -34,6 +36,7 @@ fn main() -> Result<()> {
     let mut editor = Editor::new(Buffer::default());
     let mut size = (40, 10);
     editor.resize(size.0, size.1);
+    let mut previous: Option<Grid> = None;
 
     for (index, line) in io::stdin().lock().lines().enumerate() {
         let line = line?;
@@ -42,12 +45,19 @@ fn main() -> Result<()> {
             continue;
         }
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
-        step(verb, rest, &mut editor, &mut size).with_context(|| format!("line {}", index + 1))?;
+        step(verb, rest, &mut editor, &mut size, &mut previous)
+            .with_context(|| format!("line {}", index + 1))?;
     }
     Ok(())
 }
 
-fn step(verb: &str, rest: &str, editor: &mut Editor, size: &mut (usize, usize)) -> Result<()> {
+fn step(
+    verb: &str,
+    rest: &str,
+    editor: &mut Editor,
+    size: &mut (usize, usize),
+    previous: &mut Option<Grid>,
+) -> Result<()> {
     match verb {
         "size" => {
             let (width, height) = rest
@@ -88,7 +98,14 @@ fn step(verb: &str, rest: &str, editor: &mut Editor, size: &mut (usize, usize)) 
             editor.resize(size.0, size.1);
             let mut grid = Grid::new(size.0, size.1);
             render::compose(&mut grid, editor);
-            print!("{}", dump::dump(&grid));
+            if previous.is_some() {
+                println!();
+            }
+            match dump::dump(&grid, previous.as_ref()) {
+                text if text.is_empty() => println!("same"),
+                text => print!("{text}"),
+            }
+            *previous = Some(grid);
         }
         other => bail!("unknown instruction `{other}`"),
     }

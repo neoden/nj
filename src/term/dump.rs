@@ -1,7 +1,9 @@
 //! A frame as text, for a scenario to read and a test to compare (ADR 25).
 //! One line per screen row, prefixed with the row's number; under a row, when
 //! any cell on it carries a style worth seeing, a second line with a letter
-//! per cell. Empty rows that follow one another collapse into a range.
+//! per cell. Empty rows that follow one another collapse into a range. Given
+//! the frame before, only the rows that differ from it are printed, so a
+//! scenario reads as what each step changed.
 
 use crate::editor::style::CellStyle;
 
@@ -42,7 +44,10 @@ fn text(grid: &Grid, y: usize) -> String {
     text
 }
 
-pub fn dump(grid: &Grid) -> String {
+/// Every row, or with `previous` of the same size only the rows that differ
+/// from it; nothing at all when none does.
+pub fn dump(grid: &Grid, previous: Option<&Grid>) -> String {
+    let previous = previous.filter(|p| p.width() == grid.width() && p.height() == grid.height());
     let digits = grid.height().saturating_sub(1).to_string().len();
     let mut out = String::new();
     let mut empty_from: Option<usize> = None;
@@ -53,6 +58,14 @@ pub fn dump(grid: &Grid) -> String {
     };
 
     for y in 0..grid.height() {
+        let same =
+            previous.is_some_and(|p| (0..grid.width()).all(|x| p.cell(x, y) == grid.cell(x, y)));
+        if same {
+            if let Some(from) = empty_from.take() {
+                flush_empty(&mut out, from, y - 1);
+            }
+            continue;
+        }
         let (text, styles) = (text(grid, y), styles(grid, y));
         if text.is_empty() && styles.is_empty() {
             empty_from.get_or_insert(y);
@@ -86,7 +99,7 @@ mod tests {
         // does, and shows up as letters where the text shows nothing.
         grid.put_str(5, 0, "     ", CellStyle::CurrentLine);
         grid.put_str(0, 2, "status", CellStyle::Status);
-        assert_eq!(dump(&grid), "0|1 abc\n |::--^-----\n1|\n2|status\n");
+        assert_eq!(dump(&grid, None), "0|1 abc\n |::--^-----\n1|\n2|status\n");
     }
 
     #[test]
@@ -94,7 +107,25 @@ mod tests {
         let mut grid = Grid::new(4, 12);
         grid.put_str(0, 0, "a", CellStyle::Normal);
         grid.put_str(0, 11, "s", CellStyle::Status);
-        assert_eq!(dump(&grid), " 0|a\n 1-10|\n11|s\n");
+        assert_eq!(dump(&grid, None), " 0|a\n 1-10|\n11|s\n");
+    }
+
+    #[test]
+    fn only_the_rows_that_changed_are_printed() {
+        let mut before = Grid::new(6, 5);
+        before.put_str(0, 0, "keep", CellStyle::Normal);
+        before.put_str(0, 1, "gone", CellStyle::Normal);
+        before.put_str(0, 2, "gone", CellStyle::Normal);
+        before.put_str(0, 4, "abc", CellStyle::Normal);
+        let mut after = before.clone();
+        after.put_str(0, 1, "    ", CellStyle::Normal);
+        after.put_str(0, 2, "    ", CellStyle::Normal);
+        after.put_str(0, 4, "a", CellStyle::Cursor);
+
+        assert_eq!(dump(&after, Some(&before)), "1-2|\n4|abc\n |^\n");
+        assert_eq!(dump(&after, Some(&after)), "");
+        // A frame of another size has nothing to differ from.
+        assert_eq!(dump(&after, Some(&Grid::new(6, 4))), dump(&after, None));
     }
 
     #[test]
@@ -102,6 +133,6 @@ mod tests {
         let mut grid = Grid::new(6, 1);
         grid.put_str(0, 0, "日", CellStyle::Selected);
         grid.put_str(2, 0, " ", CellStyle::Cursor);
-        assert_eq!(dump(&grid), "0|日\n |~~^\n");
+        assert_eq!(dump(&grid, None), "0|日\n |~~^\n");
     }
 }
