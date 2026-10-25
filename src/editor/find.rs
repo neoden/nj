@@ -67,21 +67,29 @@ impl Editor {
         self.go_to_match(direction);
     }
 
-    /// `Enter` in the replace fields: the search starts as it does from the
-    /// search field, and with a hit to stand on the question is asked.
+    /// `Enter` in the replace fields: the search starts, and with a hit to
+    /// stand on the question is asked. The first hit is looked for from
+    /// where the selection begins, not past its end as `F3` looks: a hit
+    /// that is selected is the one to ask about first, not last.
     pub(super) fn start_replacing(&mut self, needle: String, replacement: String) {
         let Some(search) = Session::new(Query::literal(needle), self.buffer().text()) else {
             return;
         };
         let left = search.hits().len();
+        let from = self.view().selections.primary().min();
+        let first = search.next_hit(from, Direction::Forward);
         self.search = Some(search);
-        self.go_to_match(Direction::Forward);
-        if left > 0 {
-            self.panel = Some(Panel::Replacing(Replacing {
-                replacement,
-                left,
-                replaced: 0,
-            }));
+        self.last_replacement = Some(replacement.clone());
+        match first {
+            Some(hit) => {
+                self.select_hit(hit);
+                self.panel = Some(Panel::Replacing(Replacing {
+                    replacement,
+                    left,
+                    replaced: 0,
+                }));
+            }
+            None => self.message = Some("Not found".to_owned()),
         }
     }
 

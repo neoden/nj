@@ -73,6 +73,9 @@ pub struct Editor {
     /// The query searched for last, for when no search is going on: `F3`
     /// brings it back, and the search field opens holding it.
     last: Option<Query>,
+    /// What was replaced with last; the replace form opens holding it, so a
+    /// walk that was stopped is picked up with `Enter`.
+    last_replacement: Option<String>,
     /// Set once the loop should stop; how says what the process ends with.
     exit: Option<Exit>,
     occurrences: Option<Occurrences>,
@@ -98,6 +101,7 @@ impl Editor {
             message: None,
             search: None,
             last: None,
+            last_replacement: None,
             exit: None,
             occurrences: None,
             desktop: None,
@@ -472,7 +476,10 @@ impl Editor {
     fn open_replace(&mut self) {
         self.close_panel();
         let seed = self.query_seed();
-        self.panel = Some(Panel::Replace(Replace::new(seed.as_deref())));
+        self.panel = Some(Panel::Replace(Replace::new(
+            seed.as_deref(),
+            self.last_replacement.as_deref(),
+        )));
     }
 
     /// `Enter` in the replace fields: they close, and the question is asked

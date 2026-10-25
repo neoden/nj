@@ -12,23 +12,12 @@ pub struct Replace {
 }
 
 impl Replace {
-    /// What the query opens holding is selected, so that typing replaces it.
-    pub fn new(seed: Option<&str>) -> Self {
-        let mut query = Field {
-            label: "Find:",
-            ..Field::default()
-        };
-        if let Some(seed) = seed {
-            query.insert(seed);
-            query.select_all();
-        }
-        let replacement = Field {
-            label: "Replace:",
-            ..Field::default()
-        };
+    /// What either field opens holding is selected, so that typing replaces
+    /// it: the query its seed, the replacement what was replaced with last.
+    pub fn new(seed: Option<&str>, replacement: Option<&str>) -> Self {
         Self {
-            query,
-            replacement,
+            query: seeded("Find:", seed),
+            replacement: seeded("Replace:", replacement),
             on_replacement: false,
         }
     }
@@ -46,13 +35,25 @@ impl Replace {
     }
 }
 
+fn seeded(label: &'static str, text: Option<&str>) -> Field {
+    let mut field = Field {
+        label,
+        ..Field::default()
+    };
+    if let Some(text) = text {
+        field.insert(text);
+        field.select_all();
+    }
+    field
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn the_two_fields_take_turns() {
-        let mut replace = Replace::new(None);
+        let mut replace = Replace::new(None, None);
         replace.field_mut().insert("old");
 
         replace.switch_field();

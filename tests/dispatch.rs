@@ -434,6 +434,53 @@ fn enter_in_replace_asks_at_the_first_hit() {
     assert_eq!(editor.message(), Some("Not found"));
 }
 
+/// The fields open holding the last query and the last replacement, both
+/// selected, so a walk that was stopped goes on with `Enter` and a new one
+/// is typed over them.
+#[test]
+fn the_replace_fields_remember_the_last_query_and_replacement() {
+    let mut editor = editor_with("one two one");
+    ctrl(&mut editor, 'h');
+    typed(&mut editor, "one");
+    press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
+    typed(&mut editor, "1");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    typed(&mut editor, "y");
+    press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!(content(&editor), "1 two one");
+
+    ctrl(&mut editor, 'h');
+    let Some(Panel::Replace(replace)) = editor.panel() else {
+        panic!("the replace fields are open");
+    };
+    assert_eq!(replace.query.contents(), "one");
+    assert_eq!(replace.replacement.contents(), "1");
+    assert_eq!(replace.replacement.selection(), 0..1);
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    typed(&mut editor, "y");
+    assert_eq!(content(&editor), "1 two 1");
+}
+
+/// A hit that is selected when the fields open is the first one asked
+/// about, not the last.
+#[test]
+fn replace_starts_with_the_hit_that_is_selected() {
+    let mut editor = editor_with("foo x foo");
+    for _ in 0..3 {
+        press(&mut editor, KeyCode::Right, KeyModifiers::SHIFT);
+    }
+    assert_eq!(ranges(&editor), [0..3]);
+
+    ctrl(&mut editor, 'h');
+    press(&mut editor, KeyCode::Tab, KeyModifiers::NONE);
+    typed(&mut editor, "b");
+    press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(ranges(&editor), [0..3]);
+
+    typed(&mut editor, "y");
+    assert_eq!(content(&editor), "b x foo");
+}
+
 /// `n` leaves the hit and goes to the next, once round the text from where
 /// the cursor stood; after the last one the question is gone.
 #[test]
