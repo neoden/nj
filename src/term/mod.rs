@@ -6,5 +6,6 @@ pub mod dump;
 pub mod grid;
 pub mod input;
 pub mod render;
+pub mod scenario;
 pub mod system_clipboard;
 pub mod terminal;
