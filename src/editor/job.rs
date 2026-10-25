@@ -14,11 +14,21 @@ use super::panel::picker::Candidate;
 use super::workspace::BufferId;
 
 /// What the main loop wakes up for: a keystroke or the like from the
-/// terminal, or something a worker has to say.
+/// terminal, something a worker has to say, or a line from the socket.
 #[derive(Debug)]
 pub enum Message {
     Input(Input),
     Report(Report),
+    Remote(Remote),
+}
+
+/// A line from the socket (ADR 26), and where its answer goes. The line is
+/// read by the loop, not here: the editor's layer knows nothing of the
+/// language it is written in.
+#[derive(Debug)]
+pub struct Remote {
+    pub line: String,
+    pub reply: Sender<String>,
 }
 
 /// The editor's own work coming back to it. Not a command: nobody asks for
@@ -169,7 +179,7 @@ mod tests {
     fn next_report(rx: &Receiver<Message>) -> Report {
         match rx.recv().unwrap() {
             Message::Report(report) => report,
-            Message::Input(_) => panic!("no input was sent"),
+            Message::Input(_) | Message::Remote(_) => panic!("no input was sent"),
         }
     }
 

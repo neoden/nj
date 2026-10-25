@@ -33,5 +33,7 @@ Format: context, decision, consequences ([Nygard][nygard]).
 | [23](0023-a-search-starts-on-enter.md) | A search starts on Enter; a replacement asks at each hit | Accepted, amends 22 |
 | [24](0024-a-form-for-each-case.md) | A form for each case | Accepted, refines 12, amends 23 |
 | [25](0025-the-frame-is-the-test-oracle.md) | The frame is the test oracle; a scenario is a sequence of events | Accepted, builds on 16, 21 |
+| [26](0026-a-socket-that-speaks-the-scenario-language.md) | A socket that speaks the scenario language | Accepted, realizes 14, 21 |
+| [27](0027-a-sandbox-for-the-debug-build.md) | A sandbox, in the debug build only | Accepted, extends 25, completes 26 |
 
 [nygard]: https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions

@@ -9,13 +9,14 @@ use crossterm::event::{self, Event};
 
 use super::input;
 use super::render::Renderer;
+use super::socket::Server;
 use crate::editor::Editor;
 use crate::editor::job::Message;
 
 /// One queue, one thread that owns the editor (ADR 21). The terminal is read
 /// on a thread of its own, because `event::read` blocks and the queue is
 /// what the loop has to wait on.
-pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
+pub fn run(editor: &mut Editor, out: &mut impl Write, server: &mut Server) -> Result<()> {
     let mut renderer = Renderer::new();
 
     // Started only now: the terminal has been set up, and its answer to the
@@ -33,7 +34,8 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
 
     loop {
         let (width, height) = crossterm::terminal::size()?;
-        let size = (width as usize, height as usize);
+        let terminal = (width as usize, height as usize);
+        let size = server.frame_size(terminal);
         editor.resize(size.0, size.1);
         renderer.draw(out, editor, size)?;
 
@@ -44,9 +46,11 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
             return Ok(());
         };
         let mut inputs = Vec::new();
+        let mut remotes = Vec::new();
         let mut reports = Vec::new();
         let mut sort = |message| match message {
             Message::Input(event) => inputs.push(event),
+            Message::Remote(remote) => remotes.push(remote),
             Message::Report(report) => reports.push(report),
         };
         sort(first);
@@ -58,6 +62,16 @@ pub fn run(editor: &mut Editor, out: &mut impl Write) -> Result<()> {
             if let Some(command) = input.into_command(editor) {
                 editor.execute(command);
             }
+            if editor.exit().is_some() {
+                return Ok(());
+            }
+        }
+        // A line from the socket is input too, and is answered once it has
+        // been carried out, so that a client sending a key and asking for
+        // the frame gets the frame after the key.
+        for remote in remotes {
+            let answer = server.answer(editor, &remote.line, terminal);
+            let _ = remote.reply.send(answer);
             if editor.exit().is_some() {
                 return Ok(());
             }

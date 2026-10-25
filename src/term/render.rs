@@ -6,6 +6,8 @@ use std::io::Write;
 use std::ops::Range;
 
 use anyhow::Result;
+use crossterm::queue;
+use crossterm::terminal::{Clear, ClearType};
 
 use super::grid::{CONTROL_PLACEHOLDER, Grid};
 use crate::editor::Editor;
@@ -37,7 +39,8 @@ impl Renderer {
     }
 
     /// Draws a frame of `width` by `height` cells. A change of size throws
-    /// the previous frame away, since nothing on it is where it was.
+    /// the previous frame away, since nothing on it is where it was, and
+    /// clears the terminal, since the frame may now cover less of it.
     pub fn draw(
         &mut self,
         out: &mut impl Write,
@@ -47,6 +50,7 @@ impl Renderer {
         if self.scratch.width() != width || self.scratch.height() != height {
             self.scratch = Grid::new(width, height);
             self.previous = None;
+            queue!(out, Clear(ClearType::All))?;
         }
         self.scratch.clear();
         compose(&mut self.scratch, editor);

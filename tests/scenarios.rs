@@ -20,7 +20,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 
-use ned::term::scenario;
+use ned::term::{sandbox, scenario};
 
 fn main() -> Result<ExitCode> {
     let mut update = false;
@@ -100,7 +100,7 @@ fn check(script: &Path, update: bool) -> Result<&'static str> {
 /// lines kept as they are, the old frames dropped, and under each snapshot
 /// the frame it produced, closed by the blank line that marks its end.
 fn rendered(written: &str) -> Result<String> {
-    let mut snapshots = scenario::run(written)?.into_iter();
+    let mut snapshots = sandbox::run(written)?.into_iter();
     let mut out = String::new();
     for line in scenario::lines(written) {
         match line {

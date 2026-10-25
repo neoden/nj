@@ -148,12 +148,15 @@ impl Editor {
 
     /// Handles every report the tasks in flight will send, and returns when
     /// they have all ended. For tests, which want a picker filled before
-    /// they type into it; the loop never needs it.
+    /// they type into it; the loop never needs it. Whatever else arrives
+    /// meanwhile is dropped — a remote line with it, which closes that
+    /// connection, since a client waits for each answer before it sends the
+    /// next line and so has nothing in flight while this runs.
     pub fn finish_jobs(&mut self) {
         while self.jobs.any_pending() {
             match self.wait() {
                 Some(Message::Report(report)) => self.receive(report),
-                Some(Message::Input(_)) => {}
+                Some(Message::Input(_) | Message::Remote(_)) => {}
                 None => return,
             }
         }

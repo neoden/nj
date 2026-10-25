@@ -1,6 +1,7 @@
-//! Drives the editor with a scenario and returns what the screen showed
-//! (ADR 25). No terminal is opened: events go in where the loop would hand
-//! them in, and frames come out as text.
+//! The scenario language (ADR 25): what a line says, read but not done.
+//! The doing is elsewhere — `sandbox` runs a scenario against a headless
+//! editor or carries its lines out in a live one, and `socket` takes the
+//! lines from outside (ADR 26).
 //!
 //! One instruction per line; blank lines and `#` comments are skipped.
 //!
@@ -22,7 +23,9 @@
 //!
 //! Text is written in double quotes, so that a space at either end is
 //! visible and a file name is told from its contents; inside them `\n` is a
-//! newline, `\"` a quote and `\\` a backslash. Names are bare.
+//! newline, `\t` a tab, `\"` a quote and `\\` a backslash. Names are bare.
+//! `type` is keystrokes and takes no control characters: Tab and Enter are
+//! keys, and a newline in a text is `paste`.
 //!
 //! Resizing is `size`: the loop takes the terminal's size before every
 //! frame, and a resize event only wakes it up.
@@ -32,23 +35,13 @@
 //! that and nothing outside is touched. The clipboard is a fake: what the
 //! scenario copies or puts there is all it ever holds.
 
-use std::cell::RefCell;
-use std::fs;
-use std::path::PathBuf;
-use std::rc::Rc;
-
 use anyhow::{Context, Result, bail};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
-use crate::buffer::Buffer;
-use crate::editor::Editor;
-use crate::editor::clipboard::Desktop;
+use super::input;
 use crate::editor::key::Key;
-
-use super::grid::Grid;
-use super::{app, dump, input, render};
 
 /// A line of a scenario, as the file is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,181 +66,113 @@ pub fn lines(script: &str) -> impl Iterator<Item = Line<'_>> {
             in_frame = !line.is_empty();
             return Line::Frame(line);
         }
-        match line.strip_prefix("---") {
+        match snapshot_caption(line) {
             Some(caption) => {
                 in_frame = true;
-                Line::Snapshot(caption.trim())
+                Line::Snapshot(caption)
             }
             None => Line::Text(line),
         }
     })
 }
 
-/// What a snapshot showed, with the caption it was taken under.
+/// The caption of a snapshot line, if this is one.
+fn snapshot_caption(line: &str) -> Option<&str> {
+    line.strip_prefix("---").map(str::trim)
+}
+
+/// One instruction, read but not yet carried out. Reading is separate from
+/// doing because the same lines come from a file in a test and from a
+/// socket in a live editor (ADR 26), and only the doing differs.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Snapshot {
-    pub caption: String,
-    pub frame: String,
+pub enum Instruction {
+    /// What the terminal would have sent: the events of a key, of typed
+    /// text one keystroke each, of a paste or of a mouse action.
+    Input(Vec<Event>),
+    Size(usize, usize),
+    /// A file in the run's directory, with its text.
+    File(String, String),
+    /// What the desktop clipboard holds.
+    Clipboard(String),
+    Wait,
+    /// A frame to take, under this caption.
+    Snapshot(String),
 }
 
-/// Runs `script` against a fresh editor and returns its snapshots, in
-/// order. An error names the line it happened on.
-pub fn run(script: &str) -> Result<Vec<Snapshot>> {
-    let _workdir = Workdir::enter()?;
-    let mut run = Run::new();
-    for (index, line) in lines(script).enumerate() {
-        match line {
-            Line::Text(line) if line.is_empty() || line.starts_with('#') => {}
-            Line::Text(line) => {
-                let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
-                run.step(verb, rest)
-                    .with_context(|| format!("line {}", index + 1))?;
-            }
-            Line::Snapshot(caption) => run.snapshot(caption),
-            Line::Frame(_) => {}
+/// Reads one line of the language. `None` for a blank line or a comment,
+/// which say nothing to do.
+pub fn parse(line: &str) -> Result<Option<Instruction>> {
+    let line = line.trim_end();
+    if line.is_empty() || line.starts_with('#') {
+        return Ok(None);
+    }
+    if let Some(caption) = snapshot_caption(line) {
+        return Ok(Some(Instruction::Snapshot(caption.to_owned())));
+    }
+    let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
+    let instruction = match verb {
+        "size" => {
+            let (width, height) = rest
+                .split_once(' ')
+                .context("size takes a width and a height")?;
+            Instruction::Size(width.parse()?, height.parse()?)
         }
-    }
-    Ok(run.snapshots)
-}
-
-/// The fake desktop clipboard. The scenario shares it with the editor to
-/// set what is on it from outside.
-#[derive(Clone, Default)]
-struct Pasteboard(Rc<RefCell<Option<String>>>);
-
-impl Desktop for Pasteboard {
-    fn read(&mut self) -> Option<String> {
-        self.0.borrow().clone()
-    }
-
-    fn write(&mut self, text: &str) {
-        *self.0.borrow_mut() = Some(text.to_owned());
-    }
-}
-
-/// The scenario's directory: made on entry, left on exit, taken down with
-/// everything in it when the run ends, however it ends.
-struct Workdir(PathBuf);
-
-impl Workdir {
-    fn enter() -> Result<Self> {
-        let runs = concat!(env!("CARGO_MANIFEST_DIR"), "/target/scenarios");
-        let path = PathBuf::from(runs).join(std::process::id().to_string());
-        fs::create_dir_all(&path)?;
-        std::env::set_current_dir(&path)?;
-        Ok(Self(path))
-    }
-}
-
-impl Drop for Workdir {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"));
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-struct Run {
-    editor: Editor,
-    size: (usize, usize),
-    previous: Option<Grid>,
-    pasteboard: Pasteboard,
-    snapshots: Vec<Snapshot>,
-}
-
-impl Run {
-    fn new() -> Self {
-        let pasteboard = Pasteboard::default();
-        let mut editor = Editor::new(Buffer::default()).with_desktop(pasteboard.clone());
-        let size = (40, 10);
-        editor.resize(size.0, size.1);
-        Self {
-            editor,
-            size,
-            previous: None,
-            pasteboard,
-            snapshots: Vec::new(),
+        "type" => {
+            let text = quoted(rest)?;
+            // A keyboard yields no control characters as text: Tab and
+            // Enter arrive as keys of their own, and so they are typed
+            // here, or the scenario would describe an event that never
+            // happens.
+            if let Some(control) = text.chars().find(|c| c.is_control()) {
+                bail!("`type` takes text, not {control:?}: use `key Tab`, `key Enter` or `paste`");
+            }
+            Instruction::Input(
+                text.chars()
+                    .map(|c| Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)))
+                    .collect(),
+            )
         }
-    }
-
-    fn step(&mut self, verb: &str, rest: &str) -> Result<()> {
-        match verb {
-            "size" => {
-                let (width, height) = rest
-                    .split_once(' ')
-                    .context("size takes a width and a height")?;
-                self.size = (width.parse()?, height.parse()?);
-                self.editor.resize(self.size.0, self.size.1);
-            }
-            "type" => {
-                for character in quoted(rest)?.chars() {
-                    let key = KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE);
-                    app::handle(Event::Key(key), &mut self.editor);
-                }
-            }
-            "key" => {
-                let key: Key = rest.parse()?;
-                app::handle(input::event(key), &mut self.editor);
-            }
-            "paste" => app::handle(Event::Paste(quoted(rest)?), &mut self.editor),
-            "click" => self.mouse(MouseEventKind::Down(MouseButton::Left), rest)?,
-            "drag" => self.mouse(MouseEventKind::Drag(MouseButton::Left), rest)?,
-            "scroll" => {
-                let (direction, rest) = rest.split_once(' ').context("scroll takes up or down")?;
-                let kind = match direction {
-                    "up" => MouseEventKind::ScrollUp,
-                    "down" => MouseEventKind::ScrollDown,
-                    other => bail!("scroll goes up or down, not `{other}`"),
-                };
-                self.mouse(kind, rest)?;
-            }
-            "file" => {
-                let (name, text) = rest
-                    .split_once(' ')
-                    .context("file takes a name and its text")?;
-                fs::write(name, quoted(text)?)?;
-            }
-            "clipboard" => *self.pasteboard.0.borrow_mut() = Some(quoted(rest)?),
-            "wait" => self.editor.finish_jobs(),
-            other => bail!("unknown instruction `{other}`"),
+        "key" => Instruction::Input(vec![input::event(rest.parse::<Key>()?)]),
+        "paste" => Instruction::Input(vec![Event::Paste(quoted(rest)?)]),
+        "click" => mouse(MouseEventKind::Down(MouseButton::Left), rest)?,
+        "drag" => mouse(MouseEventKind::Drag(MouseButton::Left), rest)?,
+        "scroll" => {
+            let (direction, rest) = rest.split_once(' ').context("scroll takes up or down")?;
+            let kind = match direction {
+                "up" => MouseEventKind::ScrollUp,
+                "down" => MouseEventKind::ScrollDown,
+                other => bail!("scroll goes up or down, not `{other}`"),
+            };
+            mouse(kind, rest)?
         }
-        Ok(())
-    }
+        "file" => {
+            let (name, text) = rest
+                .split_once(' ')
+                .context("file takes a name and its text")?;
+            Instruction::File(name.to_owned(), quoted(text)?)
+        }
+        "clipboard" => Instruction::Clipboard(quoted(rest)?),
+        "wait" => Instruction::Wait,
+        other => bail!("unknown instruction `{other}`"),
+    };
+    Ok(Some(instruction))
+}
 
-    fn snapshot(&mut self, caption: &str) {
-        // As the loop does before every frame (`app::run`): the screen is
-        // divided afresh, since a panel may have opened or closed.
-        self.editor.resize(self.size.0, self.size.1);
-        let mut grid = Grid::new(self.size.0, self.size.1);
-        render::compose(&mut grid, &self.editor);
-        let frame = match dump::dump(&grid, self.previous.as_ref()) {
-            text if text.is_empty() => "same\n".to_owned(),
-            text => text,
-        };
-        self.snapshots.push(Snapshot {
-            caption: caption.to_owned(),
-            frame,
-        });
-        self.previous = Some(grid);
-    }
-
-    /// `X Y` and, after them, modifiers if any.
-    fn mouse(&mut self, kind: MouseEventKind, rest: &str) -> Result<()> {
-        let mut words = rest.split_whitespace();
-        let column = words.next().context("a column")?.parse()?;
-        let row = words.next().context("a row")?.parse()?;
-        let modifiers = match words.next() {
-            Some(names) => mods(names)?,
-            None => KeyModifiers::NONE,
-        };
-        let event = MouseEvent {
-            kind,
-            column,
-            row,
-            modifiers,
-        };
-        app::handle(Event::Mouse(event), &mut self.editor);
-        Ok(())
-    }
+/// `X Y` and, after them, modifiers if any.
+fn mouse(kind: MouseEventKind, rest: &str) -> Result<Instruction> {
+    let mut words = rest.split_whitespace();
+    let column = words.next().context("a column")?.parse()?;
+    let row = words.next().context("a row")?.parse()?;
+    let modifiers = match words.next() {
+        Some(names) => mods(names)?,
+        None => KeyModifiers::NONE,
+    };
+    Ok(Instruction::Input(vec![Event::Mouse(MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers,
+    })]))
 }
 
 fn mods(names: &str) -> Result<KeyModifiers> {
@@ -263,8 +188,9 @@ fn mods(names: &str) -> Result<KeyModifiers> {
     Ok(modifiers)
 }
 
-/// The text between double quotes, with `\n`, `\"` and `\\` read as a
-/// newline, a quote and a backslash. Nothing may follow the closing quote.
+/// The text between double quotes, with `\n`, `\t`, `\"` and `\\` read as
+/// a newline, a tab, a quote and a backslash. Nothing may follow the
+/// closing quote.
 fn quoted(argument: &str) -> Result<String> {
     let Some(inside) = argument.strip_prefix('"') else {
         bail!("text goes in double quotes: {argument}");
@@ -279,6 +205,7 @@ fn quoted(argument: &str) -> Result<String> {
             },
             '\\' => text.push(match chars.next() {
                 Some('n') => '\n',
+                Some('t') => '\t',
                 Some('"') => '"',
                 Some('\\') => '\\',
                 other => bail!("unknown escape `\\{}`", other.unwrap_or(' ')),
@@ -297,10 +224,18 @@ mod tests {
     fn text_comes_quoted_and_escaped() {
         assert_eq!(quoted(r#""a b ""#).unwrap(), "a b ");
         assert_eq!(quoted(r#""x\ny\"z\\""#).unwrap(), "x\ny\"z\\");
+        assert_eq!(quoted(r#""a\tb""#).unwrap(), "a\tb");
         assert_eq!(quoted(r#""""#).unwrap(), "");
         for bad in ["bare", r#""open"#, r#""a" b"#, r#""\q""#] {
             assert!(quoted(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn type_refuses_what_a_keyboard_cannot_type() {
+        assert!(parse(r#"type "a\nb""#).is_err());
+        assert!(parse(r#"type "a\tb""#).is_err());
+        assert!(parse(r#"paste "a\tb""#).is_ok());
     }
 
     #[test]
