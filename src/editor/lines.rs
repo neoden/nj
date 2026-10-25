@@ -210,7 +210,8 @@ fn over_lines(text: &Text, selections: &SelectionSet, changes: Vec<Change>) -> T
         }
 
         let start = text.line_start(text.line_of(selection.min()));
-        let end = transaction::displace(selection.max(), &changes);
+        let start = transaction::displace_boundary(start, &changes);
+        let end = transaction::displace_boundary(selection.max(), &changes);
         match selection.is_reversed() {
             true => Selection {
                 anchor: end,

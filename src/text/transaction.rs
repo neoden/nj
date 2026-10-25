@@ -157,11 +157,22 @@ fn disjoint(changes: &[Change]) -> bool {
 /// at its position lands before it, and a range replaced around it collapses
 /// it to the end of what took its place.
 pub fn displace(position: usize, changes: &[Change]) -> usize {
-    let splices = changes.iter().map(|change| Splice {
+    anchor::displace(position, splices(changes), Bias::After)
+}
+
+/// Where a boundary ends up: what is inserted exactly there falls after
+/// it. For the edges of a selection over whole lines that is the right
+/// side both times — the line's own indent, inserted at its start, falls
+/// inside; the next line's, inserted at its end, falls outside.
+pub fn displace_boundary(position: usize, changes: &[Change]) -> usize {
+    anchor::displace(position, splices(changes), Bias::Before)
+}
+
+fn splices(changes: &[Change]) -> impl Iterator<Item = Splice> + '_ {
+    changes.iter().map(|change| Splice {
         range: change.range.clone(),
         len: change.text.len(),
-    });
-    anchor::displace(position, splices, Bias::After)
+    })
 }
 
 #[cfg(test)]

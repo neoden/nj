@@ -10,6 +10,7 @@ use super::Editor;
 use super::panel::Panel;
 use super::panel::replacing::Replacing;
 use crate::buffer::EditKind;
+use crate::text::Text;
 use crate::text::movement::{self, Direction};
 use crate::text::search::{Query, Session};
 use crate::text::selection::{Selection, SelectionSet};
@@ -23,11 +24,14 @@ fn too_many_hits() -> String {
     format!("More than {MAX_CURSORS} occurrences; select fewer")
 }
 
-/// The cursors a run of `Ctrl+D` left behind, so the next press can tell
-/// whether it is the same run.
+/// A run of `Ctrl+D`: the cursors it left behind, so the next press can
+/// tell whether it is the same run, and what it is hunting — settled when
+/// the run began, so no press after that has to look at the text again.
+/// `None` when the cursors took different words, which leaves nothing to
+/// hunt.
 pub(super) struct Occurrences {
     selections: SelectionSet,
-    whole_word: bool,
+    query: Option<Query>,
 }
 
 impl Editor {
@@ -211,7 +215,7 @@ impl Editor {
 
         view.selections.push(Query::selection(hit.clone()));
         view.reveal(buffer, hit.end);
-        self.remember_occurrences(query.whole_word);
+        self.remember_occurrences(query);
     }
 
     pub(super) fn select_all_occurrences(&mut self) {
@@ -240,7 +244,7 @@ impl Editor {
             .unwrap_or(0);
         view.selections = SelectionSet::from_selections(selections, primary);
         view.scroll_to_cursor(buffer);
-        self.remember_occurrences(query.whole_word);
+        self.remember_occurrences(query);
     }
 
     /// Bare cursors first expand to the word they touch; only once something
@@ -260,27 +264,42 @@ impl Editor {
                     goal_column: None,
                 }
             });
-            self.remember_occurrences(true);
+            // The run begins: it hunts the word, if the cursors took one.
+            let query = agreed_text(text, &view.selections).map(Query::word);
+            self.occurrences = Some(Occurrences {
+                selections: view.selections.clone(),
+                query,
+            });
             return None;
         }
 
-        // Anything else moving the cursors means the user chose this text.
-        let whole_word = self
-            .occurrences
-            .as_ref()
-            .is_some_and(|hunt| hunt.whole_word && hunt.selections == self.view().selections);
+        // The same run going on: what it hunts was settled when it began.
+        if let Some(hunt) = &self.occurrences
+            && hunt.selections == view.selections
+        {
+            return hunt.query.clone();
+        }
 
-        let range = self.view().selections.primary().range();
-        Some(Query {
-            needle: self.buffer().text().substring(range),
-            whole_word,
-        })
+        // Anything else moving the cursors means the user chose this text,
+        // exactly as it stands — if the selections agree on one.
+        agreed_text(text, &view.selections).map(Query::literal)
     }
 
-    fn remember_occurrences(&mut self, whole_word: bool) {
+    fn remember_occurrences(&mut self, query: Query) {
         self.occurrences = Some(Occurrences {
             selections: self.view().selections.clone(),
-            whole_word,
+            query: Some(query),
         });
     }
+}
+
+/// The text every selection holds, when they all hold the same; with
+/// different texts there is no one thing to look for, and guessing — the
+/// primary's, say — would be harder to predict than doing nothing.
+fn agreed_text(text: &Text, selections: &SelectionSet) -> Option<String> {
+    let needle = text.substring(selections.primary().range());
+    selections
+        .iter()
+        .all(|selection| text.substring(selection.range()) == needle)
+        .then_some(needle)
 }

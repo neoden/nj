@@ -223,6 +223,21 @@ fn further_presses_pass_over_what_is_already_selected() {
     assert_eq!(ranges(&editor), [0..1, 2..3, 4..5]);
 }
 
+/// Cursors on different words take a word each; with the selections then
+/// disagreeing, there is nothing to look for and nothing happens.
+#[test]
+fn selections_of_different_texts_stop_the_walk() {
+    let mut editor = editor("cat dog cat", 0);
+    add_cursor(&mut editor, 4);
+    editor.select_next_occurrence();
+    assert_eq!(ranges(&editor), [0..3, 4..7]);
+
+    editor.select_next_occurrence();
+    assert_eq!(ranges(&editor), [0..3, 4..7]);
+    editor.select_all_occurrences();
+    assert_eq!(ranges(&editor), [0..3, 4..7]);
+}
+
 #[test]
 fn punctuation_under_the_cursor_is_found_next_to_words() {
     let mut editor = editor("a.b c.d", 1);
@@ -540,6 +555,26 @@ fn a_line_under_two_cursors_is_indented_once() {
     editor.indent();
 
     assert_eq!(content(&editor), "  one\n  two\n");
+}
+
+/// Two selections meeting at a line break are two lines, and indenting
+/// keeps them two: the second line's indent belongs to the second
+/// selection, which also moves along with the first line's.
+#[test]
+fn selections_on_neighbouring_lines_stay_apart_when_indented() {
+    let mut editor = indented("one\ntwo\nx", Indent::Spaces(2), 0);
+    select_range(&mut editor, 0, 4);
+    let mut selections = editor.view().selections.clone();
+    selections.push(Selection {
+        anchor: 4,
+        head: 8,
+        goal_column: None,
+    });
+    select(&mut editor, selections);
+    editor.indent();
+
+    assert_eq!(content(&editor), "  one\n  two\nx");
+    assert_eq!(ranges(&editor), [0..6, 6..12]);
 }
 
 #[test]
