@@ -287,6 +287,11 @@ impl View {
         );
         let goal = selection.goal_column.unwrap_or(column - row.start_column);
 
+        // Running out of rows on the way stops at the last one reached, in
+        // the goal column: a page from near the end lands on the last line.
+        // Starting with no row to go to at all — Down on the last line —
+        // goes to the edge of the text instead, as the key has to do
+        // something.
         let mut target = row;
         for _ in 0..rows {
             let next = match direction {
@@ -295,7 +300,10 @@ impl View {
             };
             match next {
                 Some(next) => target = next,
-                None => return (movement::document_edge(text, direction), Some(goal)),
+                None if target == row => {
+                    return (movement::document_edge(text, direction), Some(goal));
+                }
+                None => break,
             }
         }
 
@@ -689,6 +697,22 @@ mod tests {
 
         view.move_selections(&buffer, Motion::Page(Direction::Backward), false);
         assert_eq!(view.selections.primary().head, 0);
+    }
+
+    /// Near the end a page lands on the last line in its column; a single
+    /// row from the last line goes to the end of the text.
+    #[test]
+    fn a_page_short_of_rows_stops_on_the_last_line_in_its_column() {
+        let buffer = buf(&("ab\n".repeat(11) + "ab"));
+        // Twelve lines; line 8, column 1, in a view of five rows per page.
+        let mut view = view_of(&buffer, 8 * 3 + 1);
+        fit(&mut view, 80, 6, &buffer);
+
+        view.move_selections(&buffer, Motion::Page(Direction::Forward), false);
+        assert_eq!(view.selections.primary().head, 11 * 3 + 1);
+
+        view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
+        assert_eq!(view.selections.primary().head, buffer.text().len());
     }
 
     #[test]
