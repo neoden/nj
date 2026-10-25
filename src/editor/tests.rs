@@ -409,8 +409,9 @@ fn only_the_indentation_before_the_cursor_is_copied() {
     let mut editor = editor("      deep\n", 3);
     editor.insert_newline();
 
-    // Three spaces were copied; the other three stayed with the text.
-    assert_eq!(content(&editor), "   \n      deep\n");
+    // Three spaces were copied and the other three stayed with the text;
+    // the line left behind held nothing but indent, so it is empty.
+    assert_eq!(content(&editor), "\n      deep\n");
 }
 
 #[test]
@@ -429,9 +430,10 @@ fn a_second_cursor_on_an_indented_line_does_not_empty_it() {
     add_cursor(&mut editor, 4);
     editor.insert_newline();
 
-    // Each cursor carries the indent before it; the second, at the end of
-    // the line, is not the first there and so leaves the line alone.
-    assert_eq!(content(&editor), "  \n    \n    ");
+    // Each cursor carries the indent before it. The first empties what it
+    // leaves behind; the second, at the end of the line, is not the first
+    // there and so leaves its line alone.
+    assert_eq!(content(&editor), "\n    \n    ");
 }
 
 #[test]

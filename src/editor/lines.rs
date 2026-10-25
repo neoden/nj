@@ -29,10 +29,11 @@ pub fn newline(text: &Text, selections: &SelectionSet) -> Transaction {
         let lead = indentation(&content);
         let indent = &lead[..local.min(lead.len())];
 
-        // A line holding nothing but this indent is left behind empty
-        // rather than as a row of spaces — by the first cursor on it only.
-        let abandoned =
-            first && indent.len() == local && content[local..].is_empty() && selection.is_empty();
+        // What would stay behind on the old line is dropped when it is
+        // nothing but indent, so no line is left holding a row of spaces —
+        // whether Enter came at the end of such a line or inside the indent
+        // of a longer one. By the first cursor on the line only.
+        let abandoned = first && indent.len() == local && selection.is_empty();
 
         let range = match abandoned {
             true => start..selection.max(),
