@@ -607,8 +607,14 @@ impl Editor {
         let Some(search) = &self.search else {
             return String::new();
         };
+        let needle = quoted(&search.query().needle);
+        // A search with nothing to count is still on (ADR 22), and says so
+        // the way the message did, rather than as a count of zero.
+        if search.hits().is_empty() {
+            return format!("Not found {needle}");
+        }
         let count = search.count(self.view().selections.primary().min());
-        format!("{count} {}", quoted(&search.query().needle))
+        format!("{count} {needle}")
     }
 
     fn selected_text(&self) -> Option<String> {

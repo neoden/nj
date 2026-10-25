@@ -1422,14 +1422,14 @@ fn too_many_hits_are_refused_rather_than_partly_selected() {
 }
 
 #[test]
-fn a_query_with_no_hits_counts_zero() {
+fn a_query_with_no_hits_says_not_found() {
     let mut editor = editor("nothing here", 0);
     editor.open_find();
     type_into_field(&mut editor, "zzz");
     editor.submit_find(Direction::Forward);
 
     assert!(editor.matches().is_empty());
-    assert_eq!(editor.panel_status(), "0 \"zzz\"");
+    assert_eq!(editor.panel_status(), "Not found \"zzz\"");
 }
 
 #[test]
