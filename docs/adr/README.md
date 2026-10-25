@@ -32,5 +32,6 @@ Format: context, decision, consequences ([Nygard][nygard]).
 | [22](0022-a-search-outlives-its-prompt.md) | A search outlives its prompt | Accepted, amends 12 |
 | [23](0023-a-search-starts-on-enter.md) | A search starts on Enter; a replacement asks at each hit | Accepted, amends 22 |
 | [24](0024-a-form-for-each-case.md) | A form for each case | Accepted, refines 12, amends 23 |
+| [25](0025-the-frame-is-the-test-oracle.md) | The frame is the test oracle; a scenario is a sequence of events | Accepted, builds on 16, 21 |
 
 [nygard]: https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions

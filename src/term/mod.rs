@@ -2,6 +2,7 @@
 //! frames, owning raw mode. The only layer that talks to crossterm.
 
 pub mod app;
+pub mod dump;
 pub mod grid;
 pub mod input;
 pub mod render;
