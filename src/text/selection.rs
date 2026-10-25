@@ -89,6 +89,16 @@ impl SelectionSet {
         self.selections.len()
     }
 
+    /// Takes one selection out — never the primary, which is the caller's
+    /// to keep: the column of cursors shrinks towards it, not past it.
+    pub fn remove(&mut self, index: usize) {
+        debug_assert!(index != self.primary, "the primary is not removed");
+        self.selections.remove(index);
+        if index < self.primary {
+            self.primary -= 1;
+        }
+    }
+
     pub fn primary_index(&self) -> usize {
         self.primary
     }
@@ -112,9 +122,12 @@ impl SelectionSet {
         &rest[..len]
     }
 
+    /// Adds a selection beside the others. The primary stays what it was:
+    /// it is the cursor the person placed, and what a command adds around
+    /// it — the next occurrence, a cursor on the row below — does not take
+    /// that over, so `Esc` always comes back to it.
     pub fn push(&mut self, selection: Selection) {
         self.selections.push(selection);
-        self.primary = self.selections.len() - 1;
         self.normalize();
     }
 
@@ -294,35 +307,41 @@ mod tests {
     }
 
     #[test]
-    fn the_primary_follows_its_cursor_through_normalization() {
-        let mut set = SelectionSet::single(0);
+    fn pushing_adds_a_selection_without_making_it_primary() {
+        let mut set = SelectionSet::single(30);
         set.push(selection(20, 25));
-        assert_eq!(set.primary(), selection(20, 25));
+        assert_eq!(set.primary(), selection(30, 30));
 
         set.push(selection(10, 12));
-        assert_eq!(set.primary(), selection(10, 12));
+        assert_eq!(set.primary(), selection(30, 30));
         assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn the_primary_follows_its_cursor_through_normalization() {
+        let set = set(&[selection(20, 25), selection(0, 5)]);
+        assert_eq!(set.primary(), selection(20, 25));
+        assert_eq!(set.iter().next(), Some(&selection(0, 5)));
     }
 
     /// Two selections meeting at one offset both contain it, so a head on
     /// the seam must not be how the primary is found.
     #[test]
     fn the_primary_survives_a_shared_boundary() {
-        let mut set = SelectionSet::single(3);
-        set.push(selection(5, 5));
+        let mut set = SelectionSet::single(5);
+        set.push(selection(3, 3));
         set = set.mapped(|s| selection(s.anchor, s.head - 2));
         assert_eq!(set.primary(), selection(5, 3));
 
-        let mut set = SelectionSet::single(0);
-        set.push(selection(4, 2));
-        set.push(selection(0, 2));
+        let mut set = SelectionSet::from_selections(vec![selection(4, 2), selection(0, 2)], 1);
+        set.push(selection(0, 0));
         assert_eq!(set.primary(), selection(0, 2));
     }
 
     #[test]
     fn removing_secondary_cursors_keeps_the_primary_selection() {
-        let mut set = SelectionSet::single(0);
-        set.push(selection(20, 25));
+        let mut set: SelectionSet = selection(20, 25).into();
+        set.push(selection(0, 5));
         set.collapse_to_primary();
 
         assert_eq!(set.len(), 1);

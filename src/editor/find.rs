@@ -209,8 +209,8 @@ impl Editor {
             hit = next;
         }
 
-        view.selections.push(Query::selection(hit));
-        view.scroll_to_cursor(buffer);
+        view.selections.push(Query::selection(hit.clone()));
+        view.reveal(buffer, hit.end);
         self.remember_occurrences(query.whole_word);
     }
 
@@ -230,8 +230,15 @@ impl Editor {
             return;
         }
 
+        // The primary stays the occurrence the person is on; the others are
+        // added around it, as `Ctrl+D` would have added them one by one.
         let (view, buffer) = self.workspace.focus_mut();
-        view.selections = SelectionSet::from_selections(selections, 0);
+        let at = view.selections.primary().range();
+        let primary = selections
+            .iter()
+            .position(|selection| selection.range() == at)
+            .unwrap_or(0);
+        view.selections = SelectionSet::from_selections(selections, primary);
         view.scroll_to_cursor(buffer);
         self.remember_occurrences(query.whole_word);
     }

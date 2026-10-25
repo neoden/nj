@@ -18,7 +18,7 @@ key Ctrl+Alt+Down
 2|3 six
  |     ^
 3-5|
-6| 3 cursors…xt · 3 lines · 3:4
+6| 3 cursors…xt · 3 lines · 1:4
 
 type ";"
 
@@ -29,7 +29,7 @@ type ";"
  |      ^
 2|3 six;
  |      ^
-6| 3 cursors…xt · 3 lines · 3:5
+6| 3 cursors…xt · 3 lines · 1:5
 
 key Backspace
 key Backspace
@@ -41,7 +41,7 @@ key Backspace
  |    ^
 2|3 si
  |    ^
-6| 3 cursors…xt · 3 lines · 3:3
+6| 3 cursors…xt · 3 lines · 1:3
 
 key Enter
 
@@ -55,7 +55,7 @@ key Enter
 4|5 si
 5|6
  |  ^
-6| 3 cursors…xt · 6 lines · 6:1
+6| 3 cursors…xt · 6 lines · 2:1
 
 key Ctrl+Z
 
@@ -67,14 +67,14 @@ key Ctrl+Z
 2|3 si
  |    ^
 3-5|
-6| 3 cursors…xt · 3 lines · 3:3
+6| 3 cursors…xt · 3 lines · 1:3
 
 key Esc
 
---- Esc drops the extra cursors; the primary, the last one added, stays
+--- Esc drops the added cursors; the one placed by hand, on the first line, stays
 0|1 on
+ |::--^-------------------------
 1|2 tw
 2|3 si
- |::--^-------------------------
-6| …ch]* · Text · 3 lines · 3:3
+6| …ch]* · Text · 3 lines · 1:3
 

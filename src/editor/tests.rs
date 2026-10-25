@@ -209,6 +209,7 @@ fn further_presses_add_occurrences_and_wrap() {
 
 /// Hits already selected are passed over, whichever selection is primary:
 /// a cursor added by hand in front of the others must not stop the walk.
+/// The primary stays the one placed by hand, however many hits are added.
 #[test]
 fn further_presses_pass_over_what_is_already_selected() {
     let mut editor = editor("x x x", 2);
@@ -216,7 +217,7 @@ fn further_presses_pass_over_what_is_already_selected() {
     add_cursor(&mut editor, 0);
     editor.select_next_occurrence();
     assert_eq!(ranges(&editor), [0..1, 2..3]);
-    assert_eq!(editor.view().selections.primary().range(), 0..1);
+    assert_eq!(editor.view().selections.primary().range(), 2..3);
 
     editor.select_next_occurrence();
     assert_eq!(ranges(&editor), [0..1, 2..3, 4..5]);
@@ -257,13 +258,16 @@ fn a_partial_selection_matches_anywhere() {
     assert_eq!(ranges(&editor), [0..2, 4..6]);
 }
 
+/// The occurrence the cursor was on stays primary, wherever it is in the
+/// order; the others are added around it.
 #[test]
 fn selecting_all_occurrences_replaces_the_cursors() {
-    let mut editor = editor("x = x + x", 0);
+    let mut editor = editor("x = x + x", 4);
     editor.select_next_occurrence();
     editor.select_all_occurrences();
 
     assert_eq!(ranges(&editor), [0..1, 4..5, 8..9]);
+    assert_eq!(editor.view().selections.primary().range(), 4..5);
 }
 
 #[test]
@@ -276,6 +280,8 @@ fn every_occurrence_can_be_edited_at_once() {
     assert_eq!(content(&editor), "key, key, key");
 }
 
+/// The column grows from the cursor placed by hand; the opposite key takes
+/// the far cursor back before it adds on its own side.
 #[test]
 fn cursors_stack_up_and_down() {
     let mut editor = editor("aaaa\nbbbb\ncccc", 6);
@@ -283,7 +289,9 @@ fn cursors_stack_up_and_down() {
     assert_eq!(ranges(&editor), [6..6, 11..11]);
 
     editor.add_cursor(Direction::Backward);
-    assert_eq!(ranges(&editor), [1..1, 6..6, 11..11]);
+    assert_eq!(ranges(&editor), [6..6]);
+    editor.add_cursor(Direction::Backward);
+    assert_eq!(ranges(&editor), [1..1, 6..6]);
 }
 
 #[test]

@@ -239,7 +239,8 @@ fn a_cyrillic_layout_still_finds_the_command() {
 // arms — the ones a keymap table has to reproduce with context predicates.
 
 /// `Esc` sheds the extra cursors first, and only then the selection; the
-/// primary keeps what it had selected across the first press.
+/// primary — the cursor placed by hand, not the one added under it — keeps
+/// what it had selected across the first press.
 #[test]
 fn esc_drops_extra_cursors_before_it_drops_the_selection() {
     let mut editor = editor_with("ab\ncd");
@@ -252,10 +253,10 @@ fn esc_drops_extra_cursors_before_it_drops_the_selection() {
     assert_eq!(ranges(&editor), [0..1, 3..4]);
 
     press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
-    assert_eq!(ranges(&editor), [3..4]);
+    assert_eq!(ranges(&editor), [0..1]);
 
     press(&mut editor, KeyCode::Esc, KeyModifiers::NONE);
-    assert_eq!(ranges(&editor), [4..4]);
+    assert_eq!(ranges(&editor), [1..1]);
 }
 
 /// `Tab` reaches the next stop from a bare cursor and indents whole lines
@@ -355,10 +356,11 @@ fn ctrl_shift_l_takes_the_hits_of_a_search_going_on() {
     ctrl(&mut editor, 'f');
     typed(&mut editor, "a");
     press(&mut editor, KeyCode::Enter, KeyModifiers::NONE);
-    // Into `ab`, off the hit the search left selected.
+    // Off the hit the search left selected: the first Right collapses the
+    // selection at its end, the second steps over the space.
     press(&mut editor, KeyCode::Right, KeyModifiers::NONE);
     press(&mut editor, KeyCode::Right, KeyModifiers::NONE);
-    assert_eq!(ranges(&editor), [3..3]);
+    assert_eq!(ranges(&editor), [2..2]);
 
     press(
         &mut editor,

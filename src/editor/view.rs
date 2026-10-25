@@ -247,6 +247,19 @@ impl View {
         extend: bool,
     ) -> Selection {
         let text = buffer.text();
+        // Left and Right over a selection only collapse it, to the side they
+        // point at, as every editor with Shift-selection does; the step
+        // itself is spent on the collapse.
+        if !extend
+            && !selection.is_empty()
+            && let Motion::Grapheme(direction) = motion
+        {
+            let edge = match direction {
+                Direction::Backward => selection.min(),
+                Direction::Forward => selection.max(),
+            };
+            return Selection::cursor(edge);
+        }
         let (head, goal_column) = match motion {
             Motion::Row(direction) => self.move_by_rows(buffer, &selection, direction, 1),
             Motion::Page(direction) => {
@@ -313,8 +326,20 @@ impl View {
         (head, Some(goal))
     }
 
-    /// Grows the column of cursors from whichever end is being extended.
+    /// Grows the column of cursors from the primary in `direction` — or,
+    /// when the column has grown the other way, shrinks it from that end:
+    /// `Up` after three `Down`s takes the lowest cursor back rather than
+    /// adding a fourth above, as every editor with this binding does.
     pub fn add_cursor(&mut self, buffer: &Buffer, direction: Direction) {
+        let far = match direction {
+            Direction::Forward => 0,
+            Direction::Backward => self.selections.len() - 1,
+        };
+        if far != self.selections.primary_index() {
+            self.selections.remove(far);
+            return;
+        }
+
         let text = buffer.text();
         let edge = match direction {
             Direction::Backward => self.selections.iter().next(),
@@ -350,14 +375,21 @@ impl View {
             head,
             goal_column: Some(goal),
         });
-        self.scroll_to_cursor(buffer);
+        self.reveal(buffer, head);
     }
 
     /// Brings the primary cursor back on screen, keeping a margin above and
     /// below it where the document allows.
     pub fn scroll_to_cursor(&mut self, buffer: &Buffer) {
+        self.reveal(buffer, self.selections.primary().head);
+    }
+
+    /// Scrolls as little as it takes for `offset` to be on screen, with the
+    /// margin. The primary is not the only thing worth showing: a cursor
+    /// just added below the screen is, too.
+    pub fn reveal(&mut self, buffer: &Buffer, offset: usize) {
         let text = buffer.text();
-        let head = self.selections.primary().head;
+        let head = offset;
         let line = text.line_of(head);
         let margin = SCROLL_MARGIN.min(self.height().saturating_sub(1) / 2);
 
@@ -726,6 +758,54 @@ mod tests {
 
         view.move_selections(&buffer, Motion::Grapheme(Direction::Forward), false);
         assert!(view.selections.primary().is_empty());
+    }
+
+    /// The column of cursors grows from the primary and shrinks back to it
+    /// from the far end; only once it is a single cursor again does the
+    /// opposite key start adding on its own side.
+    #[test]
+    fn the_column_of_cursors_shrinks_before_it_grows_the_other_way() {
+        let buffer = buf("a\nb\nc\nd");
+        let heads =
+            |view: &View| -> Vec<usize> { view.selections.iter().map(|s| s.head).collect() };
+        let mut view = view_of(&buffer, 2);
+
+        view.add_cursor(&buffer, Direction::Forward);
+        view.add_cursor(&buffer, Direction::Forward);
+        assert_eq!(heads(&view), [2, 4, 6]);
+
+        view.add_cursor(&buffer, Direction::Backward);
+        assert_eq!(heads(&view), [2, 4]);
+        view.add_cursor(&buffer, Direction::Backward);
+        assert_eq!(heads(&view), [2]);
+        view.add_cursor(&buffer, Direction::Backward);
+        assert_eq!(heads(&view), [0, 2]);
+        assert_eq!(view.selections.primary().head, 2);
+
+        view.add_cursor(&buffer, Direction::Forward);
+        assert_eq!(heads(&view), [2]);
+    }
+
+    /// Right lands at the end of the selection and Left at its start, from
+    /// either end; a row motion moves on from the head.
+    #[test]
+    fn an_arrow_over_a_selection_collapses_it_to_the_side_it_points_at() {
+        let buffer = buf("hello\nworld");
+        let mut view = view_of(&buffer, 1);
+        view.move_selections(&buffer, Motion::Word(Direction::Forward), true);
+        assert_eq!(view.selections.primary().range(), 1..5);
+
+        view.move_selections(&buffer, Motion::Grapheme(Direction::Forward), false);
+        assert_eq!(view.selections.primary(), Selection::cursor(5));
+
+        view.move_selections(&buffer, Motion::Word(Direction::Backward), true);
+        assert_eq!(view.selections.primary().range(), 0..5);
+        view.move_selections(&buffer, Motion::Grapheme(Direction::Backward), false);
+        assert_eq!(view.selections.primary(), Selection::cursor(0));
+
+        view.move_selections(&buffer, Motion::Word(Direction::Forward), true);
+        view.move_selections(&buffer, Motion::Row(Direction::Forward), false);
+        assert_eq!(view.selections.primary().head, 11);
     }
 
     #[test]
