@@ -5,20 +5,24 @@
 //! One instruction per line; blank lines and `#` comments are skipped.
 //!
 //!   size W H       the screen, in cells (40×10 until said otherwise)
-//!   type TEXT      TEXT, keystroke by keystroke, as it is written
+//!   type "TEXT"    TEXT, keystroke by keystroke
 //!   key NAME       one key by its name, `Ctrl+Shift+L`, `Enter`, `F3`
-//!   paste TEXT     TEXT as one bracketed paste; `\n` stands for a newline
+//!   paste "TEXT"   TEXT as one bracketed paste
 //!   click X Y [MODS]   the left button going down at column X, row Y;
 //!   drag X Y [MODS]    the pointer moving there with the button held;
 //!   scroll up|down X Y [MODS]   the wheel. MODS is `Ctrl+Shift` and so on
-//!   file NAME TEXT  a file in the scenario's directory, with `\n` as above
-//!   clipboard TEXT  what the desktop clipboard holds, as if copied elsewhere
+//!   file NAME "TEXT"   a file in the scenario's directory
+//!   clipboard "TEXT"   what the desktop clipboard holds, as if copied elsewhere
 //!   wait           let every background job finish
 //!   --- CAPTION    a snapshot: the frame as the screen shows it here. The
 //!                  first is whole, each later one is the rows that changed
 //!                  since the one before, or `same` when none did. CAPTION
 //!                  says what should be seen. In a file the frame follows
 //!                  the line, up to a blank line, and is generated.
+//!
+//! Text is written in double quotes, so that a space at either end is
+//! visible and a file name is told from its contents; inside them `\n` is a
+//! newline, `\"` a quote and `\\` a backslash. Names are bare.
 //!
 //! Resizing is `size`: the loop takes the terminal's size before every
 //! frame, and a resize event only wakes it up.
@@ -175,7 +179,7 @@ impl Run {
                 self.editor.resize(self.size.0, self.size.1);
             }
             "type" => {
-                for character in rest.chars() {
+                for character in quoted(rest)?.chars() {
                     let key = KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE);
                     app::handle(Event::Key(key), &mut self.editor);
                 }
@@ -184,7 +188,7 @@ impl Run {
                 let key: Key = rest.parse()?;
                 app::handle(input::event(key), &mut self.editor);
             }
-            "paste" => app::handle(Event::Paste(unescaped(rest)), &mut self.editor),
+            "paste" => app::handle(Event::Paste(quoted(rest)?), &mut self.editor),
             "click" => self.mouse(MouseEventKind::Down(MouseButton::Left), rest)?,
             "drag" => self.mouse(MouseEventKind::Drag(MouseButton::Left), rest)?,
             "scroll" => {
@@ -197,10 +201,12 @@ impl Run {
                 self.mouse(kind, rest)?;
             }
             "file" => {
-                let (name, text) = rest.split_once(' ').unwrap_or((rest, ""));
-                fs::write(name, unescaped(text))?;
+                let (name, text) = rest
+                    .split_once(' ')
+                    .context("file takes a name and its text")?;
+                fs::write(name, quoted(text)?)?;
             }
-            "clipboard" => *self.pasteboard.0.borrow_mut() = Some(unescaped(rest)),
+            "clipboard" => *self.pasteboard.0.borrow_mut() = Some(quoted(rest)?),
             "wait" => self.editor.finish_jobs(),
             other => bail!("unknown instruction `{other}`"),
         }
@@ -257,14 +263,45 @@ fn mods(names: &str) -> Result<KeyModifiers> {
     Ok(modifiers)
 }
 
-/// A line of the scenario can hold several lines of text.
-fn unescaped(text: &str) -> String {
-    text.replace("\\n", "\n")
+/// The text between double quotes, with `\n`, `\"` and `\\` read as a
+/// newline, a quote and a backslash. Nothing may follow the closing quote.
+fn quoted(argument: &str) -> Result<String> {
+    let Some(inside) = argument.strip_prefix('"') else {
+        bail!("text goes in double quotes: {argument}");
+    };
+    let mut text = String::new();
+    let mut chars = inside.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => match chars.as_str() {
+                "" => return Ok(text),
+                rest => bail!("nothing may follow the closing quote: {rest}"),
+            },
+            '\\' => text.push(match chars.next() {
+                Some('n') => '\n',
+                Some('"') => '"',
+                Some('\\') => '\\',
+                other => bail!("unknown escape `\\{}`", other.unwrap_or(' ')),
+            }),
+            c => text.push(c),
+        }
+    }
+    bail!("the closing quote is missing: {argument}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_comes_quoted_and_escaped() {
+        assert_eq!(quoted(r#""a b ""#).unwrap(), "a b ");
+        assert_eq!(quoted(r#""x\ny\"z\\""#).unwrap(), "x\ny\"z\\");
+        assert_eq!(quoted(r#""""#).unwrap(), "");
+        for bad in ["bare", r#""open"#, r#""a" b"#, r#""\q""#] {
+            assert!(quoted(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn a_frame_runs_from_its_snapshot_to_a_blank_line() {

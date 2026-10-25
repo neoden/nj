@@ -2,7 +2,7 @@
 # lands on its first hit and the status says how many there are.
 
 size 30 6
-type hello world
+type "hello world"
 
 --- one cursor at the end of what was typed
 0|1 hello world
@@ -17,7 +17,7 @@ key Ctrl+Shift+L
  |        ~~~~~^
 
 key Ctrl+F
-type o
+type "o"
 key Enter
 
 --- the search starts on Enter and lands on the first hit

@@ -1,9 +1,12 @@
-//! Runs every `tests/scenarios/*.sc` through `term::scenario` and checks
-//! that the frames written in the file are what the screen shows (ADR 25).
+//! Runs every `.sc` under `tests/scenarios` through `term::scenario` and
+//! checks that the frames written in the file are what the screen shows
+//! (ADR 25). Scenarios are grouped in a directory per area, and a scenario
+//! is named by its path from there: `search/esc-ends-the-search`.
 //!
-//!   cargo test --test scenarios                 all of them
-//!   cargo test --test scenarios -- find         those with `find` in the name
-//!   cargo test --test scenarios -- --update find   rewrite their frames
+//!   cargo test --test scenarios                    all of them
+//!   cargo test --test scenarios -- search/         one area
+//!   cargo test --test scenarios -- esc             names containing `esc`
+//!   cargo test --test scenarios -- --update esc    rewrite their frames
 //!
 //! A file is its instructions, comments and `---` snapshot lines, which are
 //! the author's, and under each snapshot the frame it showed, which is
@@ -31,8 +34,7 @@ fn main() -> Result<ExitCode> {
     }
 
     let mut failed = 0;
-    for script in scripts(&filters)? {
-        let name = script.file_stem().unwrap().to_string_lossy();
+    for (name, script) in scripts(&filters)? {
         match check(&script, update) {
             Ok(outcome) => println!("{name} ... {outcome}"),
             Err(error) => {
@@ -47,20 +49,38 @@ fn main() -> Result<ExitCode> {
     })
 }
 
-/// The scenarios, in name order, that match any of `filters` — all of them
-/// when there are none.
-fn scripts(filters: &[String]) -> Result<Vec<PathBuf>> {
-    let directory = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/scenarios");
-    let mut scripts: Vec<PathBuf> = fs::read_dir(directory)?
-        .map(|entry| Ok(entry?.path()))
-        .collect::<Result<_>>()?;
-    scripts.retain(|path| {
-        let name = path.file_stem().unwrap_or_default().to_string_lossy();
-        path.extension().is_some_and(|extension| extension == "sc")
-            && (filters.is_empty() || filters.iter().any(|filter| name.contains(filter.as_str())))
-    });
+/// The scenarios with their names, in name order, that match any of
+/// `filters` — all of them when there are none.
+fn scripts(filters: &[String]) -> Result<Vec<(String, PathBuf)>> {
+    let root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/scenarios"));
+    let mut scripts = Vec::new();
+    collect(root, &mut scripts)?;
+    let mut scripts: Vec<(String, PathBuf)> = scripts
+        .into_iter()
+        .map(|path| {
+            let name = path.strip_prefix(root).expect("found under root");
+            let name = name.with_extension("").to_string_lossy().into_owned();
+            (name, path)
+        })
+        .filter(|(name, _)| {
+            filters.is_empty() || filters.iter().any(|filter| name.contains(filter.as_str()))
+        })
+        .collect();
     scripts.sort();
     Ok(scripts)
+}
+
+/// Every `.sc` under `directory`, at any depth.
+fn collect(directory: &Path, into: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect(&path, into)?;
+        } else if path.extension().is_some_and(|extension| extension == "sc") {
+            into.push(path);
+        }
+    }
+    Ok(())
 }
 
 fn check(script: &Path, update: bool) -> Result<&'static str> {
