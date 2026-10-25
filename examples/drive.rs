@@ -10,6 +10,12 @@ use ned::term::scenario;
 fn main() -> Result<()> {
     let mut script = String::new();
     io::stdin().read_to_string(&mut script)?;
-    print!("{}", scenario::run(&script)?.join("\n"));
+    for snapshot in scenario::run(&script)? {
+        match snapshot.caption.as_str() {
+            "" => println!("---"),
+            caption => println!("--- {caption}"),
+        }
+        println!("{}", snapshot.frame);
+    }
     Ok(())
 }

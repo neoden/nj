@@ -14,11 +14,11 @@
 //!   file NAME TEXT  a file in the scenario's directory, with `\n` as above
 //!   clipboard TEXT  what the desktop clipboard holds, as if copied elsewhere
 //!   wait           let every background job finish
-//!   screen         the frame: the first one whole, each later one as the
-//!                  rows that changed since the one before, or `same` when
-//!                  none did. In a scenario file the frame follows the
-//!                  instruction, and the lines of a frame are told apart
-//!                  from instructions by their shape (`is_frame_line`).
+//!   --- CAPTION    a snapshot: the frame as the screen shows it here. The
+//!                  first is whole, each later one is the rows that changed
+//!                  since the one before, or `same` when none did. CAPTION
+//!                  says what should be seen. In a file the frame follows
+//!                  the line, up to a blank line, and is generated.
 //!
 //! Resizing is `size`: the loop takes the terminal's size before every
 //! frame, and a resize event only wakes it up.
@@ -46,33 +46,64 @@ use crate::editor::key::Key;
 use super::grid::Grid;
 use super::{app, dump, input, render};
 
-/// Runs `script` against a fresh editor and returns what each `screen`
-/// instruction showed, in order. An error names the line it happened on.
-pub fn run(script: &str) -> Result<Vec<String>> {
-    let _workdir = Workdir::enter()?;
-    let mut run = Run::new();
-    for (index, line) in script.lines().enumerate() {
-        let line = line.trim_end();
-        if line.is_empty() || line.starts_with('#') || is_frame_line(line) {
-            continue;
-        }
-        let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
-        run.step(verb, rest)
-            .with_context(|| format!("line {}", index + 1))?;
-    }
-    Ok(run.frames)
+/// A line of a scenario, as the file is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Line<'a> {
+    /// The author's: an instruction, a comment or a blank line.
+    Text(&'a str),
+    /// `---` and its caption: a frame is taken here.
+    Snapshot(&'a str),
+    /// Generated: a line of the frame under a snapshot, and the blank line
+    /// that ends it.
+    Frame(&'a str),
 }
 
-/// Whether a line of a scenario is part of a frame rather than an
-/// instruction: a row with its number, a range of empty rows, a line of
-/// styles, or `same`. Frames are what `screen` writes into the file, and
-/// what is regenerated when the file is updated.
-pub fn is_frame_line(line: &str) -> bool {
-    let Some((prefix, _)) = line.split_once('|') else {
-        return line == "same";
-    };
-    let (from, to) = prefix.trim().split_once('-').unwrap_or((prefix.trim(), ""));
-    from.chars().all(|c| c.is_ascii_digit()) && to.chars().all(|c| c.is_ascii_digit())
+/// Tells the author's lines from the frames, which is position, not shape:
+/// a frame is whatever follows a snapshot line up to and including the
+/// first blank line.
+pub fn lines(script: &str) -> impl Iterator<Item = Line<'_>> {
+    let mut in_frame = false;
+    script.lines().map(move |line| {
+        let line = line.trim_end();
+        if in_frame {
+            in_frame = !line.is_empty();
+            return Line::Frame(line);
+        }
+        match line.strip_prefix("---") {
+            Some(caption) => {
+                in_frame = true;
+                Line::Snapshot(caption.trim())
+            }
+            None => Line::Text(line),
+        }
+    })
+}
+
+/// What a snapshot showed, with the caption it was taken under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snapshot {
+    pub caption: String,
+    pub frame: String,
+}
+
+/// Runs `script` against a fresh editor and returns its snapshots, in
+/// order. An error names the line it happened on.
+pub fn run(script: &str) -> Result<Vec<Snapshot>> {
+    let _workdir = Workdir::enter()?;
+    let mut run = Run::new();
+    for (index, line) in lines(script).enumerate() {
+        match line {
+            Line::Text(line) if line.is_empty() || line.starts_with('#') => {}
+            Line::Text(line) => {
+                let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
+                run.step(verb, rest)
+                    .with_context(|| format!("line {}", index + 1))?;
+            }
+            Line::Snapshot(caption) => run.snapshot(caption),
+            Line::Frame(_) => {}
+        }
+    }
+    Ok(run.snapshots)
 }
 
 /// The fake desktop clipboard. The scenario shares it with the editor to
@@ -116,7 +147,7 @@ struct Run {
     size: (usize, usize),
     previous: Option<Grid>,
     pasteboard: Pasteboard,
-    frames: Vec<String>,
+    snapshots: Vec<Snapshot>,
 }
 
 impl Run {
@@ -130,7 +161,7 @@ impl Run {
             size,
             previous: None,
             pasteboard,
-            frames: Vec::new(),
+            snapshots: Vec::new(),
         }
     }
 
@@ -171,23 +202,25 @@ impl Run {
             }
             "clipboard" => *self.pasteboard.0.borrow_mut() = Some(unescaped(rest)),
             "wait" => self.editor.finish_jobs(),
-            "screen" => self.screen(),
             other => bail!("unknown instruction `{other}`"),
         }
         Ok(())
     }
 
-    fn screen(&mut self) {
+    fn snapshot(&mut self, caption: &str) {
         // As the loop does before every frame (`app::run`): the screen is
         // divided afresh, since a panel may have opened or closed.
         self.editor.resize(self.size.0, self.size.1);
         let mut grid = Grid::new(self.size.0, self.size.1);
         render::compose(&mut grid, &self.editor);
-        self.frames
-            .push(match dump::dump(&grid, self.previous.as_ref()) {
-                text if text.is_empty() => "same\n".to_owned(),
-                text => text,
-            });
+        let frame = match dump::dump(&grid, self.previous.as_ref()) {
+            text if text.is_empty() => "same\n".to_owned(),
+            text => text,
+        };
+        self.snapshots.push(Snapshot {
+            caption: caption.to_owned(),
+            frame,
+        });
         self.previous = Some(grid);
     }
 
@@ -234,12 +267,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frame_lines_are_told_from_instructions() {
-        for line in ["0|1 hello", " |::--^", "1-4|", "12|", "same"] {
-            assert!(is_frame_line(line), "{line}");
-        }
-        for line in ["type 1|a", "screen", "# 3|", "", "paste same"] {
-            assert!(!is_frame_line(line), "{line}");
-        }
+    fn a_frame_runs_from_its_snapshot_to_a_blank_line() {
+        let script = "type a\n--- one letter\n0|1 a\n |::^\n\nkey Esc\n---\n";
+        let read: Vec<Line> = lines(script).collect();
+        assert_eq!(
+            read,
+            [
+                Line::Text("type a"),
+                Line::Snapshot("one letter"),
+                Line::Frame("0|1 a"),
+                Line::Frame(" |::^"),
+                Line::Frame(""),
+                Line::Text("key Esc"),
+                Line::Snapshot(""),
+            ]
+        );
     }
 }

@@ -5,11 +5,11 @@
 //!   cargo test --test scenarios -- find         those with `find` in the name
 //!   cargo test --test scenarios -- --update find   rewrite their frames
 //!
-//! A file is its instructions and comments, which are the author's, and
-//! after each `screen` the frame it showed, which is generated. Checking a
-//! scenario is rendering it afresh and comparing with the file; updating it
-//! is writing that rendering back. A `screen` with no frame under it fails,
-//! so a new scenario does not pass on nothing.
+//! A file is its instructions, comments and `---` snapshot lines, which are
+//! the author's, and under each snapshot the frame it showed, which is
+//! generated. Checking a scenario is rendering it afresh and comparing with
+//! the file; updating it is writing that rendering back. A snapshot with no
+//! frame under it fails, so a new scenario does not pass on nothing.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,19 +77,29 @@ fn check(script: &Path, update: bool) -> Result<&'static str> {
 }
 
 /// The scenario with its frames as the screen shows them now: the author's
-/// lines kept as they are, the frame lines dropped, and after each `screen`
-/// the frame it produced.
+/// lines kept as they are, the old frames dropped, and under each snapshot
+/// the frame it produced, closed by the blank line that marks its end.
 fn rendered(written: &str) -> Result<String> {
-    let mut frames = scenario::run(written)?.into_iter();
+    let mut snapshots = scenario::run(written)?.into_iter();
     let mut out = String::new();
-    for line in written.lines() {
-        if scenario::is_frame_line(line) {
-            continue;
-        }
-        out.push_str(line);
-        out.push('\n');
-        if line.trim_end() == "screen" {
-            out.push_str(&frames.next().expect("a frame per screen"));
+    for line in scenario::lines(written) {
+        match line {
+            scenario::Line::Text(text) => {
+                out.push_str(text);
+                out.push('\n');
+            }
+            scenario::Line::Snapshot(caption) => {
+                let snapshot = snapshots.next().expect("a frame per snapshot");
+                out.push_str("---");
+                if !caption.is_empty() {
+                    out.push(' ');
+                    out.push_str(caption);
+                }
+                out.push('\n');
+                out.push_str(&snapshot.frame);
+                out.push('\n');
+            }
+            scenario::Line::Frame(_) => {}
         }
     }
     Ok(out)
