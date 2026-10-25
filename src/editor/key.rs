@@ -1,5 +1,7 @@
 use std::fmt;
+use std::str::FromStr;
 
+use anyhow::bail;
 use bitflags::bitflags;
 
 bitflags! {
@@ -51,6 +53,8 @@ impl fmt::Display for Key {
             }
         }
         match self.code {
+            // The one character that would otherwise print as nothing.
+            KeyCode::Char(' ') => write!(f, "Space"),
             KeyCode::Char(c) => write!(f, "{}", c.to_uppercase()),
             KeyCode::F(n) => write!(f, "F{n}"),
             KeyCode::Enter => write!(f, "Enter"),
@@ -68,6 +72,57 @@ impl fmt::Display for Key {
             KeyCode::PageUp => write!(f, "PageUp"),
             KeyCode::PageDown => write!(f, "PageDown"),
         }
+    }
+}
+
+/// The inverse of `Display`: `Ctrl+Shift+L` back into a key. Names are
+/// matched without regard to case, so a scenario or a configuration file
+/// may write `ctrl+shift+l`. Whatever is left after the modifiers is the
+/// key, which is how `Ctrl++` is `+` under Ctrl.
+impl FromStr for Key {
+    type Err = anyhow::Error;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        let mut mods = Mods::empty();
+        let mut rest = name;
+        loop {
+            let (prefix, flag) = match rest.split_once('+') {
+                Some((prefix, _)) if prefix.eq_ignore_ascii_case("ctrl") => (prefix, Mods::CTRL),
+                Some((prefix, _)) if prefix.eq_ignore_ascii_case("alt") => (prefix, Mods::ALT),
+                Some((prefix, _)) if prefix.eq_ignore_ascii_case("shift") => (prefix, Mods::SHIFT),
+                _ => break,
+            };
+            mods |= flag;
+            rest = &rest[prefix.len() + 1..];
+        }
+        let code = match rest.to_ascii_lowercase().as_str() {
+            "space" => KeyCode::Char(' '),
+            "enter" => KeyCode::Enter,
+            "tab" => KeyCode::Tab,
+            "backspace" => KeyCode::Backspace,
+            "delete" => KeyCode::Delete,
+            "insert" => KeyCode::Insert,
+            "esc" => KeyCode::Esc,
+            "left" => KeyCode::Left,
+            "right" => KeyCode::Right,
+            "up" => KeyCode::Up,
+            "down" => KeyCode::Down,
+            "home" => KeyCode::Home,
+            "end" => KeyCode::End,
+            "pageup" => KeyCode::PageUp,
+            "pagedown" => KeyCode::PageDown,
+            lower => {
+                let mut chars = rest.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) => KeyCode::Char(c),
+                    _ => match lower.strip_prefix('f').and_then(|n| n.parse().ok()) {
+                        Some(n) => KeyCode::F(n),
+                        None => bail!("unknown key `{name}`"),
+                    },
+                }
+            }
+        };
+        Ok(Key::new(code, mods))
     }
 }
 
@@ -154,6 +209,62 @@ mod tests {
         let stroke = Keystroke::new(KeyCode::Char('ф'), Mods::empty());
         assert_eq!(stroke.key, expected(KeyCode::Char('ф'), Mods::empty()));
         assert_eq!(stroke.text, Some('ф'));
+    }
+
+    #[test]
+    fn a_key_reads_back_from_its_own_name() {
+        let codes = [
+            KeyCode::Char('l'),
+            KeyCode::Char('+'),
+            KeyCode::Char('ф'),
+            KeyCode::Char(' '),
+            KeyCode::Enter,
+            KeyCode::Tab,
+            KeyCode::Backspace,
+            KeyCode::Delete,
+            KeyCode::Insert,
+            KeyCode::Esc,
+            KeyCode::Left,
+            KeyCode::Right,
+            KeyCode::Up,
+            KeyCode::Down,
+            KeyCode::Home,
+            KeyCode::End,
+            KeyCode::PageUp,
+            KeyCode::PageDown,
+            KeyCode::F(12),
+        ];
+        for code in codes {
+            for mods in [Mods::empty(), Mods::SHIFT, Mods::CTRL | Mods::ALT | Mods::SHIFT] {
+                let key = Key::new(code, mods);
+                assert_eq!(key.to_string().parse::<Key>().unwrap(), key, "{key}");
+            }
+        }
+    }
+
+    #[test]
+    fn space_has_a_name() {
+        let key = Key::new(KeyCode::Char(' '), Mods::CTRL);
+        assert_eq!(key.to_string(), "Ctrl+Space");
+    }
+
+    #[test]
+    fn a_name_is_read_whatever_its_case() {
+        assert_eq!(
+            "ctrl+shift+l".parse::<Key>().unwrap(),
+            expected(KeyCode::Char('l'), Mods::CTRL | Mods::SHIFT)
+        );
+        assert_eq!(
+            "PAGEDOWN".parse::<Key>().unwrap(),
+            expected(KeyCode::PageDown, Mods::empty())
+        );
+    }
+
+    #[test]
+    fn a_name_that_is_not_a_key_is_refused() {
+        assert!("Ctrl+Hyper".parse::<Key>().is_err());
+        assert!("Ctrl+".parse::<Key>().is_err());
+        assert!("F1x".parse::<Key>().is_err());
     }
 
     #[test]
