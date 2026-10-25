@@ -8,7 +8,7 @@ use crossterm::event::{
 };
 
 use crate::editor::input::{Input, Mouse, MouseKind};
-use crate::editor::key::{KeyCode, Keystroke, Mods};
+use crate::editor::key::{Key, KeyCode, Keystroke, Mods};
 
 pub fn translate(event: Event) -> Option<Input> {
     Some(match event {
@@ -68,6 +68,39 @@ fn mouse(event: MouseEvent) -> Option<Mouse> {
     })
 }
 
+/// The event a terminal would send for `key`: the other direction, for a
+/// scenario that is written in key names and has to enter where real input
+/// enters (ADR 25). A shifted letter arrives from the terminal as its
+/// uppercase form with SHIFT set, and so it does here.
+pub fn event(key: Key) -> Event {
+    let code = match key.code {
+        KeyCode::Char(c) if key.mods == Mods::SHIFT => {
+            TermKeyCode::Char(c.to_uppercase().next().unwrap_or(c))
+        }
+        KeyCode::Char(c) => TermKeyCode::Char(c),
+        KeyCode::Enter => TermKeyCode::Enter,
+        KeyCode::Tab => TermKeyCode::Tab,
+        KeyCode::Backspace => TermKeyCode::Backspace,
+        KeyCode::Delete => TermKeyCode::Delete,
+        KeyCode::Insert => TermKeyCode::Insert,
+        KeyCode::Esc => TermKeyCode::Esc,
+        KeyCode::Left => TermKeyCode::Left,
+        KeyCode::Right => TermKeyCode::Right,
+        KeyCode::Up => TermKeyCode::Up,
+        KeyCode::Down => TermKeyCode::Down,
+        KeyCode::Home => TermKeyCode::Home,
+        KeyCode::End => TermKeyCode::End,
+        KeyCode::PageUp => TermKeyCode::PageUp,
+        KeyCode::PageDown => TermKeyCode::PageDown,
+        KeyCode::F(n) => TermKeyCode::F(n),
+    };
+    let mut modifiers = KeyModifiers::NONE;
+    modifiers.set(KeyModifiers::CONTROL, key.mods.contains(Mods::CTRL));
+    modifiers.set(KeyModifiers::ALT, key.mods.contains(Mods::ALT));
+    modifiers.set(KeyModifiers::SHIFT, key.mods.contains(Mods::SHIFT));
+    Event::Key(KeyEvent::new(code, modifiers))
+}
+
 fn mods(modifiers: KeyModifiers) -> Mods {
     let mut mods = Mods::empty();
     mods.set(Mods::CTRL, modifiers.contains(KeyModifiers::CONTROL));
@@ -105,6 +138,24 @@ mod tests {
             pressed(key(TermKeyCode::F(3), KeyModifiers::NONE)),
             Some(Key::new(KeyCode::F(3), Mods::empty()))
         );
+    }
+
+    #[test]
+    fn a_key_sent_as_an_event_arrives_as_itself() {
+        for key in [
+            Key::new(KeyCode::Char('l'), Mods::CTRL | Mods::SHIFT),
+            Key::new(KeyCode::Char('ф'), Mods::SHIFT),
+            Key::new(KeyCode::Tab, Mods::SHIFT),
+            Key::new(KeyCode::F(3), Mods::empty()),
+        ] {
+            assert_eq!(pressed(event(key)), Some(key), "{key}");
+        }
+        // A shifted letter inserts its uppercase form, as it does from a
+        // terminal.
+        match translate(event(Key::new(KeyCode::Char('a'), Mods::SHIFT))) {
+            Some(Input::Key(stroke)) => assert_eq!(stroke.text, Some('A')),
+            other => panic!("a keystroke, not {other:?}"),
+        }
     }
 
     #[test]
