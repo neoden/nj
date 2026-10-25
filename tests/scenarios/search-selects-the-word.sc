@@ -3,9 +3,18 @@
 size 30 6
 type hello world
 screen
+0|1 hello world
+ |::-----------^----------------
+1-4|
+5| …h]* · Text · 1 lines · 1:12
 key Ctrl+Shift+L
 screen
+0|1 hello world
+ |        ~~~~~^
 key Ctrl+F
 type o
 key Enter
 screen
+0|1 hello world
+ |      ~^ =
+5| 1/2 "o"…Text · 1 lines · 1:6

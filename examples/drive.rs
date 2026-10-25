@@ -10,6 +10,6 @@ use ned::term::scenario;
 fn main() -> Result<()> {
     let mut script = String::new();
     io::stdin().read_to_string(&mut script)?;
-    print!("{}", scenario::run(&script)?);
+    print!("{}", scenario::run(&script)?.join("\n"));
     Ok(())
 }

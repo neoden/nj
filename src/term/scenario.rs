@@ -16,7 +16,9 @@
 //!   wait           let every background job finish
 //!   screen         the frame: the first one whole, each later one as the
 //!                  rows that changed since the one before, or `same` when
-//!                  none did
+//!                  none did. In a scenario file the frame follows the
+//!                  instruction, and the lines of a frame are told apart
+//!                  from instructions by their shape (`is_frame_line`).
 //!
 //! Resizing is `size`: the loop takes the terminal's size before every
 //! frame, and a resize event only wakes it up.
@@ -44,21 +46,33 @@ use crate::editor::key::Key;
 use super::grid::Grid;
 use super::{app, dump, input, render};
 
-/// Runs `script` against a fresh editor and returns everything its `screen`
-/// instructions showed. An error names the line it happened on.
-pub fn run(script: &str) -> Result<String> {
+/// Runs `script` against a fresh editor and returns what each `screen`
+/// instruction showed, in order. An error names the line it happened on.
+pub fn run(script: &str) -> Result<Vec<String>> {
     let _workdir = Workdir::enter()?;
     let mut run = Run::new();
     for (index, line) in script.lines().enumerate() {
         let line = line.trim_end();
-        if line.is_empty() || line.starts_with('#') {
+        if line.is_empty() || line.starts_with('#') || is_frame_line(line) {
             continue;
         }
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         run.step(verb, rest)
             .with_context(|| format!("line {}", index + 1))?;
     }
-    Ok(run.output)
+    Ok(run.frames)
+}
+
+/// Whether a line of a scenario is part of a frame rather than an
+/// instruction: a row with its number, a range of empty rows, a line of
+/// styles, or `same`. Frames are what `screen` writes into the file, and
+/// what is regenerated when the file is updated.
+pub fn is_frame_line(line: &str) -> bool {
+    let Some((prefix, _)) = line.split_once('|') else {
+        return line == "same";
+    };
+    let (from, to) = prefix.trim().split_once('-').unwrap_or((prefix.trim(), ""));
+    from.chars().all(|c| c.is_ascii_digit()) && to.chars().all(|c| c.is_ascii_digit())
 }
 
 /// The fake desktop clipboard. The scenario shares it with the editor to
@@ -102,7 +116,7 @@ struct Run {
     size: (usize, usize),
     previous: Option<Grid>,
     pasteboard: Pasteboard,
-    output: String,
+    frames: Vec<String>,
 }
 
 impl Run {
@@ -116,7 +130,7 @@ impl Run {
             size,
             previous: None,
             pasteboard,
-            output: String::new(),
+            frames: Vec::new(),
         }
     }
 
@@ -169,13 +183,11 @@ impl Run {
         self.editor.resize(self.size.0, self.size.1);
         let mut grid = Grid::new(self.size.0, self.size.1);
         render::compose(&mut grid, &self.editor);
-        if self.previous.is_some() {
-            self.output.push('\n');
-        }
-        match dump::dump(&grid, self.previous.as_ref()) {
-            text if text.is_empty() => self.output.push_str("same\n"),
-            text => self.output.push_str(&text),
-        }
+        self.frames
+            .push(match dump::dump(&grid, self.previous.as_ref()) {
+                text if text.is_empty() => "same\n".to_owned(),
+                text => text,
+            });
         self.previous = Some(grid);
     }
 
@@ -215,4 +227,19 @@ fn mods(names: &str) -> Result<KeyModifiers> {
 /// A line of the scenario can hold several lines of text.
 fn unescaped(text: &str) -> String {
     text.replace("\\n", "\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_lines_are_told_from_instructions() {
+        for line in ["0|1 hello", " |::--^", "1-4|", "12|", "same"] {
+            assert!(is_frame_line(line), "{line}");
+        }
+        for line in ["type 1|a", "screen", "# 3|", "", "paste same"] {
+            assert!(!is_frame_line(line), "{line}");
+        }
+    }
 }

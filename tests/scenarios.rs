@@ -1,17 +1,21 @@
-//! Runs every `tests/scenarios/*.sc` through `term::scenario` and compares
-//! what the screen showed with the `.out` beside it (ADR 25).
+//! Runs every `tests/scenarios/*.sc` through `term::scenario` and checks
+//! that the frames written in the file are what the screen shows (ADR 25).
 //!
 //!   cargo test --test scenarios                 all of them
 //!   cargo test --test scenarios -- find         those with `find` in the name
-//!   cargo test --test scenarios -- --update find   write what they show now
+//!   cargo test --test scenarios -- --update find   rewrite their frames
 //!
-//! A missing `.out` is a failure: a new scenario does not pass on nothing.
+//! A file is its instructions and comments, which are the author's, and
+//! after each `screen` the frame it showed, which is generated. Checking a
+//! scenario is rendering it afresh and comparing with the file; updating it
+//! is writing that rendering back. A `screen` with no frame under it fails,
+//! so a new scenario does not pass on nothing.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use ned::term::scenario;
 
@@ -60,43 +64,56 @@ fn scripts(filters: &[String]) -> Result<Vec<PathBuf>> {
 }
 
 fn check(script: &Path, update: bool) -> Result<&'static str> {
-    let expected_path = script.with_extension("out");
-    let shown = scenario::run(&fs::read_to_string(script)?)?;
+    let written = fs::read_to_string(script)?;
+    let fresh = rendered(&written)?;
     if update {
-        fs::write(&expected_path, &shown)?;
+        fs::write(script, &fresh)?;
         return Ok("written");
     }
-    let expected = fs::read_to_string(&expected_path).with_context(|| {
-        format!(
-            "no {} — run with --update to write it",
-            expected_path.display()
-        )
-    })?;
-    if shown == expected {
+    if fresh == written {
         return Ok("ok");
     }
-    anyhow::bail!("{}", differences(&expected, &shown));
+    anyhow::bail!("{}", differences(&written, &fresh));
 }
 
-/// The lines that differ, by their number: `-` for what was expected and
-/// `+` for what was shown.
-fn differences(expected: &str, shown: &str) -> String {
-    let mut expected = expected.lines();
-    let mut shown = shown.lines();
+/// The scenario with its frames as the screen shows them now: the author's
+/// lines kept as they are, the frame lines dropped, and after each `screen`
+/// the frame it produced.
+fn rendered(written: &str) -> Result<String> {
+    let mut frames = scenario::run(written)?.into_iter();
     let mut out = String::new();
-    for number in 1.. {
-        let (want, got) = (expected.next(), shown.next());
-        if want.is_none() && got.is_none() {
-            break;
-        }
-        if want == got {
+    for line in written.lines() {
+        if scenario::is_frame_line(line) {
             continue;
         }
-        if let Some(want) = want {
-            out.push_str(&format!("{number:>3} - {want}\n"));
+        out.push_str(line);
+        out.push('\n');
+        if line.trim_end() == "screen" {
+            out.push_str(&frames.next().expect("a frame per screen"));
         }
-        if let Some(got) = got {
-            out.push_str(&format!("{number:>3} + {got}\n"));
+    }
+    Ok(out)
+}
+
+/// The lines that differ, by their number in the file: `-` for what is
+/// written and `+` for what the screen shows.
+fn differences(written: &str, fresh: &str) -> String {
+    let mut written = written.lines();
+    let mut fresh = fresh.lines();
+    let mut out = String::new();
+    for number in 1.. {
+        let (have, show) = (written.next(), fresh.next());
+        if have.is_none() && show.is_none() {
+            break;
+        }
+        if have == show {
+            continue;
+        }
+        if let Some(have) = have {
+            out.push_str(&format!("{number:>3} - {have}\n"));
+        }
+        if let Some(show) = show {
+            out.push_str(&format!("{number:>3} + {show}\n"));
         }
     }
     out
