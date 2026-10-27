@@ -14,7 +14,7 @@ key Ctrl+/
 1-5|
 6| No line comme …1 lines · 1:5
 
-file main.rs "fn main() {\n    let x = 1;\n\n    let y = 2;\n}"
+%file main.rs "fn main() {\n    let x = 1;\n\n    let y = 2;\n}"
 key Ctrl+O
 type "main.rs"
 key Enter

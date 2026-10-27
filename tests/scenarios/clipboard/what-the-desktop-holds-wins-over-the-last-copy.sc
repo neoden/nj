@@ -16,7 +16,7 @@ key Ctrl+C
 2-5|
 6| …ch]* · Text · 2 lines · 1:1
 
-clipboard "theirs"
+%clipboard "theirs"
 key End
 key Ctrl+V
 
@@ -43,7 +43,7 @@ key Ctrl+V
 2|3 beta
 6| …ch]* · Text · 3 lines · 2:1
 
-clipboard "gamma\n"
+%clipboard "gamma\n"
 key End
 key Ctrl+V
 

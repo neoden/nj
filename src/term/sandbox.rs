@@ -1,12 +1,15 @@
-//! The sandbox of ADR 27: the editor under the conditions a scenario
-//! assumes — a fake clipboard, a directory of its own under `target`, and a
-//! frame of the size the scenario says, 40×10 until it says. Two uses: a
-//! headless run of a whole scenario, for the tests and the drive example
-//! (ADR 25), and a live editor taking the testing instructions over the
-//! socket (ADR 26). Debug builds only.
+//! The headless run of a scenario, for the tests and the drive example
+//! (ADR 25): an editor under the conditions the scenario assumes — a fake
+//! clipboard, a directory of its own under `target`, a frame of the size
+//! the scenario says, 40×10 until it says — started, driven and ended by
+//! the scenario's lines (ADR 28). Test machinery, so debug builds only. A
+//! live editor gets the same conditions from the sandbox binary, which
+//! runs it as a child process (ADR 29) and shares `Workdir` and `Frames`
+//! from here.
 
 use std::cell::RefCell;
 use std::fs;
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
@@ -14,84 +17,35 @@ use std::sync::{Mutex, MutexGuard};
 use anyhow::{Context, Result, bail};
 
 use super::grid::Grid;
+use super::launch::{self, Args, Outcome};
 use super::scenario::{self, Instruction, Line};
 use super::{app, dump, render};
-use crate::buffer::Buffer;
 use crate::editor::Editor;
 use crate::editor::clipboard::Desktop;
 
 /// The frame a scenario gets until it says `size`.
 const DEFAULT_SIZE: (usize, usize) = (40, 10);
 
-/// The conditions, and what the testing instructions need between them:
-/// the frame before, for a snapshot to differ from.
-pub struct Sandbox {
-    _workdir: Workdir,
-    pasteboard: Pasteboard,
-    size: (usize, usize),
+/// Where the sandbox binary listens and the replay binary looks, unless
+/// `--socket` says otherwise: under the project's `target`.
+pub const SOCKET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/sandbox.sock");
+
+/// The frames a run has taken, as far as a snapshot needs them: the one
+/// before, for the next to differ from. Taken headless by the run and, in
+/// the debug build, over the socket by the live editor (ADR 29).
+#[derive(Default)]
+pub struct Frames {
     previous: Option<Grid>,
 }
 
-impl Sandbox {
-    /// Enters the run's directory; it is left and removed with the sandbox.
-    pub fn enter() -> Result<Self> {
-        Ok(Self {
-            _workdir: Workdir::enter()?,
-            pasteboard: Pasteboard::default(),
-            size: DEFAULT_SIZE,
-            previous: None,
-        })
-    }
-
-    /// The clipboard to give the editor: the sandbox keeps the other end.
-    pub fn desktop(&self) -> impl Desktop + 'static {
-        self.pasteboard.clone()
-    }
-
-    /// The frame to draw in a terminal of `terminal` size: the scenario's.
-    /// A terminal too small for it shows what fits, and the snapshot that
-    /// would not match it is refused instead (`apply`).
-    pub fn frame_size(&self, terminal: (usize, usize)) -> (usize, usize) {
-        (terminal.0.min(self.size.0), terminal.1.min(self.size.1))
-    }
-
-    /// Carries out a testing instruction and answers it: `ok`, or the frame
-    /// for a snapshot. Input is not taken here; it enters as input does.
-    /// `terminal` is the live terminal's size, or `None` in a headless run;
-    /// a frame the terminal cannot show whole is refused, since the screen
-    /// and the snapshot would then say different things (ADR 27).
-    pub fn apply(
-        &mut self,
-        editor: &mut Editor,
-        instruction: Instruction,
-        terminal: Option<(usize, usize)>,
-    ) -> Result<String> {
-        match instruction {
-            Instruction::Input(_) => unreachable!("input is handled as input"),
-            Instruction::Size(width, height) => {
-                fits(terminal, (width, height))?;
-                self.size = (width, height);
-                editor.resize(width, height);
-            }
-            Instruction::File(name, text) => {
-                fs::write(&name, text).with_context(|| format!("cannot write {name}"))?;
-            }
-            Instruction::Clipboard(text) => self.pasteboard.set(text),
-            Instruction::Wait => editor.finish_jobs(),
-            Instruction::Snapshot(_) => {
-                fits(terminal, self.size)?;
-                return Ok(self.frame(editor));
-            }
-        }
-        Ok("ok\n".to_owned())
-    }
-
-    /// The frame as the screen shows it, dumped against the frame before.
-    fn frame(&mut self, editor: &mut Editor) -> String {
+impl Frames {
+    /// The frame as the screen shows it at `size`, dumped against the
+    /// frame before.
+    pub fn take(&mut self, editor: &mut Editor, size: (usize, usize)) -> String {
         // As the loop does before every frame (`app::run`): the screen is
         // divided afresh, since a panel may have opened or closed.
-        editor.resize(self.size.0, self.size.1);
-        let mut grid = Grid::new(self.size.0, self.size.1);
+        editor.resize(size.0, size.1);
+        let mut grid = Grid::new(size.0, size.1);
         render::compose(&mut grid, editor);
         let frame = match dump::dump(&grid, self.previous.as_ref()) {
             text if text.is_empty() => "same\n".to_owned(),
@@ -102,17 +56,86 @@ impl Sandbox {
     }
 }
 
-fn fits(terminal: Option<(usize, usize)>, frame: (usize, usize)) -> Result<()> {
-    if let Some((columns, rows)) = terminal
-        && (columns < frame.0 || rows < frame.1)
-    {
-        bail!(
-            "the terminal is {columns}×{rows}, too small for a frame of {}×{}: enlarge it",
-            frame.0,
-            frame.1
-        );
+/// The conditions of the run and the editor under them, once started.
+struct Sandbox {
+    editor: Option<Editor>,
+    pasteboard: Pasteboard,
+    size: (usize, usize),
+    frames: Frames,
+}
+
+impl Sandbox {
+    fn new() -> Self {
+        Self {
+            editor: None,
+            pasteboard: Pasteboard::default(),
+            size: DEFAULT_SIZE,
+            frames: Frames::default(),
+        }
     }
-    Ok(())
+
+    /// The editor, which the run has started before it sends anything.
+    fn editor(&mut self) -> &mut Editor {
+        self.editor.as_mut().expect("the run starts the editor first")
+    }
+
+    /// `size`: the terminal is now this big, and the editor, which the
+    /// run has started, is told so.
+    fn size(&mut self, width: usize, height: usize) {
+        self.size = (width, height);
+        self.editor().resize(width, height);
+    }
+
+    /// Starts the editor as `args` would from the shell (ADR 28): `stdin`
+    /// is the pipe, the sandbox keeps the other end of the clipboard. The
+    /// socket is the process's, not the editor's, and has no meaning here.
+    fn start(&mut self, args: Args, stdin: Option<String>) -> Result<()> {
+        if args.socket.is_some() {
+            bail!("--socket: a run has no socket");
+        }
+        let buffer = launch::buffer(args.file.as_deref(), stdin.map(Cursor::new))?;
+        let mut editor = Editor::new(buffer).with_desktop(self.pasteboard.clone());
+        editor.resize(self.size.0, self.size.1);
+        self.editor = Some(editor);
+        Ok(())
+    }
+
+    /// Input or `wait`, the editor's own lines. The events go through
+    /// `app::handle` one at a time, so that an exit in the middle of a
+    /// `type` is seen and what follows it refused. The outcome once the
+    /// line has made the editor exit.
+    fn send(&mut self, instruction: Instruction) -> Result<Option<Outcome>> {
+        let editor = self.editor();
+        match instruction {
+            Instruction::Input(events) => {
+                let mut events = events.into_iter();
+                for event in events.by_ref() {
+                    app::handle(event, editor);
+                    if editor.exit().is_some() {
+                        break;
+                    }
+                }
+                if editor.exit().is_none() {
+                    return Ok(None);
+                }
+                if events.next().is_some() {
+                    bail!("input after the editor has exited");
+                }
+                Ok(Some(Outcome::of(editor)?))
+            }
+            Instruction::Wait => {
+                editor.finish_jobs();
+                Ok(None)
+            }
+            other => unreachable!("not the editor's own: {other:?}"),
+        }
+    }
+
+    /// The frame as the screen shows it, dumped against the frame before.
+    fn frame(&mut self) -> String {
+        let editor = self.editor.as_mut().expect("the run starts the editor first");
+        self.frames.take(editor, self.size)
+    }
 }
 
 /// What a snapshot showed, with the caption it was taken under.
@@ -122,34 +145,100 @@ pub struct Snapshot {
     pub frame: String,
 }
 
+/// Where a run is: before the editor, with it, or after it has exited.
+enum Stage {
+    Before,
+    Running,
+    Exited(Outcome),
+}
+
 /// Runs `script` against a fresh headless editor and returns its snapshots,
 /// in order. An error names the line it happened on.
 pub fn run(script: &str) -> Result<Vec<Snapshot>> {
-    let mut sandbox = Sandbox::enter()?;
-    let mut editor = Editor::new(Buffer::default()).with_desktop(sandbox.desktop());
-    editor.resize(DEFAULT_SIZE.0, DEFAULT_SIZE.1);
+    let _workdir = Workdir::enter()?;
+    let mut sandbox = Sandbox::new();
+    let mut stage = Stage::Before;
+    // What `%stdin` gave, until the editor starts and reads it.
+    let mut stdin = None;
     let mut snapshots = Vec::new();
 
     for (index, line) in scenario::lines(script).enumerate() {
         let at = || format!("line {}", index + 1);
         let instruction = match line {
-            Line::Text(line) => scenario::parse(line).with_context(at)?,
-            Line::Snapshot(caption) => Some(Instruction::Snapshot(caption.to_owned())),
-            Line::Frame(_) => None,
+            Line::Text(text) => match scenario::parse(text).with_context(at)? {
+                Some(instruction) => instruction,
+                None => continue,
+            },
+            Line::Snapshot(caption) => Instruction::Snapshot(caption.to_owned()),
+            Line::Frame(_) => continue,
         };
+
+        // After the exit there is only the outcome to show.
+        if let Stage::Exited(outcome) = &stage {
+            match instruction {
+                Instruction::Snapshot(caption) => {
+                    snapshots.push(Snapshot {
+                        frame: scenario::outcome(outcome),
+                        caption,
+                    });
+                    continue;
+                }
+                _ => bail!("{}: the editor has exited", at()),
+            }
+        }
+
+        // A condition of the run — a file, the clipboard — is set before
+        // the editor starts or changed while it runs, and starts nothing.
+        let mut instruction = match instruction {
+            Instruction::File(name, text) => {
+                fs::write(&name, text)
+                    .with_context(|| format!("cannot write {name}"))
+                    .with_context(at)?;
+                continue;
+            }
+            Instruction::Clipboard(text) => {
+                sandbox.pasteboard.set(text);
+                continue;
+            }
+            other => other,
+        };
+
+        // Until the editor has started, `%stdin` waits for it. `%start`
+        // starts it; any other line starts it first, as `ned` alone would,
+        // and is then carried out.
+        if let Stage::Before = stage {
+            let (args, rest) = match instruction {
+                Instruction::Stdin(text) => {
+                    stdin = Some(text);
+                    continue;
+                }
+                Instruction::Start(args) => (args, None),
+                other => (Args::default(), Some(other)),
+            };
+            sandbox.start(args, stdin.take()).with_context(at)?;
+            stage = Stage::Running;
+            match rest {
+                Some(rest) => instruction = rest,
+                None => continue,
+            }
+        }
+
         match instruction {
-            None => {}
-            Some(Instruction::Input(events)) => {
-                for event in events {
-                    app::handle(event, &mut editor);
+            Instruction::Input(_) | Instruction::Wait => {
+                if let Some(outcome) = sandbox.send(instruction).with_context(at)? {
+                    stage = Stage::Exited(outcome);
                 }
             }
-            Some(Instruction::Snapshot(caption)) => snapshots.push(Snapshot {
-                frame: sandbox.frame(&mut editor),
+            Instruction::Size(width, height) => sandbox.size(width, height),
+            Instruction::Snapshot(caption) => snapshots.push(Snapshot {
+                frame: sandbox.frame(),
                 caption,
             }),
-            Some(other) => {
-                sandbox.apply(&mut editor, other, None).with_context(at)?;
+            Instruction::Stdin(_) | Instruction::Start(_) => {
+                bail!("{}: the editor is already running", at())
+            }
+            Instruction::File(..) | Instruction::Clipboard(..) => {
+                unreachable!("a condition is set above")
             }
         }
     }
@@ -182,7 +271,7 @@ impl Desktop for Pasteboard {
 /// working directory, so it has one run at a time: a second `enter` in the
 /// same process waits for the first to end, which is what lets the unit
 /// tests here run in parallel with each other.
-struct Workdir {
+pub struct Workdir {
     path: PathBuf,
     _turn: MutexGuard<'static, ()>,
 }
@@ -190,14 +279,20 @@ struct Workdir {
 static ONE_RUN_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 impl Workdir {
-    fn enter() -> Result<Self> {
+    /// The headless run's directory, under the project's `target`.
+    pub fn enter() -> Result<Self> {
+        let runs = concat!(env!("CARGO_MANIFEST_DIR"), "/target/scenarios");
+        Self::enter_at(PathBuf::from(runs).join(std::process::id().to_string()))
+    }
+
+    /// Makes `path` and enters it; the sandbox binary puts its run under
+    /// the system's temporary directory.
+    pub fn enter_at(path: PathBuf) -> Result<Self> {
         // A run that panicked poisons the lock; its directory is still ours
         // to replace.
         let turn = ONE_RUN_AT_A_TIME
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let runs = concat!(env!("CARGO_MANIFEST_DIR"), "/target/scenarios");
-        let path = PathBuf::from(runs).join(std::process::id().to_string());
         fs::create_dir_all(&path)?;
         std::env::set_current_dir(&path)?;
         Ok(Self { path, _turn: turn })
@@ -230,47 +325,63 @@ mod tests {
     /// while it lasts, and what one writes the other never sees.
     #[test]
     fn runs_in_one_process_do_not_share_the_directory() {
-        let first = run("file a.txt \"a\"\n").unwrap();
+        let first = run("%file a.txt \"a\"\n").unwrap();
         assert!(first.is_empty());
         assert!(!PathBuf::from("a.txt").exists());
 
-        let sandbox = Sandbox::enter().unwrap();
+        let workdir = Workdir::enter().unwrap();
         fs::write("b.txt", "b").unwrap();
         assert!(fs::read_dir(".").unwrap().count() == 1);
-        drop(sandbox);
+        drop(workdir);
     }
 
+    /// `start` is the command line, read by the same parser; what `stdin`
+    /// gave before it is the pipe. Afterwards neither has a place.
     #[test]
-    fn a_frame_the_terminal_cannot_show_whole_is_refused() {
-        let mut sandbox = Sandbox::enter().unwrap();
-        let mut editor = Editor::new(Buffer::default());
-        assert_eq!(sandbox.frame_size((80, 24)), DEFAULT_SIZE);
+    fn start_takes_the_command_line_and_stdin_the_pipe() {
+        let shown = run("%stdin \"piped\"\n%start\nsize 36 2\n---\n").unwrap();
+        assert_eq!(
+            shown[0].frame,
+            "0|1 piped\n |::^---------------------------------\n1|     [stdin] · Text · 1 lines · 1:1\n"
+        );
 
-        let error = sandbox
-            .apply(&mut editor, Instruction::Size(100, 5), Some((80, 24)))
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.starts_with("the terminal is 80×24, too small"),
-            "{error}"
-        );
-        assert_eq!(sandbox.frame_size((80, 24)), DEFAULT_SIZE);
+        let shown =
+            run("%file a.txt \"filed\"\n%stdin \"piped\"\n%start a.txt\nsize 30 2\n---\n").unwrap();
+        assert!(shown[0].frame.contains("filed"), "{}", shown[0].frame);
 
-        // The terminal shrank after the size was set: the snapshot says so.
-        assert!(
-            sandbox
-                .apply(
-                    &mut editor,
-                    Instruction::Snapshot(String::new()),
-                    Some((80, 8))
-                )
-                .is_err()
-        );
-        // Headless there is no terminal to be too small.
-        assert!(
-            sandbox
-                .apply(&mut editor, Instruction::Size(100, 5), None)
-                .is_ok()
-        );
+        // `size` is the editor's line, so it starts the editor like any
+        // other, and `%start` after it is too late.
+        for script in [
+            "type \"a\"\n%start\n",
+            "size 30 2\n%start\n",
+            "%start\n%stdin \"late\"\n",
+            "%start --socket s\n",
+            "%start --bogus\n",
+        ] {
+            let error = run(script).unwrap_err();
+            assert!(
+                error.to_string().starts_with("line "),
+                "{script}: {error:#}"
+            );
+        }
+    }
+
+    /// A quit ends the run: the snapshot after it is the outcome, with what
+    /// a pipeline hands on, and nothing else may follow.
+    #[test]
+    fn an_exit_is_shown_as_the_outcome_and_ends_the_run() {
+        let shown = run("key Ctrl+Q\n--- gone\n").unwrap();
+        assert_eq!(shown[0].frame, "exit 0\n");
+
+        let shown = run("%stdin \"in\"\ntype \"x\"\nkey Ctrl+S\nkey Ctrl+Q\n---\n").unwrap();
+        assert_eq!(shown[0].frame, "exit 0\nstdout \"xin\"\n");
+
+        let shown = run("%stdin \"in\"\nkey Ctrl+Shift+Q\n---\n").unwrap();
+        assert_eq!(shown[0].frame, "exit 1\nstdout \"\"\n");
+
+        for script in ["key Ctrl+Q\ntype \"a\"\n", "key Ctrl+Q\nwait\n"] {
+            let error = run(script).unwrap_err().to_string();
+            assert!(error.starts_with("line 2: "), "{script}: {error}");
+        }
     }
 }

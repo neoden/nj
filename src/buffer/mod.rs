@@ -210,27 +210,43 @@ impl Buffer {
         inverse
     }
 
-    /// A missing file opens as an empty buffer, so `ned newfile` works.
+    /// The file at `path`, as it is on disk: a path with no file behind it
+    /// is a mistake, not a request for one.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let context = || format!("cannot read {}", path.display());
+        let file = fs::File::open(path).with_context(|| cannot_read(path))?;
+        Self::from_file(path, file)
+    }
 
-        let mut buffer = match fs::File::open(path) {
-            Ok(file) => Self::read(file).with_context(context)?,
-            Err(err) if err.kind() == ErrorKind::NotFound => Self::default(),
-            Err(err) => return Err(err).with_context(context),
-        };
-        buffer.backing = Backing::File {
+    /// The file at `path` if there is one, else an empty buffer to be
+    /// written there: `ned newfile` starts a file that is not there yet.
+    pub fn open_or_new(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        match fs::File::open(path) {
+            Ok(file) => Self::from_file(path, file),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(Self::default().at(path)),
+            Err(err) => Err(err).with_context(|| cannot_read(path)),
+        }
+    }
+
+    fn from_file(path: &Path, file: fs::File) -> Result<Self> {
+        let buffer = Self::read(file).with_context(|| cannot_read(path))?;
+        Ok(buffer.at(path))
+    }
+
+    /// Backed by the file at `path`, whether or not it is there yet.
+    fn at(mut self, path: &Path) -> Self {
+        self.backing = Backing::File {
             path: path.to_path_buf(),
             on_disk: Stamp::of(path),
         };
-        buffer.set_language(language::detect(path));
-        Ok(buffer)
+        self.set_language(language::detect(path));
+        self
     }
 
     /// The text of a pipeline, to be handed on when the editor exits.
-    pub fn from_stdin() -> Result<Self> {
-        let mut buffer = Self::read(io::stdin().lock()).context("cannot read standard input")?;
+    pub fn from_pipe(pipe: impl Read) -> Result<Self> {
+        let mut buffer = Self::read(pipe).context("cannot read standard input")?;
         buffer.backing = Backing::Stdio {
             committed: buffer.text.clone(),
         };
@@ -463,6 +479,10 @@ impl Framing {
 /// Every CRLF goes, not just those of the ending that was detected: a file
 /// whose first break happens to be bare would otherwise keep the carriage
 /// returns of all the others. A lone CR stays, being data.
+fn cannot_read(path: &Path) -> String {
+    format!("cannot read {}", path.display())
+}
+
 fn read_text(mut reader: impl Read) -> io::Result<(Text, Framing)> {
     const BUFFER: usize = 64 * 1024;
     let invalid = || io::Error::new(ErrorKind::InvalidData, "not valid UTF-8");
@@ -718,7 +738,7 @@ mod tests {
         let path = scratch("new");
         let _ = fs::remove_file(&path);
 
-        let mut buffer = Buffer::open(&path).unwrap();
+        let mut buffer = Buffer::open_or_new(&path).unwrap();
         assert!(matches!(
             buffer.backing,
             Backing::File { on_disk: None, .. }
@@ -763,7 +783,7 @@ mod tests {
         let path = scratch("appeared");
         let _ = fs::remove_file(&path);
 
-        let buffer = Buffer::open(&path).unwrap();
+        let buffer = Buffer::open_or_new(&path).unwrap();
         assert!(!buffer.changed_on_disk());
 
         fs::write(&path, "someone else\n").unwrap();

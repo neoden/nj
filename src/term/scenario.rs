@@ -12,14 +12,28 @@
 //!   click X Y [MODS]   the left button going down at column X, row Y;
 //!   drag X Y [MODS]    the pointer moving there with the button held;
 //!   scroll up|down X Y [MODS]   the wheel. MODS is `Ctrl+Shift` and so on
-//!   file NAME "TEXT"   a file in the scenario's directory
-//!   clipboard "TEXT"   what the desktop clipboard holds, as if copied elsewhere
 //!   wait           let every background job finish
+//!   %file NAME "TEXT"   a file in the scenario's directory
+//!   %clipboard "TEXT"   what the desktop clipboard holds, as if copied elsewhere
+//!   %stdin "TEXT"  what is piped into the editor; a terminal otherwise
+//!   %start ARGS    the editor, started with ARGS as its command line
+//!                  (ADR 28); without this line it starts, as `ned` alone
+//!                  would, on the first line that is not a `%` line
 //!   --- CAPTION    a snapshot: the frame as the screen shows it here. The
 //!                  first is whole, each later one is the rows that changed
 //!                  since the one before, or `same` when none did. CAPTION
 //!                  says what should be seen. In a file the frame follows
 //!                  the line, up to a blank line, and is generated.
+//!
+//! A line beginning with `%` sets the run up around the editor and is not
+//! the editor's: the headless run and the sandbox binary carry it out, the
+//! editor's socket refuses it unread (ADR 29). The other lines are the
+//! editor's own.
+//!
+//! Once the editor has exited there is no frame: a snapshot shows how the
+//! process ended instead, `exit 0` or `exit 1`, and for a pipeline a
+//! `stdout "TEXT"` line with what the downstream received. Nothing else
+//! can follow the exit.
 //!
 //! Text is written in double quotes, so that a space at either end is
 //! visible and a file name is told from its contents; inside them `\n` is a
@@ -41,6 +55,7 @@ use crossterm::event::{
 };
 
 use super::input;
+use super::launch::{self, Args, Outcome};
 use crate::editor::key::Key;
 
 /// A line of a scenario, as the file is read.
@@ -94,9 +109,19 @@ pub enum Instruction {
     File(String, String),
     /// What the desktop clipboard holds.
     Clipboard(String),
+    /// What is piped into the editor, to be read when it starts.
+    Stdin(String),
+    /// The editor, started with this command line.
+    Start(Args),
     Wait,
     /// A frame to take, under this caption.
     Snapshot(String),
+}
+
+/// Whether `line` sets the run up around the editor rather than driving
+/// the editor: the `%` lines, which the socket refuses without reading.
+pub fn is_setup(line: &str) -> bool {
+    line.starts_with('%')
 }
 
 /// Reads one line of the language. `None` for a blank line or a comment,
@@ -145,14 +170,16 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
             };
             mouse(kind, rest)?
         }
-        "file" => {
+        "wait" => Instruction::Wait,
+        "%file" => {
             let (name, text) = rest
                 .split_once(' ')
-                .context("file takes a name and its text")?;
+                .context("%file takes a name and its text")?;
             Instruction::File(name.to_owned(), quoted(text)?)
         }
-        "clipboard" => Instruction::Clipboard(quoted(rest)?),
-        "wait" => Instruction::Wait,
+        "%clipboard" => Instruction::Clipboard(quoted(rest)?),
+        "%stdin" => Instruction::Stdin(quoted(rest)?),
+        "%start" => Instruction::Start(launch::args(rest.split_whitespace().map(str::to_owned))?),
         other => bail!("unknown instruction `{other}`"),
     };
     Ok(Some(instruction))
@@ -186,6 +213,32 @@ fn mods(names: &str) -> Result<KeyModifiers> {
         };
     }
     Ok(modifiers)
+}
+
+/// What a snapshot shows once the editor has exited, in place of a frame.
+pub fn outcome(outcome: &Outcome) -> String {
+    let mut out = format!("exit {}\n", outcome.code);
+    if let Some(stdout) = &outcome.stdout {
+        out.push_str(&format!("stdout {}\n", quote(stdout)));
+    }
+    out
+}
+
+/// `text` as the language writes it: in double quotes, with the escapes
+/// that `quoted` reads back.
+pub fn quote(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// The text between double quotes, with `\n`, `\t`, `\"` and `\\` read as
@@ -229,6 +282,28 @@ mod tests {
         for bad in ["bare", r#""open"#, r#""a" b"#, r#""\q""#] {
             assert!(quoted(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn quote_writes_what_quoted_reads() {
+        for text in ["", "a b ", "x\ny\"z\\", "a\tb"] {
+            assert_eq!(quoted(&quote(text)).unwrap(), text, "{text:?}");
+        }
+        assert_eq!(quote("a\nb"), r#""a\nb""#);
+    }
+
+    #[test]
+    fn an_outcome_is_the_code_and_what_a_pipeline_hands_on() {
+        let quit = Outcome {
+            code: 0,
+            stdout: None,
+        };
+        assert_eq!(outcome(&quit), "exit 0\n");
+        let piped = Outcome {
+            code: 1,
+            stdout: Some("x\n".to_owned()),
+        };
+        assert_eq!(outcome(&piped), "exit 1\nstdout \"x\\n\"\n");
     }
 
     #[test]

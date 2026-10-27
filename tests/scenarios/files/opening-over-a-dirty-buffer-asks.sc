@@ -3,8 +3,8 @@
 # the first file again afterwards.
 
 size 40 9
-file mine.txt "mine"
-file theirs.txt "theirs"
+%file mine.txt "mine"
+%file theirs.txt "theirs"
 key Ctrl+O
 type "mine.txt"
 key Enter

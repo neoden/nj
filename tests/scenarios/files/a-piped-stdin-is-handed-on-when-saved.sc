@@ -4,9 +4,9 @@
 # and Save as writes a copy and leaves it what it is. What stands when the
 # editor exits is what was last saved — the input itself when nothing was.
 
+%stdin "one\ntwo"
+%start
 size 72 6
-stdin "one\ntwo"
-start
 
 --- the pipe, under its own name
 0|1 one

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Replays a scenario in a live editor (ADR 29), in two terminals:
+#
+#   tools/replay sandbox          in one: the sandbox, which runs the editor
+#   tools/replay run FILE.sc      in the other: the scenario, line by line
+#
+# Anything after the word is passed on, `--socket PATH` for instance.
+set -euo pipefail
+
+project=$(cd "$(dirname "$0")/.." && pwd)
+
+case "${1-}" in
+    sandbox)
+        shift
+        exec cargo run -q --manifest-path "$project/Cargo.toml" --bin sandbox -- "$@"
+        ;;
+    run)
+        shift
+        exec cargo run -q --manifest-path "$project/Cargo.toml" --bin replay -- "$@"
+        ;;
+    *)
+        sed -n '2,7p' "$0" | cut -c3-
+        exit 2
+        ;;
+esac

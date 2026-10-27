@@ -6,6 +6,7 @@ pub mod app;
 pub mod dump;
 pub mod grid;
 pub mod input;
+pub mod launch;
 pub mod render;
 #[cfg(debug_assertions)]
 pub mod sandbox;

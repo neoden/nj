@@ -4,7 +4,7 @@
 # is as it was; `q` quits without saving.
 
 size 40 9
-file notes.txt "kept"
+%file notes.txt "kept"
 key Ctrl+O
 type "notes.txt"
 key Enter

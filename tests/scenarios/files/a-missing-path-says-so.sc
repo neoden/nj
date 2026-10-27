@@ -3,7 +3,7 @@
 # open stays as it was, cursor and all.
 
 size 80 6
-file kept.txt "kept"
+%file kept.txt "kept"
 key Ctrl+O
 type "kept.txt"
 key Enter

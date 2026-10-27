@@ -1,0 +1,153 @@
+//! Replays a scenario in a live editor, one line at a time (ADR 29). The
+//! editor runs in the sandbox, in a terminal of its own; this side sends
+//! the sandbox every line of the file over its socket and shows what came
+//! back.
+//!
+//!   cargo run -q --bin sandbox              in a terminal of its own
+//!   cargo run -q --bin replay -- FILE.sc    in another
+//!
+//! Each line is shown and sent on Enter; `a` sends the rest without
+//! stopping, `q` stops. At `---` the frame the sandbox answers is compared
+//! with the frame in the file, and both are printed only where they
+//! differ. The instructions are described in `term::scenario`.
+
+#[cfg(debug_assertions)]
+fn main() -> anyhow::Result<std::process::ExitCode> {
+    live::main()
+}
+
+#[cfg(not(debug_assertions))]
+fn main() {
+    eprintln!("the replay is test machinery and exists in the debug build only");
+    std::process::exit(2);
+}
+
+#[cfg(debug_assertions)]
+mod live {
+    use std::fs;
+    use std::io::{self, BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    use std::path::PathBuf;
+    use std::process::ExitCode;
+
+    use anyhow::{Context, Result, bail};
+
+    use ned::term::sandbox::SOCKET;
+    use ned::term::scenario::{self, Line};
+
+    pub fn main() -> Result<ExitCode> {
+        let mut socket = PathBuf::from(SOCKET);
+        let mut path = None;
+        let mut arguments = std::env::args().skip(1);
+        while let Some(argument) = arguments.next() {
+            match argument.as_str() {
+                "--socket" => socket = PathBuf::from(arguments.next().context("--socket takes a path")?),
+                flag if flag.starts_with("--") => bail!("unknown option `{flag}`"),
+                file => match path {
+                    None => path = Some(file.to_owned()),
+                    Some(_) => bail!("one scenario at a time"),
+                },
+            }
+        }
+        let path = path.context("a scenario file to replay")?;
+        let script = fs::read_to_string(&path).with_context(|| format!("cannot read {path}"))?;
+
+        let stream = UnixStream::connect(&socket)
+            .with_context(|| format!("no sandbox listens at {}", socket.display()))?;
+        let mut sandbox = Sandbox {
+            reader: BufReader::new(stream.try_clone()?),
+            stream,
+        };
+
+        let mut expected = expected_frames(&script).into_iter();
+        let mut differ = 0;
+        let mut unattended = false;
+        for line in scenario::lines(&script) {
+            let (text, snapshot) = match line {
+                Line::Text(text) if text.is_empty() || text.starts_with('#') => continue,
+                Line::Text(text) => (text.to_owned(), false),
+                Line::Snapshot(caption) => (format!("--- {caption}"), true),
+                Line::Frame(_) => continue,
+            };
+            if unattended {
+                println!("{text}");
+            } else {
+                print!("{text}  ");
+                io::stdout().flush()?;
+                let mut command = String::new();
+                if io::stdin().read_line(&mut command)? == 0 || command.trim() == "q" {
+                    return Ok(ExitCode::SUCCESS);
+                }
+                unattended = command.trim() == "a";
+            }
+
+            let answer = sandbox.ask(&text)?;
+            if !snapshot {
+                if answer != "ok\n" {
+                    println!("    {}", answer.trim_end().replace('\n', "\n    "));
+                }
+                continue;
+            }
+            let (number, wanted) = expected.next().expect("a frame per snapshot");
+            if answer != wanted {
+                differ += 1;
+                print!("{answer}");
+                println!("the file has (line {number}):");
+                print!("{wanted}");
+            }
+        }
+        match differ {
+            0 => println!("done"),
+            n => println!("done, {n} snapshot(s) differ"),
+        }
+        Ok(match differ {
+            0 => ExitCode::SUCCESS,
+            _ => ExitCode::FAILURE,
+        })
+    }
+
+    /// The sandbox at the other end of the socket.
+    struct Sandbox {
+        stream: UnixStream,
+        reader: BufReader<UnixStream>,
+    }
+
+    impl Sandbox {
+        /// One line in, the answer out: the lines up to the blank one that
+        /// ends every answer (ADR 26), each with its newline.
+        fn ask(&mut self, line: &str) -> Result<String> {
+            writeln!(self.stream, "{line}")?;
+            let mut answer = String::new();
+            loop {
+                let mut received = String::new();
+                if self.reader.read_line(&mut received)? == 0 || received == "\n" {
+                    break;
+                }
+                answer.push_str(&received);
+            }
+            if answer.is_empty() {
+                bail!("the sandbox went away");
+            }
+            Ok(answer)
+        }
+    }
+
+    /// The frame under each snapshot of the file, with the snapshot's line
+    /// number: the lines that follow `---` up to the blank one, as the test
+    /// writes them, ended by a newline each.
+    fn expected_frames(script: &str) -> Vec<(usize, String)> {
+        let mut frames: Vec<(usize, String)> = Vec::new();
+        for (index, line) in scenario::lines(script).enumerate() {
+            match line {
+                Line::Snapshot(_) => frames.push((index + 1, String::new())),
+                Line::Frame("") | Line::Text(_) => {}
+                Line::Frame(row) => {
+                    let (_, frame) = frames.last_mut().expect("a frame follows its snapshot");
+                    frame.push_str(row);
+                    frame.push('\n');
+                }
+            }
+        }
+        frames
+    }
+}

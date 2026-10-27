@@ -66,18 +66,22 @@ pub fn run(editor: &mut Editor, out: &mut impl Write, server: &mut Server) -> Re
                 return Ok(());
             }
         }
+        for report in reports {
+            editor.receive(report);
+        }
         // A line from the socket is input too, and is answered once it has
         // been carried out, so that a client sending a key and asking for
-        // the frame gets the frame after the key.
+        // the frame gets the frame after the key. It comes after the
+        // reports: `wait` finishes the jobs by reading the queue, and a
+        // report that arrived with the line is in `reports` by now, not in
+        // the queue, so handled first it is seen and left for later it
+        // would be waited for forever.
         for remote in remotes {
             let answer = server.answer(editor, &remote.line, terminal);
             let _ = remote.reply.send(answer);
             if editor.exit().is_some() {
                 return Ok(());
             }
-        }
-        for report in reports {
-            editor.receive(report);
         }
     }
 }

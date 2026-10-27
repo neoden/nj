@@ -184,7 +184,7 @@ fn status(editor: &Editor) -> (String, String) {
         }
     };
 
-    (format!(" {left}"), right)
+    (left, right)
 }
 
 /// The display `columns` of a line, drawn on one row of the grid starting at
@@ -309,22 +309,26 @@ fn rule(grid: &mut Grid, x: usize, y: usize, width: usize) {
 /// the left is whatever is going on. The right takes what the left does not
 /// need, but never more than half the screen while the left has something to
 /// say, and what does not fit is cut from its start: a path loses its first
-/// directories, not the line number at the end (D11). It keeps a space so it
-/// never touches the edge of the screen.
+/// directories, not the line number at the end (D11). A column at either
+/// edge keeps both off the screen's edges, and one between them, while the
+/// left has something to say, keeps the two apart.
 fn status_line(left: &str, right: &str, width: usize) -> String {
-    let right = match right.is_empty() {
-        true => String::new(),
-        false => format!("{right} "),
+    let message = layout::line_width(left, PANEL_TAB_WIDTH);
+    let gap = match message {
+        0 => "",
+        _ => " ",
     };
-    let wanted = layout::line_width(left, PANEL_TAB_WIDTH);
-    let allowed = match wanted {
-        0 => width,
-        _ => (width / 2).max(width.saturating_sub(wanted)),
+    let room = width.saturating_sub(2 + gap.len());
+    // The document's half of the bar includes its margin.
+    let half = (width / 2).saturating_sub(1);
+    let allowed = match message {
+        0 => room,
+        _ => half.max(room.saturating_sub(message)),
     };
-    let right = tail(&right, allowed);
+    let right = tail(right, allowed);
     let columns = layout::line_width(&right, PANEL_TAB_WIDTH);
-    let left = pad(left, width - columns);
-    format!("{left}{right}")
+    let left = pad(left, room - columns);
+    format!(" {left}{gap}{right} ")
 }
 
 /// The last `columns` of `text`, with an ellipsis where the rest was.
@@ -647,21 +651,28 @@ mod tests {
     /// room at all.
     #[test]
     fn a_long_path_gives_way_to_the_message_and_loses_its_start() {
-        let line = status_line(" changed", "/very/long/path/to/file.rs · Rust · 1:1", 40);
+        let line = status_line("changed", "/very/long/path/to/file.rs · Rust · 1:1", 40);
         assert_eq!(columns(&line), 40);
-        assert!(line.starts_with(" changed"));
+        assert!(line.starts_with(" changed "));
         assert!(line.ends_with("Rust · 1:1 "), "{line:?}");
         assert!(line.contains('…'));
 
-        // With nothing to say on the left, the right may have it all.
-        let line = status_line("", "/very/long/path/to/file.rs · Rust · 1:1", 40);
-        assert!(line.starts_with("/very/long"));
+        // With nothing to say on the left, the right may have it all but
+        // the margins.
+        let line = status_line("", "/very/long/path/to/file.rs · Rust · 1:1", 41);
+        assert_eq!(line, " /very/long/path/to/file.rs · Rust · 1:1 ");
+
+        // A message and a name that would fill the bar between them to the
+        // last column are still kept apart.
+        let line = status_line("Copied to copy.txt", "[stdin] · Text · 2 lines · 1:5", 50);
+        assert_eq!(columns(&line), 50);
+        assert!(line.contains("copy.txt …"), "{line:?}");
 
         // The left never pushes the right below half the screen.
         let line = status_line(&"m".repeat(60), "/p/file.rs · 1:1", 40);
         assert_eq!(columns(&line), 40);
         assert!(line.ends_with("/p/file.rs · 1:1 "));
-        assert!(line.starts_with("mmmm"));
+        assert!(line.starts_with(" mmmm"));
     }
 
     #[test]

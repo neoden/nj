@@ -894,24 +894,33 @@ fn opening_replaces_the_buffer_and_starts_the_view_over() {
     assert!(editor.view().width() > 0);
 
     // The file is watched from now on, and opening another lets go of it.
+    let other = scratch_path("open-other");
+    std::fs::write(&other, "other\n").unwrap();
     let id = editor.workspace.focused_buffer();
     let watcher = editor.watchers[&id];
     assert!(editor.jobs.is_live(watcher));
-    editor.execute(Command::File(File::Open(scratch_path("open-other"))));
+    editor.execute(Command::File(File::Open(other.clone())));
     assert!(!editor.jobs.is_live(watcher));
 
     let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&other);
 }
 
+/// A path with nothing behind it is refused in the status bar, and the text
+/// that was open stays.
 #[test]
-fn a_path_with_no_file_opens_empty() {
-    let path = scratch_path("open-new");
+fn a_path_with_no_file_is_refused() {
+    let path = scratch_path("open-missing");
     let _ = std::fs::remove_file(&path);
 
     let mut editor = editor("old", 0);
     editor.execute(Command::File(File::Open(path.clone())));
-    assert_eq!(content(&editor), "");
-    assert_eq!(editor.buffer().name(), path.display().to_string());
+    assert_eq!(content(&editor), "old");
+    assert!(
+        editor
+            .message()
+            .is_some_and(|message| message.contains("cannot read"))
+    );
     assert!(!path.exists());
 }
 
@@ -1148,10 +1157,9 @@ fn saving_a_nameless_buffer_asks_for_a_name_and_carries_on() {
 /// A save that fails says why and goes no further.
 #[test]
 fn a_save_that_fails_cancels_the_quit() {
-    // A file in a directory that does not exist opens empty and cannot be
-    // written back.
+    // A new file in a directory that does not exist cannot be written.
     let path = scratch_path("unwritable").join("below");
-    let mut editor = Editor::new(Buffer::open(&path).unwrap());
+    let mut editor = Editor::new(Buffer::open_or_new(&path).unwrap());
     editor.insert("!", EditKind::Other);
     editor.request_quit();
     editor.answer('s');

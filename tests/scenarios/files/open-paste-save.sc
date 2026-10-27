@@ -2,7 +2,7 @@
 # dirty mark that the save takes away.
 
 size 30 6
-file notes.txt "first line\nsecond line"
+%file notes.txt "first line\nsecond line"
 key Ctrl+O
 type "notes.txt"
 key Enter
@@ -15,7 +15,7 @@ wait
 2-4|
 5| ….txt · Text · 2 lines · 1:1
 
-clipboard "from outside"
+%clipboard "from outside"
 key End
 key Ctrl+V
 
