@@ -14,5 +14,5 @@ key Enter
 0|1 cat dog
  |::^-------------------------------------
 1-5|
-6| Not found…tch]* · Text · 1 lines · 1:1
+6| Not found …ch]* · Text · 1 lines · 1:1
 

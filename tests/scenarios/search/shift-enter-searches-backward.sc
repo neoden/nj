@@ -27,7 +27,7 @@ key Shift+Enter
  |  ===
 2|3 cat
  |  ~~~^
-5| 2/2 "cat"…xt · 4 lines · 3:4
+5| 2/2 "cat" …t · 4 lines · 3:4
 
 key Shift+F3
 
@@ -36,7 +36,7 @@ key Shift+F3
  |  ~~~^
 2|3 cat
  |  ===
-5| 1/2 "cat"…xt · 4 lines · 1:4
+5| 1/2 "cat" …t · 4 lines · 1:4
 
 key Shift+F3
 
@@ -45,7 +45,7 @@ key Shift+F3
  |  ===
 2|3 cat
  |  ~~~^
-5| 2/2 "cat"…xt · 4 lines · 3:4
+5| 2/2 "cat" …t · 4 lines · 3:4
 
 key F3
 
@@ -54,5 +54,5 @@ key F3
  |  ~~~^
 2|3 cat
  |  ===
-5| 1/2 "cat"…xt · 4 lines · 1:4
+5| 1/2 "cat" …t · 4 lines · 1:4
 

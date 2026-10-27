@@ -15,7 +15,7 @@ click 7 0 Alt
 1|2 three
 2|3 four
 3-5|
-6| 2 cursors…xt · 3 lines · 1:1
+6| 2 cursors …t · 3 lines · 1:1
 
 key Ctrl+L
 
@@ -48,7 +48,7 @@ key Ctrl+L
  |  ^~~~~~
 2|3 four
  |  ^
-6| 2 cursors…xt · 3 lines · 2:1
+6| 2 cursors …t · 3 lines · 2:1
 
 key Tab
 

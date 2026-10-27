@@ -36,7 +36,7 @@ key F3
  |    ~~~^
 2|3 z one
  |    ===
-5| 2/3 "one"…xt · 3 lines · 2:6
+5| 2/3 "one" …t · 3 lines · 2:6
 
 key Shift+F3
 key Shift+F3
@@ -46,5 +46,5 @@ key Shift+F3
  |    ===
 2|3 z one
  |    ~~~^
-5| 3/3 "one"…xt · 3 lines · 3:6
+5| 3/3 "one" …t · 3 lines · 3:6
 

@@ -16,7 +16,7 @@ click 11 1 Alt
 1|2     three four
  |           ^
 2-5|
-6| 2 cursors…xt · 2 lines · 1:4
+6| 2 cursors …t · 2 lines · 1:4
 
 type "X"
 
@@ -25,7 +25,7 @@ type "X"
  |   ^
 1|2     threeX four
  |            ^
-6| 2 cursors…xt · 2 lines · 1:2
+6| 2 cursors …t · 2 lines · 1:2
 
 key Ctrl+Z
 
@@ -34,7 +34,7 @@ key Ctrl+Z
  |  ~~~^
 1|2     three four
  |           ^
-6| 2 cursors…xt · 2 lines · 1:4
+6| 2 cursors …t · 2 lines · 1:4
 
 key Backspace
 
@@ -43,7 +43,7 @@ key Backspace
  |  ^
 1|2     thre four
  |          ^
-6| 2 cursors…xt · 2 lines · 1:1
+6| 2 cursors …t · 2 lines · 1:1
 
 key Enter
 
@@ -54,7 +54,7 @@ key Enter
 2|3     thre
 3|4      four
  |      ^
-6| 2 cursors…xt · 4 lines · 2:1
+6| 2 cursors …t · 4 lines · 2:1
 
 key Ctrl+Z
 
@@ -64,5 +64,5 @@ key Ctrl+Z
 1|2     thre four
  |          ^
 2-3|
-6| 2 cursors…xt · 2 lines · 1:1
+6| 2 cursors …t · 2 lines · 1:1
 

@@ -20,7 +20,7 @@ click 8 1 Alt
 3|4 abcdefgh
 4|5 abcdefgh
 5-6|
-7| 2 cursors…xt · 5 lines · 1:3
+7| 2 cursors …t · 5 lines · 1:3
 
 key Down
 
@@ -30,7 +30,7 @@ key Down
  |    ^
 2|3 ab
  |    ^
-7| 2 cursors…xt · 5 lines · 2:3
+7| 2 cursors …t · 5 lines · 2:3
 
 key Down
 
@@ -38,7 +38,7 @@ key Down
 1|2 abcdefgh
 3|4 abcdefgh
  |        ^
-7| 2 cursors…xt · 5 lines · 3:3
+7| 2 cursors …t · 5 lines · 3:3
 
 key Down
 
@@ -48,7 +48,7 @@ key Down
  |    ^
 4|5 abcdefgh
  |        ^
-7| 2 cursors…xt · 5 lines · 4:3
+7| 2 cursors …t · 5 lines · 4:3
 
 key Up
 key Up
@@ -61,7 +61,7 @@ key Up
  |        ^
 3|4 abcdefgh
 4|5 abcdefgh
-7| 2 cursors…xt · 5 lines · 1:3
+7| 2 cursors …t · 5 lines · 1:3
 
 key Esc
 key Down
@@ -72,7 +72,7 @@ click 7 1 Alt
 0|1 abcdefgh
 1|2 abcdefgh
  |       ^  ^
-7| 2 cursors…xt · 5 lines · 2:9
+7| 2 cursors …t · 5 lines · 2:9
 
 key Down
 

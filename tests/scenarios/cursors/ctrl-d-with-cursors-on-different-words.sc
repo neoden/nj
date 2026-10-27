@@ -16,7 +16,7 @@ key Ctrl+D
 1|2 cat dog
 2|3 cat
 3-5|
-6| 2 cursors…xt · 3 lines · 1:4
+6| 2 cursors …t · 3 lines · 1:4
 
 key Ctrl+D
 

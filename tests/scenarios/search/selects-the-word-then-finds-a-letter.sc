@@ -23,5 +23,5 @@ key Enter
 --- the search starts on Enter and lands on the first hit
 0|1 hello world
  |      ~^ =
-5| 1/2 "o"…Text · 1 lines · 1:6
+5| 1/2 "o" …ext · 1 lines · 1:6
 

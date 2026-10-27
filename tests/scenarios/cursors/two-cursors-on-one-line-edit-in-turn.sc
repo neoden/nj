@@ -14,26 +14,26 @@ click 9 0 Alt
 0|1 one two three
  |     ^   ^
 1-3|
-4| 2 cursors…xt · 1 lines · 1:4
+4| 2 cursors …t · 1 lines · 1:4
 
 type ","
 
 --- a comma at each; the second cursor moved along with the first comma
 0|1 one, two, three
  |      ^    ^
-4| 2 cursors…xt · 1 lines · 1:5
+4| 2 cursors …t · 1 lines · 1:5
 
 key Backspace
 
 --- both commas gone
 0|1 one two three
  |     ^   ^
-4| 2 cursors…xt · 1 lines · 1:4
+4| 2 cursors …t · 1 lines · 1:4
 
 key Tab
 
 --- each cursor at a stop: the first padded one column, the second four, from where it stood after the first
 0|1 one  two     three
  |      ^       ^
-4| 2 cursors…xt · 1 lines · 1:5
+4| 2 cursors …t · 1 lines · 1:5
 

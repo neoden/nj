@@ -19,7 +19,7 @@ key Enter
 2|3 a bat
  |     ==
 3-4|
-5| 1/3 "at"…ext · 3 lines · 1:6
+5| 1/3 "at" …xt · 3 lines · 1:6
 
 key Esc
 
@@ -46,7 +46,7 @@ key Ctrl+Shift+L
  |     ~~^
 2|3 a bat
  |     ~~^
-5| 3 cursors…xt · 3 lines · 2:6
+5| 3 cursors …t · 3 lines · 2:6
 
 key Esc
 

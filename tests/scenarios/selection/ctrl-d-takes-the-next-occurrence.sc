@@ -25,14 +25,14 @@ key Ctrl+D
 --- the next whole `cat`, on the third line; `scatter` is passed over
 2|3 cat
  |  ~~~^
-6| 2 cursors…xt · 3 lines · 2:4
+6| 2 cursors …t · 3 lines · 2:4
 
 key Ctrl+D
 
 --- wrapped around to the first line
 0|1 cat scatter
  |  ~~~^
-6| 3 cursors…xt · 3 lines · 2:4
+6| 3 cursors …t · 3 lines · 2:4
 
 key Ctrl+D
 
@@ -59,5 +59,5 @@ key Ctrl+D
 0|1 cat scatter
  |  ~~~^ ~~~^
 1|2 cat
-6| 2 cursors…xt · 3 lines · 1:4
+6| 2 cursors …t · 3 lines · 1:4
 

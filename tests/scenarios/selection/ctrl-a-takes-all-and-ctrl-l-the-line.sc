@@ -46,7 +46,7 @@ key Ctrl+L
  |  ^~~~
 2|3 three
  |  ^~~~~^
-5| 3 cursors…xt · 3 lines · 2:1
+5| 3 cursors …t · 3 lines · 2:1
 
 key Ctrl+A
 

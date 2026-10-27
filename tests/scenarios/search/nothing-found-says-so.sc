@@ -13,7 +13,7 @@ key Enter
 0|1 one two
  |::^---------------------------
 1-3|
-4| Not found…xt · 1 lines · 1:1
+4| Not found …t · 1 lines · 1:1
 
 key F3
 
@@ -25,5 +25,5 @@ type "x"
 --- typing clears the message; the search is still on, with no hit
 0|1 xone two
  |::-^--------------------------
-4| Not found "thr…1 lines · 1:2
+4| Not found "th …1 lines · 1:2
 

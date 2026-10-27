@@ -25,7 +25,7 @@ key Ctrl+Shift+L
  |  ~~~^
 2|3 cat
  |  ~~~^
-6| 3 cursors…xt · 3 lines · 2:4
+6| 3 cursors …t · 3 lines · 2:4
 
 key Esc
 key Esc
@@ -38,5 +38,5 @@ key Ctrl+Shift+L
 --- from a selection made by hand: every `cat`, inside `scatter` too, four cursors
 0|1 cat scatter
  |  ~~~^ ~~~^
-6| 4 cursors…xt · 3 lines · 1:4
+6| 4 cursors …t · 3 lines · 1:4
 

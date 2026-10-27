@@ -16,7 +16,7 @@ key Shift+Ctrl+Right
  |  ~^~~^~~~^
 1|2 x y z
 2-5|
-6| 3 cursors…xt · 2 lines · 1:2
+6| 3 cursors …t · 2 lines · 1:2
 
 type "-"
 
@@ -36,14 +36,14 @@ click 6 1 Alt
 0|1 a bb ccc
 1|2 x y z
  |  ^ ^ ^
-6| 3 cursors…xt · 2 lines · 2:1
+6| 3 cursors …t · 2 lines · 2:1
 
 key Ctrl+V
 
 --- as many cursors as pieces: each gets its own, in order
 1|2 ax bby cccz
  |   ^   ^    ^
-6| 3 cursors…xt · 2 lines · 2:2
+6| 3 cursors …t · 2 lines · 2:2
 
 key Ctrl+Z
 key Esc

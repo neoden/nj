@@ -12,14 +12,14 @@ click 4 0 Alt
 0|1 ab
  |  ^ ^
 1-4|
-5| 2 cursors…xt · 1 lines · 1:1
+5| 2 cursors …t · 1 lines · 1:1
 
 key Right
 
 --- Right moves both: the first is now between the letters, the second had nowhere to go
 0|1 ab
  |   ^^
-5| 2 cursors…xt · 1 lines · 1:2
+5| 2 cursors …t · 1 lines · 1:2
 
 key Right
 
@@ -36,7 +36,7 @@ key Backspace
 --- two cursors again; Backspace at each: the first had nothing before it, the second took `b`
 0|1 a
  |  ^^
-5| 2 cursors…xt · 1 lines · 1:1
+5| 2 cursors …t · 1 lines · 1:1
 
 key Backspace
 
@@ -53,14 +53,14 @@ key Ctrl+D
 --- two selections, one on each `ab`, with the space between them
 0|1 ab ab
  |  ~~^~~^
-5| 2 cursors…xt · 1 lines · 1:3
+5| 2 cursors …t · 1 lines · 1:3
 
 key Shift+Right
 
 --- both heads move right: the first selection now touches the second
 0|1 ab ab
  |  ~~~^~^
-5| 2 cursors…xt · 1 lines · 1:4
+5| 2 cursors …t · 1 lines · 1:4
 
 key Shift+Right
 

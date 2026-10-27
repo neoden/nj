@@ -18,7 +18,7 @@ key Shift+End
 2|3 three
  |  ~~~~~^
 3-4|
-5| 3 cursors…xt · 3 lines · 1:4
+5| 3 cursors …t · 3 lines · 1:4
 
 key Esc
 

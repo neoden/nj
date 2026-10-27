@@ -18,7 +18,7 @@ key Shift+End
 2|3 three
  |  ~~~~~^
 3-5|
-6| 3 cursors…xt · 3 lines · 1:4
+6| 3 cursors …t · 3 lines · 1:4
 
 type "x"
 
@@ -29,7 +29,7 @@ type "x"
  |   ^
 2|3 x
  |   ^
-6| 3 cursors…xt · 3 lines · 1:2
+6| 3 cursors …t · 3 lines · 1:2
 
 key Esc
 key Ctrl+End
@@ -50,7 +50,7 @@ key Ctrl+Z
  |  ~~~^
 2|3 three
  |  ~~~~~^
-6| 3 cursors…xt · 3 lines · 1:4
+6| 3 cursors …t · 3 lines · 1:4
 
 key Ctrl+Y
 
@@ -61,5 +61,5 @@ key Ctrl+Y
  |   ^
 2|3 x
  |   ^
-6| 3 cursors…xt · 3 lines · 1:2
+6| 3 cursors …t · 3 lines · 1:2
 

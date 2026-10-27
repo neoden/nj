@@ -43,7 +43,7 @@ key Ctrl+X
  |  ^
 1|2  five
  |  ^
-5| 2 cursors…xt · 2 lines · 1:1
+5| 2 cursors …t · 2 lines · 1:1
 
 key Ctrl+Z
 
@@ -52,5 +52,5 @@ key Ctrl+Z
  |  ~~~^
 1|2 four five
  |  ~~~~^
-5| 2 cursors…xt · 2 lines · 1:4
+5| 2 cursors …t · 2 lines · 1:4
 

@@ -31,7 +31,7 @@ key Enter
 3|4 blue fish
  |       ====
 4-5|
-6| 1/4 "fish"…t · 4 lines · 1:9
+6| 1/4 "fish" … · 4 lines · 1:9
 
 key F3
 
@@ -40,7 +40,7 @@ key F3
  |      ====
 1|2 two fish
  |      ~~~~^
-6| 2/4 "fish"…t · 4 lines · 2:9
+6| 2/4 "fish" … · 4 lines · 2:9
 
 key F3
 key F3
@@ -50,7 +50,7 @@ key F3
  |      ====
 3|4 blue fish
  |       ~~~~^
-6| 4/4 "fish"… · 4 lines · 4:10
+6| 4/4 "fish" …· 4 lines · 4:10
 
 key F3
 
@@ -59,7 +59,7 @@ key F3
  |      ~~~~^
 3|4 blue fish
  |       ====
-6| 1/4 "fish"…t · 4 lines · 1:9
+6| 1/4 "fish" … · 4 lines · 1:9
 
 key Shift+F3
 
@@ -68,5 +68,5 @@ key Shift+F3
  |      ====
 3|4 blue fish
  |       ~~~~^
-6| 4/4 "fish"… · 4 lines · 4:10
+6| 4/4 "fish" …· 4 lines · 4:10
 

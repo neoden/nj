@@ -22,14 +22,14 @@ key Ctrl+Alt+Down
  |        ^
 3|4 abcdef
 4-5|
-6| 2 cursors…xt · 4 lines · 2:7
+6| 2 cursors …t · 4 lines · 2:7
 
 key Ctrl+Alt+Down
 
 --- another below; the status still shows the first, the primary
 3|4 abcdef
  |        ^
-6| 3 cursors…xt · 4 lines · 2:7
+6| 3 cursors …t · 4 lines · 2:7
 
 key Ctrl+Alt+Down
 
@@ -40,7 +40,7 @@ key Ctrl+Alt+Up
 
 --- Up takes the lowest cursor away rather than adding above
 3|4 abcdef
-6| 2 cursors…xt · 4 lines · 2:7
+6| 2 cursors …t · 4 lines · 2:7
 
 key Ctrl+Alt+Up
 
@@ -57,7 +57,7 @@ key Ctrl+Alt+Up
  |    ^
 1|2 abcdef
  |        ^
-6| 2 cursors…xt · 4 lines · 2:7
+6| 2 cursors …t · 4 lines · 2:7
 
 key Ctrl+Alt+Up
 
