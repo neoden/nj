@@ -50,15 +50,16 @@ mod live {
     const STDOUT: &str = ".stdout";
     /// The fake desktop clipboard: one file, and the helpers the editor
     /// finds on its `PATH` in place of the desktop's tools
-    /// (`system_clipboard.rs`), each reading or writing that file.
+    /// (`system_clipboard.rs`), each reading or writing that file. The
+    /// editor is told it is under Wayland, whatever the sandbox runs under,
+    /// so it picks these two and no others.
     const CLIPBOARD: &str = ".clipboard";
     const HELPERS: &str = ".bin";
     const HELPER_SCRIPTS: &[(&str, &str)] = &[
         ("wl-copy", "cat > \"$CLIPBOARD\""),
         ("wl-paste", "cat \"$CLIPBOARD\" 2>/dev/null"),
-        ("xclip", "case \"$*\" in *-o*) cat \"$CLIPBOARD\" 2>/dev/null;; *) cat > \"$CLIPBOARD\";; esac"),
-        ("xsel", "case \"$*\" in *-o*) cat \"$CLIPBOARD\" 2>/dev/null;; *) cat > \"$CLIPBOARD\";; esac"),
     ];
+    const DESKTOP: (&str, &str) = ("WAYLAND_DISPLAY", "sandbox");
 
     pub fn main() -> Result<()> {
         let mut socket = PathBuf::from(SOCKET);
@@ -78,13 +79,14 @@ mod live {
         signal_hook::flag::register(SIGTERM, stop.clone())?;
 
         let run = std::env::temp_dir().join(format!("ned-sandbox.{}", std::process::id()));
-        let _workdir = Workdir::enter_at(run)?;
+        let workdir = Workdir::enter_at(run)?;
         let listener = listen(&socket)?;
         listener.set_nonblocking(true)?;
         let mut sandbox = Sandbox::new()?;
         // One client at a time, each served to the end of its connection.
         // A client is a scenario: where the last one left the editor
-        // exited, the next begins before an editor, as a scenario does.
+        // exited, the next begins before an editor and in an empty
+        // directory, as a scenario does.
         while !stop.load(Ordering::Relaxed) {
             let stream = match listener.accept() {
                 Ok((stream, _)) => stream,
@@ -95,20 +97,27 @@ mod live {
                 Err(error) => return Err(error.into()),
             };
             if let Stage::Exited(_) = sandbox.stage {
+                workdir.renew()?;
                 sandbox = Sandbox::new()?;
             }
-            serve(stream, &mut sandbox, &stop)?;
+            serve(stream, &mut sandbox, &stop);
         }
         sandbox.leave();
         Ok(())
     }
 
     /// Answers a client's lines until it hangs up, looking up between
-    /// lines for the flag.
-    fn serve(stream: UnixStream, sandbox: &mut Sandbox, stop: &AtomicBool) -> Result<()> {
-        stream.set_nonblocking(false)?;
-        stream.set_read_timeout(Some(Duration::from_millis(500)))?;
-        let mut out = stream.try_clone()?;
+    /// lines for the flag. A connection that fails — reset by the client,
+    /// or not to be set up — is that client's end, not the sandbox's: the
+    /// next client finds the sandbox where the last one left it.
+    fn serve(stream: UnixStream, sandbox: &mut Sandbox, stop: &AtomicBool) {
+        let ready = stream
+            .set_nonblocking(false)
+            .and_then(|()| stream.set_read_timeout(Some(Duration::from_millis(500))))
+            .and_then(|()| stream.try_clone());
+        let Ok(mut out) = ready else {
+            return;
+        };
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
         while !stop.load(Ordering::Relaxed) {
@@ -119,7 +128,7 @@ mod live {
                 Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
                     continue;
                 }
-                Err(error) => return Err(error.into()),
+                Err(_) => break,
             }
             let answer = match sandbox.carry_out(line.trim_end_matches('\n')) {
                 Ok(answer) => answer,
@@ -131,7 +140,6 @@ mod live {
                 break;
             }
         }
-        Ok(())
     }
 
     /// Listens at `path`, replacing a socket an earlier sandbox left there
@@ -193,10 +201,9 @@ mod live {
     }
 
     impl Sandbox {
-        /// A run before its editor, with nothing on the clipboard and the
-        /// helpers in place for the editor to find.
+        /// A run before its editor, in a directory that is empty, with the
+        /// helpers put in place for the editor to find.
         fn new() -> Result<Self> {
-            let _ = fs::remove_file(CLIPBOARD);
             fs::create_dir_all(HELPERS)?;
             let clipboard = std::env::current_dir()?.join(CLIPBOARD);
             for (name, body) in HELPER_SCRIPTS {
@@ -304,7 +311,8 @@ mod live {
                 }
             };
             command.stdout(File::create(STDOUT)?);
-            // The helpers come first on the editor's `PATH`, so its
+            // The helpers come first on the editor's `PATH`, and the editor
+            // is under Wayland whatever the sandbox is under, so its
             // clipboard is the run's and the desktop's is left alone.
             let helpers = std::env::current_dir()?.join(HELPERS);
             let path = match std::env::var_os("PATH") {
@@ -312,6 +320,7 @@ mod live {
                 None => helpers.into_os_string(),
             };
             command.env("PATH", path);
+            command.env(DESKTOP.0, DESKTOP.1);
             let mut child = command.spawn().context("cannot start the editor")?;
             let editor = connect(Path::new(EDITOR_SOCKET), &mut child)?;
             self.stage = Stage::Running(Running {
@@ -332,13 +341,20 @@ mod live {
         }
 
         /// Waits for the editor's process to end and keeps its outcome:
-        /// the exit code and, for a pipeline, what it wrote.
+        /// the exit code and, for a pipeline, what it wrote. An editor
+        /// ended by a signal has no exit code and no outcome: that is an
+        /// error, and the run is left without an editor (ADR 28).
         fn finish(&mut self) -> Result<String> {
             let Stage::Running(running) = &mut self.stage else {
                 unreachable!("finished while running");
             };
             let status = running.child.wait()?;
-            let code = status.code().unwrap_or(1).clamp(0, 255) as u8;
+            let Some(code) = status.code() else {
+                self.stage = Stage::Before;
+                bail!("the editor ended by a signal: {status}");
+            };
+            // On Unix an exit code is 0..=255.
+            let code = code as u8;
             let stdout = match running.piped {
                 true => Some(fs::read_to_string(STDOUT)?),
                 false => None,

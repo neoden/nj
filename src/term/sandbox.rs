@@ -89,39 +89,32 @@ impl Sandbox {
     /// Starts the editor as `args` would from the shell (ADR 28): `stdin`
     /// is the pipe, the sandbox keeps the other end of the clipboard. The
     /// socket is the process's, not the editor's, and has no meaning here.
+    /// An editor started after another begins as the first did, with the
+    /// default frame and no frame before it, as a new process would.
     fn start(&mut self, args: Args, stdin: Option<String>) -> Result<()> {
         if args.socket.is_some() {
             bail!("--socket: a run has no socket");
         }
         let buffer = launch::buffer(args.file.as_deref(), stdin.map(Cursor::new))?;
         let mut editor = Editor::new(buffer).with_desktop(self.pasteboard.clone());
+        self.size = DEFAULT_SIZE;
+        self.frames = Frames::default();
         editor.resize(self.size.0, self.size.1);
         self.editor = Some(editor);
         Ok(())
     }
 
-    /// Input or `wait`, the editor's own lines. The events go through
-    /// `app::handle` one at a time, so that an exit in the middle of a
-    /// `type` is seen and what follows it refused. The outcome once the
-    /// line has made the editor exit.
+    /// Input or `wait`, the editor's own lines. The outcome once the line
+    /// has made the editor exit.
     fn send(&mut self, instruction: Instruction) -> Result<Option<Outcome>> {
         let editor = self.editor();
         match instruction {
             Instruction::Input(events) => {
-                let mut events = events.into_iter();
-                for event in events.by_ref() {
-                    app::handle(event, editor);
-                    if editor.exit().is_some() {
-                        break;
-                    }
+                app::handle_all(events, editor)?;
+                match editor.exit() {
+                    None => Ok(None),
+                    Some(_) => Ok(Some(Outcome::of(editor)?)),
                 }
-                if editor.exit().is_none() {
-                    return Ok(None);
-                }
-                if events.next().is_some() {
-                    bail!("input after the editor has exited");
-                }
-                Ok(Some(Outcome::of(editor)?))
             }
             Instruction::Wait => {
                 editor.finish_jobs();
@@ -173,22 +166,9 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
             Line::Frame(_) => continue,
         };
 
-        // After the exit there is only the outcome to show.
-        if let Stage::Exited(outcome) = &stage {
-            match instruction {
-                Instruction::Snapshot(caption) => {
-                    snapshots.push(Snapshot {
-                        frame: scenario::outcome(outcome),
-                        caption,
-                    });
-                    continue;
-                }
-                _ => bail!("{}: the editor has exited", at()),
-            }
-        }
-
-        // A condition of the run — a file, the clipboard — is set before
-        // the editor starts or changed while it runs, and starts nothing.
+        // A condition of the run — a file, the clipboard — is set whenever
+        // the line says so, before the editor, beside it or after it, and
+        // starts nothing.
         let mut instruction = match instruction {
             Instruction::File(name, text) => {
                 fs::write(&name, text)
@@ -203,10 +183,27 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
             other => other,
         };
 
-        // Until the editor has started, `%stdin` waits for it. `%start`
-        // starts it; any other line starts it first, as `ned` alone would,
-        // and is then carried out.
-        if let Stage::Before = stage {
+        // After the exit a snapshot shows the outcome, and the editor's own
+        // lines have no editor to go to. `%stdin` and `%start` make the
+        // next one, below.
+        if let Stage::Exited(outcome) = &stage {
+            match &instruction {
+                Instruction::Snapshot(caption) => {
+                    snapshots.push(Snapshot {
+                        frame: scenario::outcome(outcome),
+                        caption: caption.clone(),
+                    });
+                    continue;
+                }
+                Instruction::Stdin(_) | Instruction::Start(_) => {}
+                _ => bail!("{}: the editor has exited", at()),
+            }
+        }
+
+        // While there is no editor, `%stdin` waits for one. `%start` starts
+        // it; before the first, any other line starts it as `ned` alone
+        // would, and is then carried out.
+        if !matches!(stage, Stage::Running) {
             let (args, rest) = match instruction {
                 Instruction::Stdin(text) => {
                     stdin = Some(text);
@@ -297,6 +294,17 @@ impl Workdir {
         std::env::set_current_dir(&path)?;
         Ok(Self { path, _turn: turn })
     }
+
+    /// The directory taken down and made again, empty: for the next run in
+    /// the same process to start where nothing has been, as a fresh
+    /// `enter` would, without giving the turn up.
+    pub fn renew(&self) -> Result<()> {
+        std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"))?;
+        fs::remove_dir_all(&self.path)?;
+        fs::create_dir_all(&self.path)?;
+        std::env::set_current_dir(&self.path)?;
+        Ok(())
+    }
 }
 
 impl Drop for Workdir {
@@ -379,9 +387,21 @@ mod tests {
         let shown = run("%stdin \"in\"\nkey Ctrl+Shift+Q\n---\n").unwrap();
         assert_eq!(shown[0].frame, "exit 1\nstdout \"\"\n");
 
-        for script in ["key Ctrl+Q\ntype \"a\"\n", "key Ctrl+Q\nwait\n"] {
+        for script in ["key Ctrl+Q\ntype \"a\"\n", "key Ctrl+Q\nwait\n", "key Ctrl+Q\nsize 6 2\n"] {
             let error = run(script).unwrap_err().to_string();
             assert!(error.starts_with("line 2: "), "{script}: {error}");
         }
+
+        // The run goes on without an editor: a file is written, and
+        // `%start` starts another, which begins as the first did, with the
+        // default frame and a whole first snapshot.
+        let shown = run(
+            "%file a.txt \"kept\"\nsize 6 2\ntype \"x\"\n---\n\nkey Ctrl+Shift+Q\ntype \"a\"\n---\n\n%file b.txt \"b\"\n%start a.txt\n---\n",
+        )
+        .unwrap();
+        assert_eq!(shown[1].frame, "exit 1\n");
+        // Whole, and the default ten rows: the eight blank ones are listed.
+        assert!(shown[2].frame.starts_with("0|1 kept\n"), "{}", shown[2].frame);
+        assert!(shown[2].frame.contains("\n1-8|\n"), "{}", shown[2].frame);
     }
 }

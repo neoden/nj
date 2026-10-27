@@ -46,9 +46,11 @@ Starting the editor fits the same shape.
   the pipe, as it does on the command line.
 - Once the editor has exited, a snapshot shows the outcome instead of a
   frame: `exit 0` or `exit 1`, and, for a pipeline, a `stdout "TEXT"` line
-  with what the downstream received. Any other instruction after the exit
-  is an error naming the line, so a scenario cannot go on past a quit by
-  mistake.
+  with what the downstream received. The editor's own lines — input,
+  `wait`, `size` — are an error naming the line from then on, there being
+  no editor to take them, so a scenario cannot go on past a quit by
+  mistake. The lines that set the run up go on, and `start` starts the
+  next editor, in the run's directory as the last one left it.
 - Over the socket, the line that makes the editor exit is answered with
   the same outcome, and the connection closes with the editor.
 

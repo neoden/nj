@@ -64,9 +64,12 @@ that every new verb had to be added to.
   compares the frame answered with the frame in the file, printing both
   only where they differ.
 - Both binaries are test machinery and exist in the debug build only,
-  like the headless run. On Ctrl+C the sandbox leaves as it would on any
-  other end: the directory, the socket and an editor still running go
-  with it.
+  like the headless run. On a signal — Ctrl+C while no editor runs, or a
+  `kill` — the sandbox leaves as it would on any other end: the directory,
+  the socket and an editor still running go with it. While an editor runs
+  it holds the shared terminal in raw mode, and Ctrl+C reaches it as a
+  key, not the sandbox as a signal; the sandbox is then stopped with
+  `kill`, or by quitting the editor first.
 
 ## Consequences
 
@@ -80,9 +83,11 @@ that every new verb had to be added to.
 - The scenario files that set a run up are edited once, `file` to `%file`
   and so on, and the socket's refusal is one test of a prefix instead of a
   list of verbs.
-- The fake clipboard depends on which tool the editor picks and on the
-  helpers ignoring its arguments; a change in `system_clipboard.rs` is a
-  change to the helpers.
+- The editor is started with `WAYLAND_DISPLAY` set, whatever the sandbox
+  runs under, so that it picks `wl-copy` and `wl-paste` and the fake
+  clipboard works the same under X11 or over ssh. It depends on those two
+  names and on the helpers ignoring the arguments; a change in
+  `system_clipboard.rs` is a change to the helpers.
 - `size` is refused when the sandbox's terminal is too small for the
   frame, and the replay prints the refusal instead of a frame shown in
   part.

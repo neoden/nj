@@ -32,8 +32,9 @@
 //!
 //! Once the editor has exited there is no frame: a snapshot shows how the
 //! process ended instead, `exit 0` or `exit 1`, and for a pipeline a
-//! `stdout "TEXT"` line with what the downstream received. Nothing else
-//! can follow the exit.
+//! `stdout "TEXT"` line with what the downstream received. The editor's
+//! own lines are an error from then on, there being no editor to take
+//! them; the `%` lines go on, and `%start` starts the next editor.
 //!
 //! Text is written in double quotes, so that a space at either end is
 //! visible and a file name is told from its contents; inside them `\n` is a

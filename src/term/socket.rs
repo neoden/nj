@@ -124,8 +124,8 @@ impl Server {
             Err(error) => format!("error: {error:#}\n"),
             Ok(None) => "ok\n".to_owned(),
             Ok(Some(Instruction::Input(events))) => {
-                for event in events {
-                    app::handle(event, editor);
+                if let Err(error) = app::handle_all(events, editor) {
+                    return format!("error: {error:#}\n");
                 }
                 // The editor leaving is the answer: the loop ends after this
                 // and the connection goes with it (ADR 28).
@@ -159,7 +159,16 @@ impl Server {
                 }
                 self.frames.take(editor, size)
             }
-            Ok(Some(_)) => "error: a frame is taken in the debug build only\n".to_owned(),
+            #[cfg(not(debug_assertions))]
+            Ok(Some(Instruction::Snapshot(_))) => {
+                "error: a frame is taken in the debug build only\n".to_owned()
+            }
+            Ok(Some(
+                Instruction::File(..)
+                | Instruction::Clipboard(_)
+                | Instruction::Stdin(_)
+                | Instruction::Start(_),
+            )) => unreachable!("a `%` line is refused by its prefix"),
         }
     }
 }
@@ -226,7 +235,16 @@ mod tests {
             assert!(answer.starts_with("error: a `%` line"), "{line}: {answer}");
         }
         // The text is unsaved, so quitting asks first; the answer that
-        // quits is answered with the outcome.
+        // quits is answered with the outcome. Input on the same line after
+        // the exit is refused, as the headless run refuses it.
+        assert_eq!(server.answer(&mut editor, "key Ctrl+Q", terminal), "ok\n");
+        assert_eq!(
+            server.answer(&mut editor, "type \"qx\"", terminal),
+            "error: input after the editor has exited\n"
+        );
+        let mut editor = Editor::new(Buffer::default());
+        editor.resize(terminal.0, terminal.1);
+        assert_eq!(server.answer(&mut editor, "type \"ab\"", terminal), "ok\n");
         assert_eq!(server.answer(&mut editor, "key Ctrl+Q", terminal), "ok\n");
         assert_eq!(
             server.answer(&mut editor, "type \"q\"", terminal),

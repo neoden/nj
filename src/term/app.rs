@@ -4,7 +4,7 @@
 use std::io::Write;
 use std::thread;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use crossterm::event::{self, Event};
 
 use super::input;
@@ -93,4 +93,21 @@ pub fn handle(event: Event, editor: &mut Editor) {
     if let Some(command) = command {
         editor.execute(command);
     }
+}
+
+/// The events of one line of a scenario, handled one at a time, so that an
+/// exit in the middle of a `type` is seen: the events after it would go to
+/// an editor that has left, and are refused instead.
+pub fn handle_all(events: Vec<Event>, editor: &mut Editor) -> Result<()> {
+    let mut events = events.into_iter();
+    for event in events.by_ref() {
+        handle(event, editor);
+        if editor.exit().is_some() {
+            break;
+        }
+    }
+    if events.next().is_some() {
+        bail!("input after the editor has exited");
+    }
+    Ok(())
 }
