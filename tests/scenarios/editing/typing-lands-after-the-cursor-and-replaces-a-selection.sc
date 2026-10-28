@@ -38,3 +38,11 @@ type "now"
  |::---^------------------------
 4| …ch]* · Text · 2 lines · 2:4
 
+
+key Ctrl+K
+key Ctrl+Shift+K
+key Alt+K
+
+--- a combination nothing is bound to inserts nothing and opens nothing
+same
+
