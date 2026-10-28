@@ -38,9 +38,15 @@ type "a"
 4-5|
 6| Replaced 3                           [scratch]* · Text · 4 lines · 2:5
 
+type "!"
 key Ctrl+Z
 
---- one undo brings all three back, selected under the three cursors
+--- typing right after is a step of its own: undo takes the `!`s and leaves the replacements
+6| 3 cursors                            [scratch]* · Text · 4 lines · 2:5
+
+key Ctrl+Z
+
+--- the next undo brings all three back, selected under the three cursors
 1|2 cat
  |  ~~~^
 2|3 dog cat

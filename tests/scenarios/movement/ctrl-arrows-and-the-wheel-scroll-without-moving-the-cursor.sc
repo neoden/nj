@@ -76,3 +76,20 @@ key Right
  |:::-^---------------
 5| … · 12 lines · 1:2
 
+
+key Ctrl+End
+key Ctrl+A
+
+--- Ctrl+A from the end: everything selected, and the view stays where it was
+0| 8 8
+ |   ~~
+1| 9 9
+ |   ~~
+2|10 10
+ |   ~~~
+3|11 11
+ |   ~~~
+4|12 12
+ |   ~~^
+5| …· 12 lines · 12:3
+

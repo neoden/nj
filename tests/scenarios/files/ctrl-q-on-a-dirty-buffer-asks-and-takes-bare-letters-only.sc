@@ -45,3 +45,8 @@ type "q"
 ?exit 0
 ?file notes.txt "kept"
 
+
+# A buffer with nothing unsaved is not asked about.
+%start notes.txt
+key Ctrl+Q
+?exit 0

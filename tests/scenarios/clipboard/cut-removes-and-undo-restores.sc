@@ -56,3 +56,23 @@ key Ctrl+Z
  |  ~~~~^
 5| 2 cursors …t · 2 lines · 1:4
 
+
+key Ctrl+V
+
+--- pasted over the two selections: each gets its own piece back, so the text reads as before
+0|1 one two three two
+ |     ^
+1|2 four five
+ |      ^
+
+key Esc
+key Ctrl+End
+key Ctrl+V
+
+--- one cursor pastes everything that was cut, the pieces joined by a line break
+0|1 one two three two
+1|2 four fiveone
+2|3 four
+ |::----^-----------------------
+5| …ch]* · Text · 3 lines · 3:5
+

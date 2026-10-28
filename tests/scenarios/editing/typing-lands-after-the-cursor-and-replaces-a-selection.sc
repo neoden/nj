@@ -46,3 +46,13 @@ key Alt+K
 --- a combination nothing is bound to inserts nothing and opens nothing
 same
 
+
+key Shift+Home
+key Enter
+
+--- Enter over a selection replaces it with the line break: `now` is gone, a line split in its place
+1|2
+2|3
+ |::^---------------------------
+4| …ch]* · Text · 3 lines · 3:1
+

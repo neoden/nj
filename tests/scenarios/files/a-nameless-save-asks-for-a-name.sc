@@ -30,3 +30,35 @@ key Enter
 --- saved under the name, which the status now shows
 5|       draft.txt · Text · 1 lines · 1:6
 
+key Ctrl+Q
+?exit 0
+
+# On the way out it is the same question, and the quit rides along: an
+# empty name drops both the save and the quit; a name saves and quits.
+%start
+size 40 6
+type "later"
+key Ctrl+Q
+type "s"
+
+--- save and quit on a scratch buffer: the name is asked for first
+0|1 later
+ |::-----^--------------------------------
+1|
+2|────────────────────────────────────────
+3| Save as:
+ |          ^
+4|────────────────────────────────────────
+5|      [scratch]* · Text · 1 lines · 1:6
+
+key Enter
+
+--- nothing typed: the field closes, nothing saved, nothing quit
+2-4|
+
+key Ctrl+Q
+type "s"
+type "later.txt"
+key Enter
+?exit 0
+?file later.txt "later"

@@ -50,3 +50,13 @@ key Ctrl+X
 2|
 6| …ch]* · Text · 2 lines · 2:1
 
+
+key Ctrl+X
+?clipboard "\n"
+
+--- the empty last line cut: the break before it goes, and `one one` is the whole text again
+0|1 one one
+ |::-------^--------------------
+1|
+6| …ch]* · Text · 1 lines · 1:8
+

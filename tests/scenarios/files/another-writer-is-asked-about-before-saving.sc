@@ -61,6 +61,14 @@ type "s"
 7|────────────────────────────────────────
 8|      notes.txt* · Text · 1 lines · 1:8
 
+key Esc
+?file notes.txt "theirs again"
+
+--- declined: not written, and not quit either
+3-7|
+
+key Ctrl+Q
+type "s"
 type "o"
 
 # overwritten, and the quit the save was for goes on

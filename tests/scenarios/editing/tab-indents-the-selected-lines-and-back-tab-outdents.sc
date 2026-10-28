@@ -66,3 +66,29 @@ key Shift+Tab
 --- no line has indent left: Shift+Tab changes nothing, the spaces inside the line are not indent
 same
 
+key Ctrl+Z
+
+--- the Shift+Tab that changed nothing recorded nothing: undo takes back the one before it, as one step
+0|1     o   ne
+ |  ~~~~~~~~~~~
+
+key Esc
+key Ctrl+Home
+key Ctrl+Right
+key Ctrl+Right
+key Shift+Ctrl+Left
+
+--- `ne` selected within its line
+0|1     o   ne
+ |          ^~
+1|2 two
+2|3 three
+5| …ch]* · Text · 3 lines · 1:9
+
+key Tab
+
+--- any selection at all means indent the line: `ne` is not replaced, its line moves
+0|1         o   ne
+ |  ^~~~~~~~~~~~~~
+5| …ch]* · Text · 3 lines · 1:1
+

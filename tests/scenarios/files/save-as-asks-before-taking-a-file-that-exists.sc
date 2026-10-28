@@ -72,3 +72,26 @@ type "o"
 --- agreed: written there, and the buffer is that file from now on
 8|       taken.txt · Text · 1 lines · 1:7
 
+
+%file taken.txt "theirs"
+type "!"
+key Ctrl+Shift+S
+key Enter
+
+--- its own name, but another writer got there first: the question a plain save asks
+0|1 ours!?!
+ |::-------^------------------------------
+3|────────────────────────────────────────
+4| File changed on disk
+5|   o     Overwrite
+6|   esc   Cancel
+7|────────────────────────────────────────
+8|      taken.txt* · Text · 1 lines · 1:8
+
+type "o"
+?file taken.txt "ours!?!"
+
+--- overwritten, as a plain save would
+3-7|
+8|       taken.txt · Text · 1 lines · 1:8
+

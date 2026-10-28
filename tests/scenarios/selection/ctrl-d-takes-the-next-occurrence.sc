@@ -61,3 +61,26 @@ key Ctrl+D
 1|2 cat
 6| 2 cursors …t · 3 lines · 1:4
 
+
+key Ctrl+A
+paste "cat"
+key Ctrl+D
+
+--- a cursor resting right after a word still finds it
+0|1 cat
+ |  ~~~^
+1-2|
+6| …ch]* · Text · 1 lines · 1:4
+
+key Ctrl+A
+paste "a.b c.d"
+key Home
+key Right
+key Ctrl+D
+key Ctrl+D
+
+--- punctuation under the cursor is a word of its own: both dots, not the letters around them
+0|1 a.b c.d
+ |   ~^  ~^
+6| 2 cursors …t · 1 lines · 1:3
+

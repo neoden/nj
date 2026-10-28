@@ -44,3 +44,11 @@ key Backspace
  |::-^--------------------------
 5| 2 "ab" …Text · 2 lines · 2:2
 
+
+key Ctrl+Z
+
+--- undo mends the hit, and the count follows that too
+1|2 ab
+ |::==^-------------------------
+5| 3 "ab" …Text · 2 lines · 2:3
+
