@@ -12,6 +12,7 @@ key Down
 key Right
 key Right
 key Ctrl+C
+?clipboard "beta\n"
 
 --- the cursor inside `beta`, nothing selected: Ctrl+C took the whole line
 0|1 alpha
@@ -33,6 +34,7 @@ key Ctrl+V
 6| …ch]* · Text · 4 lines · 4:6
 
 key Ctrl+X
+?clipboard "gamma\n"
 
 --- Ctrl+X with nothing selected takes `gamma` out whole; the last line has no break after it, so the one before it goes too, and the cursor lands at the end of the line above
 2|3 beta
@@ -54,6 +56,7 @@ key Ctrl+V
 key Right
 key Shift+Right
 key Ctrl+C
+?clipboard "l"
 key Down
 key Ctrl+V
 

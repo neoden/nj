@@ -34,6 +34,7 @@ key Enter
 key Ctrl+Shift+S
 type "copy.txt"
 key Enter
+?file copy.txt "one!\ntwo"
 
 --- a copy is written; the buffer stays the pipe
 5| Copied to copy.txt                      [stdin] · Text · 2 lines · 1:5
@@ -42,7 +43,7 @@ type "?"
 key Ctrl+Q
 type "q"
 
---- quit without saving the last edit: what was saved goes downstream
-exit 0
-stdout "one!\ntwo"
+# quit without saving the last edit: what was saved goes downstream
+?exit 0
+?stdout "one!\ntwo"
 

@@ -9,7 +9,7 @@
 
 use std::cell::RefCell;
 use std::fs;
-use std::io::Cursor;
+use std::io::{self, Cursor};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
@@ -18,7 +18,7 @@ use anyhow::{Context, Result, bail};
 
 use super::grid::Grid;
 use super::launch::{self, Args, Outcome};
-use super::scenario::{self, Instruction, Line};
+use super::scenario::{self, Expect, Instruction, Line};
 use super::{app, dump, render};
 use crate::editor::Editor;
 use crate::editor::clipboard::Desktop;
@@ -53,6 +53,46 @@ impl Frames {
         };
         self.previous = Some(grid);
         frame
+    }
+}
+
+/// Whether a `?` line holds. `ended` is how the editor exited, `None`
+/// while it runs; `clipboard` is what the desktop clipboard holds; a file
+/// is read from the run's directory, which is the working directory. The
+/// error says what was found and what was claimed, in the language's own
+/// quoting. Shared with the sandbox binary, whose run has the same things
+/// to check and only keeps them elsewhere.
+pub fn check(expect: &Expect, ended: Option<&Outcome>, clipboard: Option<String>) -> Result<()> {
+    use scenario::quote;
+    match expect {
+        Expect::Exit(code) => match ended {
+            None => bail!("the editor is still running"),
+            Some(outcome) if outcome.code != *code => bail!("exit {}, not {code}", outcome.code),
+            Some(_) => Ok(()),
+        },
+        Expect::Stdout(text) => match ended.map(|outcome| outcome.stdout.as_ref()) {
+            None => bail!("the editor is still running"),
+            Some(None) => bail!("not a pipeline: nothing is handed downstream"),
+            Some(Some(stdout)) if stdout != text => {
+                bail!("stdout {}, not {}", quote(stdout), quote(text))
+            }
+            Some(Some(_)) => Ok(()),
+        },
+        Expect::File(name, text) => match fs::read_to_string(name) {
+            Ok(held) if &held == text => Ok(()),
+            Ok(held) => bail!("{name} holds {}, not {}", quote(&held), quote(text)),
+            Err(error) => bail!("{name}: {error}"),
+        },
+        Expect::NoPath(name) => match fs::symlink_metadata(name) {
+            Ok(_) => bail!("{name} is there"),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => bail!("{name}: {error}"),
+        },
+        Expect::Clipboard(text) => match clipboard {
+            Some(held) if &held == text => Ok(()),
+            Some(held) => bail!("the clipboard holds {}, not {}", quote(&held), quote(text)),
+            None => bail!("the clipboard holds nothing, not {}", quote(text)),
+        },
     }
 }
 
@@ -180,6 +220,17 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
                 sandbox.pasteboard.set(text);
                 continue;
             }
+            // Checked when read, whatever the stage: a `?exit` needs the
+            // editor gone, a `?file` does not care.
+            Instruction::Expect(expect) => {
+                let ended = match &stage {
+                    Stage::Exited(outcome) => Some(outcome),
+                    _ => None,
+                };
+                let clipboard = sandbox.pasteboard.read();
+                check(&expect, ended, clipboard).with_context(at)?;
+                continue;
+            }
             // Whatever the stage: the editor, if any, is dropped with the
             // rest of the run, and the next line finds the run as the
             // first line did.
@@ -193,18 +244,11 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
             other => other,
         };
 
-        // After the exit a snapshot shows the outcome, and the editor's own
-        // lines have no editor to go to. `%stdin` and `%start` make the
-        // next one, below.
-        if let Stage::Exited(outcome) = &stage {
+        // After the exit the editor's own lines have no editor to go to,
+        // and a snapshot has no screen to show: `?exit` and `?stdout` say
+        // what became of it. `%stdin` and `%start` make the next one, below.
+        if let Stage::Exited(_) = &stage {
             match &instruction {
-                Instruction::Snapshot(caption) => {
-                    snapshots.push(Snapshot {
-                        frame: scenario::outcome(outcome),
-                        caption: caption.clone(),
-                    });
-                    continue;
-                }
                 Instruction::Stdin(_) | Instruction::Start(_) => {}
                 _ => bail!("{}: the editor has exited", at()),
             }
@@ -244,9 +288,10 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
             Instruction::Stdin(_) | Instruction::Start(_) => {
                 bail!("{}: the editor is already running", at())
             }
-            Instruction::File(..) | Instruction::Clipboard(..) | Instruction::Reset => {
-                unreachable!("a condition is set above")
-            }
+            Instruction::File(..)
+            | Instruction::Clipboard(..)
+            | Instruction::Expect(..)
+            | Instruction::Reset => unreachable!("the run's own lines are done above"),
         }
     }
     Ok(snapshots)
@@ -384,20 +429,55 @@ mod tests {
         }
     }
 
-    /// A quit ends the run: the snapshot after it is the outcome, with what
-    /// a pipeline hands on, and nothing else may follow.
+    /// A `?` line that holds is silent; one that does not is an error that
+    /// names the line and says what was found instead.
     #[test]
-    fn an_exit_is_shown_as_the_outcome_and_ends_the_run() {
-        let shown = run("key Ctrl+Q\n--- gone\n").unwrap();
-        assert_eq!(shown[0].frame, "exit 0\n");
+    fn a_check_passes_silently_and_a_failed_one_names_the_line() {
+        let script = concat!(
+            "%file a.txt \"kept\"\n",
+            "?file a.txt \"kept\"\n",
+            "?nopath b.txt\n",
+            "type \"x\"\n",
+            "key Ctrl+A\n",
+            "key Ctrl+C\n",
+            "?clipboard \"x\"\n",
+            "key Ctrl+Shift+Q\n",
+            "type \"a\"\n",
+            "?exit 1\n",
+        );
+        assert!(run(script).unwrap().is_empty());
 
-        let shown = run("%stdin \"in\"\ntype \"x\"\nkey Ctrl+S\nkey Ctrl+Q\n---\n").unwrap();
-        assert_eq!(shown[0].frame, "exit 0\nstdout \"xin\"\n");
+        let piped = "%stdin \"in\"\ntype \"x\"\nkey Ctrl+S\nkey Ctrl+Q\n?exit 0\n?stdout \"xin\"\n";
+        assert!(run(piped).unwrap().is_empty());
 
-        let shown = run("%stdin \"in\"\nkey Ctrl+Shift+Q\n---\n").unwrap();
-        assert_eq!(shown[0].frame, "exit 1\nstdout \"\"\n");
+        for (script, error) in [
+            ("%file a.txt \"kept\"\n?file a.txt \"lost\"\n", "line 2: a.txt holds \"kept\", not \"lost\""),
+            ("?file a.txt \"kept\"\n", "line 1: a.txt: No such file"),
+            ("%file a.txt \"kept\"\n?nopath a.txt\n", "line 2: a.txt is there"),
+            ("?nopath .\n", "line 1: . is there"),
+            ("type \"x\"\n?clipboard \"x\"\n", "line 2: the clipboard holds nothing, not \"x\""),
+            ("type \"x\"\n?exit 0\n", "line 2: the editor is still running"),
+            ("key Ctrl+Q\n?exit 1\n", "line 2: exit 0, not 1"),
+            ("key Ctrl+Q\n?stdout \"\"\n", "line 2: not a pipeline"),
+            ("%stdin \"in\"\nkey Ctrl+Q\n?stdout \"x\"\n", "line 3: stdout \"in\", not \"x\""),
+        ] {
+            let shown = format!("{:#}", run(script).unwrap_err());
+            assert!(shown.starts_with(error), "{script:?}: {shown}");
+        }
+    }
 
-        for script in ["key Ctrl+Q\ntype \"a\"\n", "key Ctrl+Q\nwait\n", "key Ctrl+Q\nsize 6 2\n"] {
+    /// A quit ends the run: there is no screen to snapshot and no editor
+    /// to take a line, only `?exit` and `?stdout` to say how it ended.
+    #[test]
+    fn an_exit_ends_the_run() {
+        run("%stdin \"in\"\nkey Ctrl+Shift+Q\n?exit 1\n?stdout \"\"\n").unwrap();
+
+        for script in [
+            "key Ctrl+Q\n--- gone\n",
+            "key Ctrl+Q\ntype \"a\"\n",
+            "key Ctrl+Q\nwait\n",
+            "key Ctrl+Q\nsize 6 2\n",
+        ] {
             let error = run(script).unwrap_err().to_string();
             assert!(error.starts_with("line 2: "), "{script}: {error}");
         }
@@ -406,13 +486,12 @@ mod tests {
         // `%start` starts another, which begins as the first did, with the
         // default frame and a whole first snapshot.
         let shown = run(
-            "%file a.txt \"kept\"\nsize 6 2\ntype \"x\"\n---\n\nkey Ctrl+Shift+Q\ntype \"a\"\n---\n\n%file b.txt \"b\"\n%start a.txt\n---\n",
+            "%file a.txt \"kept\"\nsize 6 2\ntype \"x\"\n---\n\nkey Ctrl+Shift+Q\ntype \"a\"\n?exit 1\n%file b.txt \"b\"\n%start a.txt\n---\n",
         )
         .unwrap();
-        assert_eq!(shown[1].frame, "exit 1\n");
         // Whole, and the default ten rows: the eight blank ones are listed.
-        assert!(shown[2].frame.starts_with("0|1 kept\n"), "{}", shown[2].frame);
-        assert!(shown[2].frame.contains("\n1-8|\n"), "{}", shown[2].frame);
+        assert!(shown[1].frame.starts_with("0|1 kept\n"), "{}", shown[1].frame);
+        assert!(shown[1].frame.contains("\n1-8|\n"), "{}", shown[1].frame);
     }
 
     /// `%reset` is the same whether the editor runs, has exited or was

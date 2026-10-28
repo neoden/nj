@@ -10,6 +10,7 @@ key Ctrl+Home
 key Ctrl+Right
 key Shift+Ctrl+Right
 key Ctrl+X
+?clipboard " two"
 
 --- ` two` cut: gone from the text, the cursor where it was
 0|1 one three
@@ -37,6 +38,7 @@ key Ctrl+Home
 key Ctrl+Alt+Down
 key Shift+Ctrl+Right
 key Ctrl+X
+?clipboard "one\nfour"
 
 --- a word selected on each line and cut at once, a piece each; both cursors stay
 0|1  two three two

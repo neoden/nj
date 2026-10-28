@@ -42,7 +42,7 @@ mod live {
     use signal_hook::consts::{SIGINT, SIGTERM};
 
     use ned::term::launch::{Args, Outcome};
-    use ned::term::sandbox::{SOCKET, Workdir};
+    use ned::term::sandbox::{self, SOCKET, Workdir};
     use ned::term::scenario::{self, Instruction};
 
     /// In the run's directory: the editor's socket, its pipe and its output.
@@ -267,23 +267,29 @@ mod live {
                 | Instruction::Wait => {
                     return self.forward(line);
                 }
+                // The same check as the headless run's, from where this
+                // run keeps things: the outcome in its stage, the clipboard
+                // in the file the helpers read and write.
+                Instruction::Expect(expect) => {
+                    let ended = match &self.stage {
+                        Stage::Exited(outcome) => Some(outcome),
+                        _ => None,
+                    };
+                    let clipboard = fs::read_to_string(CLIPBOARD).ok();
+                    sandbox::check(&expect, ended, clipboard)?;
+                }
             }
             Ok("ok\n".to_owned())
         }
 
         /// An editor's own line: to the editor, started first if the run
-        /// has none yet, as `ned` alone would be. After the exit a snapshot
-        /// shows the outcome and nothing else is taken (ADR 28).
+        /// has none yet, as `ned` alone would be. After the exit nothing
+        /// is taken (ADR 28): `?exit` and `?stdout` say what became of it.
         fn forward(&mut self, line: &str) -> Result<String> {
             match &mut self.stage {
                 Stage::Before => self.start(Args::default())?,
                 Stage::Running(_) => {}
-                Stage::Exited(outcome) => {
-                    if line.starts_with("---") {
-                        return Ok(scenario::outcome(outcome));
-                    }
-                    bail!("the editor has exited");
-                }
+                Stage::Exited(_) => bail!("the editor has exited"),
             }
             let Stage::Running(running) = &mut self.stage else {
                 unreachable!("started above");

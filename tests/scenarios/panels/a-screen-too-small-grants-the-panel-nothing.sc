@@ -43,6 +43,6 @@ size 40 4
 
 type "q"
 
---- the question was still up, and the answer quits
-exit 0
+# the question was still up, and the answer quits
+?exit 0
 

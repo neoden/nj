@@ -9,6 +9,7 @@ key Home
 key Ctrl+Right
 key Shift+Ctrl+Left
 key Ctrl+C
+?clipboard "one"
 
 --- `one` is selected and copied; the selection stays
 0|1 one two three

@@ -16,9 +16,11 @@ key Ctrl+S
 4|────────────────────────────────────────
 5|      [scratch]* · Text · 1 lines · 1:6
 
+type "draft.txt"
 key Esc
+?nopath draft.txt
 
---- declined: still a scratch buffer, still unsaved
+--- declined: still a scratch buffer, still unsaved, nothing on disk
 2-4|
 
 key Ctrl+S

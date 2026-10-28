@@ -8,6 +8,7 @@ size 30 7
 paste "alpha\nbeta"
 key Ctrl+Home
 key Ctrl+C
+?clipboard "alpha\n"
 
 --- `alpha` copied as a whole line, with nothing selected
 0|1 alpha
@@ -33,6 +34,7 @@ same
 
 key Down
 key Ctrl+C
+?clipboard "beta\n"
 key Ctrl+Home
 key Ctrl+V
 

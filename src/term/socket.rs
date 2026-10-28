@@ -117,8 +117,9 @@ impl Server {
     pub fn answer(&mut self, editor: &mut Editor, line: &str, terminal: (usize, usize)) -> String {
         // The run around the editor is set up by whoever drives it, never
         // over the socket (ADR 29); the prefix says so before the verb does.
-        if scenario::is_setup(line) {
-            return "error: a `%` line sets the run up and is not taken over the socket\n".to_owned();
+        if scenario::belongs_to_run(line) {
+            return "error: a `%` or `?` line is the run's and is not taken over the socket\n"
+                .to_owned();
         }
         match scenario::parse(line) {
             Err(error) => format!("error: {error:#}\n"),
@@ -168,8 +169,9 @@ impl Server {
                 | Instruction::Clipboard(_)
                 | Instruction::Stdin(_)
                 | Instruction::Start(_)
-                | Instruction::Reset,
-            )) => unreachable!("a `%` line is refused by its prefix"),
+                | Instruction::Reset
+                | Instruction::Expect(_),
+            )) => unreachable!("the run's lines are refused by their prefix"),
         }
     }
 }
@@ -230,10 +232,18 @@ mod tests {
         assert_eq!(server.answer(&mut editor, "---", terminal), "same\n");
         let answer = server.answer(&mut editor, "---", (30, 30));
         assert!(answer.starts_with("error: the terminal is 30×30"), "{answer}");
-        // A `%` line is refused by its prefix, whatever follows it.
-        for line in ["%file a.txt \"a\"", "%clipboard \"c\"", "%stdin \"s\"", "%start", "%bogus"] {
+        // A `%` or `?` line is refused by its prefix, whatever follows it.
+        for line in [
+            "%file a.txt \"a\"",
+            "%clipboard \"c\"",
+            "%stdin \"s\"",
+            "%start",
+            "%bogus",
+            "?exit 0",
+            "?bogus",
+        ] {
             let answer = server.answer(&mut editor, line, terminal);
-            assert!(answer.starts_with("error: a `%` line"), "{line}: {answer}");
+            assert!(answer.starts_with("error: a `%` or `?` line"), "{line}: {answer}");
         }
         // The text is unsaved, so quitting asks first; the answer that
         // quits is answered with the outcome. Input on the same line after

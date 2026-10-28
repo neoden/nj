@@ -28,6 +28,7 @@ key Ctrl+Q
 key Ctrl+Q
 key Ctrl+S
 type "x"
+?file notes.txt "kept"
 
 --- none of these answers it
 same
@@ -40,6 +41,7 @@ key Esc
 key Ctrl+Q
 type "q"
 
---- quit anyway: the process ends
-exit 0
+# quit anyway: the process ends, the file as it was
+?exit 0
+?file notes.txt "kept"
 

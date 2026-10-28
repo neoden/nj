@@ -25,6 +25,7 @@ key Ctrl+V
 5| …xt* · Text · 2 lines · 1:23
 
 key Ctrl+S
+?file notes.txt "first linefrom outside\nsecond line"
 
 --- saved: only the status changes
 5| …txt · Text · 2 lines · 1:23

@@ -1,6 +1,5 @@
 # Another file over unsaved changes is asked about. `d` discards them and
-# opens; `s` saves them first and then opens. Both are checked by opening
-# the first file again afterwards.
+# opens; `s` saves them first and then opens.
 
 size 40 9
 %file mine.txt "mine"
@@ -33,6 +32,7 @@ key Ctrl+D
 same
 
 type "d"
+?file mine.txt "mine"
 
 --- discarded: the other file is open
 0|1 theirs
@@ -47,19 +47,11 @@ type "mine.txt"
 key Enter
 type "s"
 wait
+?file theirs.txt "theirs?"
+?file mine.txt "mine"
 
 --- saved first: the first file is back, as it was on disk
 0|1 mine
  |::^-------------------------------------
 8|        mine.txt · Text · 1 lines · 1:1
-
-key Ctrl+O
-type "theirs.txt"
-key Enter
-wait
-
---- and the other one kept what was saved
-0|1 theirs?
- |::^-------------------------------------
-8|      theirs.txt · Text · 1 lines · 1:1
 

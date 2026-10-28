@@ -25,18 +25,21 @@ key Ctrl+S
 8|      notes.txt* · Text · 1 lines · 1:6
 
 key Esc
+?file notes.txt "theirs"
 
 --- cancelled: nothing written, the buffer still unsaved
 3-7|
 
 key Ctrl+S
 type "o"
+?file notes.txt "ours!"
 
 --- overwritten: clean, the file is ours again
 8|       notes.txt · Text · 1 lines · 1:6
 
 type "?"
 key Ctrl+S
+?file notes.txt "ours!?"
 
 --- the next save does not ask
 0|1 ours!?
@@ -60,6 +63,7 @@ type "s"
 
 type "o"
 
---- overwritten, and the quit the save was for goes on
-exit 0
+# overwritten, and the quit the save was for goes on
+?exit 0
+?file notes.txt "ours!?!"
 

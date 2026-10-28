@@ -21,22 +21,30 @@
 //!                  would, on the first line that is not a `%` line
 //!   %reset         the run as it was before anything: an editor still
 //!                  running is ended, the directory emptied
+//!   ?exit N        the editor has exited, with code N
+//!   ?stdout "TEXT" and, a pipeline, handed TEXT downstream
+//!   ?file NAME "TEXT"   the file in the scenario's directory holds TEXT
+//!   ?nopath NAME   nothing is there, neither a file nor a directory
+//!   ?clipboard "TEXT"   the desktop clipboard holds TEXT
 //!   --- CAPTION    a snapshot: the frame as the screen shows it here. The
 //!                  first is whole, each later one is the rows that changed
 //!                  since the one before, or `same` when none did. CAPTION
 //!                  says what should be seen. In a file the frame follows
 //!                  the line, up to a blank line, and is generated.
 //!
-//! A line beginning with `%` sets the run up around the editor and is not
-//! the editor's: the headless run and the sandbox binary carry it out, the
-//! editor's socket refuses it unread (ADR 29). The other lines are the
-//! editor's own.
+//! A line beginning with `%` sets the run up around the editor, and one
+//! beginning with `?` checks what the run can see and the screen cannot:
+//! how the editor ended, what it handed on, what it wrote, what it put on
+//! the clipboard. Neither is the
+//! editor's: the headless run and the sandbox binary carry them out, the
+//! editor's socket refuses them unread (ADR 29). A `?` line that does not
+//! hold is an error naming the line, like any other. The other lines are
+//! the editor's own.
 //!
-//! Once the editor has exited there is no frame: a snapshot shows how the
-//! process ended instead, `exit 0` or `exit 1`, and for a pipeline a
-//! `stdout "TEXT"` line with what the downstream received. The editor's
-//! own lines are an error from then on, there being no editor to take
-//! them; the `%` lines go on, and `%start` starts the next editor.
+//! Once the editor has exited there is no frame, so a snapshot is an
+//! error, as are the editor's own lines, there being no editor to take
+//! them. `?exit` and `?stdout` say what became of it; the `%` lines go
+//! on, and `%start` starts the next editor.
 //!
 //! Text is written in double quotes, so that a space at either end is
 //! visible and a file name is told from its contents; inside them `\n` is a
@@ -122,12 +130,33 @@ pub enum Instruction {
     Wait,
     /// A frame to take, under this caption.
     Snapshot(String),
+    /// A `?` line: what the run is to check.
+    Expect(Expect),
 }
 
-/// Whether `line` sets the run up around the editor rather than driving
-/// the editor: the `%` lines, which the socket refuses without reading.
-pub fn is_setup(line: &str) -> bool {
-    line.starts_with('%')
+/// What a `?` line claims. Checked by the run, since none of it is on the
+/// screen: the editor's end and its standard output are seen only from
+/// outside, and a file only from the directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Expect {
+    /// The editor has exited, with this code.
+    Exit(u8),
+    /// The editor has exited and, a pipeline, handed this downstream.
+    Stdout(String),
+    /// The file in the run's directory holds this text.
+    File(String, String),
+    /// Nothing is at this name in the run's directory: a save that was
+    /// declined or refused made no file.
+    NoPath(String),
+    /// The desktop clipboard holds this text.
+    Clipboard(String),
+}
+
+/// Whether `line` is the run's rather than the editor's: a `%` line sets
+/// the run up, a `?` line checks it. The socket refuses both without
+/// reading further.
+pub fn belongs_to_run(line: &str) -> bool {
+    line.starts_with('%') || line.starts_with('?')
 }
 
 /// Reads one line of the language. `None` for a blank line or a comment,
@@ -187,6 +216,21 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
         "%stdin" => Instruction::Stdin(quoted(rest)?),
         "%start" => Instruction::Start(launch::args(rest.split_whitespace().map(str::to_owned))?),
         "%reset" => Instruction::Reset,
+        "?exit" => Instruction::Expect(Expect::Exit(
+            rest.parse().context("?exit takes a code, 0 to 255")?,
+        )),
+        "?stdout" => Instruction::Expect(Expect::Stdout(quoted(rest)?)),
+        "?file" => {
+            let (name, text) = rest
+                .split_once(' ')
+                .context("?file takes a name and its text")?;
+            Instruction::Expect(Expect::File(name.to_owned(), quoted(text)?))
+        }
+        "?nopath" => match rest.split_whitespace().collect::<Vec<_>>()[..] {
+            [name] => Instruction::Expect(Expect::NoPath(name.to_owned())),
+            _ => bail!("?nopath takes one name"),
+        },
+        "?clipboard" => Instruction::Expect(Expect::Clipboard(quoted(rest)?)),
         other => bail!("unknown instruction `{other}`"),
     };
     Ok(Some(instruction))
@@ -222,7 +266,9 @@ fn mods(names: &str) -> Result<KeyModifiers> {
     Ok(modifiers)
 }
 
-/// What a snapshot shows once the editor has exited, in place of a frame.
+/// What the socket answers to the line that made the editor exit, in place
+/// of `ok` (ADR 28): the code, and for a pipeline what went downstream.
+/// The sandbox binary reads the `exit` off it to know the editor is gone.
 pub fn outcome(outcome: &Outcome) -> String {
     let mut out = format!("exit {}\n", outcome.code);
     if let Some(stdout) = &outcome.stdout {
@@ -311,6 +357,49 @@ mod tests {
             stdout: Some("x\n".to_owned()),
         };
         assert_eq!(outcome(&piped), "exit 1\nstdout \"x\\n\"\n");
+    }
+
+    #[test]
+    fn a_check_is_the_runs_and_names_what_it_claims() {
+        assert_eq!(
+            parse("?exit 1").unwrap(),
+            Some(Instruction::Expect(Expect::Exit(1)))
+        );
+        assert_eq!(
+            parse(r#"?stdout "a\nb""#).unwrap(),
+            Some(Instruction::Expect(Expect::Stdout("a\nb".to_owned())))
+        );
+        assert_eq!(
+            parse(r#"?file a.txt "kept""#).unwrap(),
+            Some(Instruction::Expect(Expect::File(
+                "a.txt".to_owned(),
+                "kept".to_owned()
+            )))
+        );
+        assert_eq!(
+            parse(r#"?clipboard "cut""#).unwrap(),
+            Some(Instruction::Expect(Expect::Clipboard("cut".to_owned())))
+        );
+        assert_eq!(
+            parse("?nopath a.txt").unwrap(),
+            Some(Instruction::Expect(Expect::NoPath("a.txt".to_owned())))
+        );
+        for bad in [
+            "?exit",
+            "?exit x",
+            "?exit 256",
+            "?stdout bare",
+            "?file a.txt",
+            "?nopath",
+            "?nopath a b",
+            "?clipboard",
+            "?saved",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+        assert!(belongs_to_run("?exit 0"));
+        assert!(belongs_to_run("%reset"));
+        assert!(!belongs_to_run("key Esc"));
     }
 
     #[test]
