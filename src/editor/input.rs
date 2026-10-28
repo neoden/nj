@@ -3,7 +3,7 @@
 //! business alone. Turning any of it into a command is decided here, with
 //! the editor's state at hand.
 
-use super::command::{Command, Edit, Select};
+use super::command::{ClickKind, Command, Edit, Select};
 use super::key::{Keystroke, Mods};
 use super::{Editor, keymap};
 
@@ -58,10 +58,15 @@ impl Mouse {
         match self.kind {
             MouseKind::ScrollUp => Command::Scroll(-MOUSE_SCROLL_LINES),
             MouseKind::ScrollDown => Command::Scroll(MOUSE_SCROLL_LINES),
+            // Shift and Alt together mean neither: a plain click.
             MouseKind::Press => Command::Select(Select::Click {
                 row,
                 column,
-                add: self.mods.contains(Mods::ALT),
+                kind: match (self.mods.contains(Mods::SHIFT), self.mods.contains(Mods::ALT)) {
+                    (true, false) => ClickKind::Extend,
+                    (false, true) => ClickKind::Add,
+                    _ => ClickKind::Place,
+                },
             }),
             MouseKind::Drag => Command::Select(Select::Drag { row, column }),
         }

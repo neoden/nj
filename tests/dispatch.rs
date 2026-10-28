@@ -745,7 +745,9 @@ fn a_confirm_takes_bare_letters_only_and_a_nameless_save_asks_for_a_name() {
 }
 
 /// The mouse speaks in screen cells: past the gutter, down from the view's
-/// top. A click places the cursor, `Alt` adds one, a drag extends.
+/// top. A click places the cursor, `Alt` adds one, `Shift` extends the
+/// primary selection to the click and drops the other cursors, both
+/// together are a plain click, and a drag extends.
 #[test]
 fn clicks_land_past_the_gutter_and_drags_extend() {
     let mut editor = editor_with("hello\nworld");
@@ -757,6 +759,20 @@ fn clicks_land_past_the_gutter_and_drags_extend() {
 
     mouse(&mut editor, down, gutter + 1, 0, KeyModifiers::ALT);
     assert_eq!(ranges(&editor), [1..1, 9..9]);
+
+    // The primary is still the first cursor placed; the added one goes.
+    mouse(&mut editor, down, gutter + 4, 1, KeyModifiers::SHIFT);
+    assert_eq!(ranges(&editor), [9..10]);
+    assert_eq!(editor.view().selections.primary().anchor, 9);
+
+    mouse(
+        &mut editor,
+        down,
+        gutter + 2,
+        0,
+        KeyModifiers::SHIFT | KeyModifiers::ALT,
+    );
+    assert_eq!(ranges(&editor), [2..2]);
 
     mouse(&mut editor, down, gutter, 0, KeyModifiers::NONE);
     let drag = MouseEventKind::Drag(MouseButton::Left);

@@ -70,16 +70,28 @@ pub enum Select {
     /// Replaces the selections outright: what a socket sends to open a file
     /// at a line, and what a test uses to start from a known place.
     Set(SelectionSet),
-    /// In screen cells. `add` keeps the existing cursors.
+    /// In screen cells.
     Click {
         row: usize,
         column: usize,
-        add: bool,
+        kind: ClickKind,
     },
     Drag {
         row: usize,
         column: usize,
     },
+}
+
+/// What a click does with the cursors, one of three: the modifiers held
+/// decide which, and nothing else about the mouse is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClickKind {
+    /// A cursor where the click landed, and no other.
+    Place,
+    /// One more cursor, the others kept — Alt.
+    Add,
+    /// The selection's head to the click, its anchor kept — Shift.
+    Extend,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

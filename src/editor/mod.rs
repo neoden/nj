@@ -30,7 +30,7 @@ use crate::text::search::{Query, Session};
 use crate::text::selection::{Selection, SelectionSet};
 use crate::text::transaction::{CursorAfter, Transaction};
 use clipboard::{Clipboard, Desktop};
-use command::{Command, Edit, File, PanelCommand, Select};
+use command::{ClickKind, Command, Edit, File, PanelCommand, Select};
 use find::Occurrences;
 use job::{JobId, Jobs, Message, Report};
 use panel::field::Field;
@@ -311,7 +311,7 @@ impl Editor {
             Command::Select(Select::AddCursor(direction)) => self.add_cursor(direction),
             Command::Select(Select::NextOccurrence) => self.select_next_occurrence(),
             Command::Select(Select::Set(selections)) => self.set_selections(selections),
-            Command::Select(Select::Click { row, column, add }) => self.click(row, column, add),
+            Command::Select(Select::Click { row, column, kind }) => self.click(row, column, kind),
             Command::Select(Select::Drag { row, column }) => self.drag(row, column),
 
             Command::File(File::Save) => self.save(After::Stay),
@@ -401,7 +401,7 @@ impl Editor {
         (row < view.height()).then(|| (row, column.saturating_sub(view.area.x + view.gutter)))
     }
 
-    fn click(&mut self, row: usize, column: usize, add: bool) {
+    fn click(&mut self, row: usize, column: usize, kind: ClickKind) {
         let Some((row, column)) = self.cell_in_view(row, column) else {
             return;
         };
@@ -412,9 +412,19 @@ impl Editor {
         self.close_panel();
         let (view, buffer) = self.workspace.focus_mut();
         let offset = view.offset_at_screen(buffer, row, column);
-        match add {
-            true => view.selections.push(Selection::cursor(offset)),
-            false => view.selections = SelectionSet::single(offset),
+        match kind {
+            ClickKind::Place => view.selections = SelectionSet::single(offset),
+            ClickKind::Add => view.selections.push(Selection::cursor(offset)),
+            // Extending is one selection's business: the primary keeps its
+            // anchor, and any other cursor goes, as under a plain click.
+            ClickKind::Extend => {
+                view.selections = Selection {
+                    anchor: view.selections.primary().anchor,
+                    head: offset,
+                    goal_column: None,
+                }
+                .into();
+            }
         }
     }
 
