@@ -14,8 +14,10 @@ use crossterm::{cursor, queue};
 use crate::editor::style::CellStyle;
 use crate::text::layout::{self, Glyph};
 
-/// Drawn in place of a control character, which has no glyph of its own.
-pub const CONTROL_PLACEHOLDER: &str = "·";
+/// Drawn in place of a control character, which has no glyph of its own:
+/// the replacement character, one cell in every font, and not a character
+/// a text would hold on its own, so it cannot be mistaken for one.
+pub const CONTROL_PLACEHOLDER: &str = "\u{fffd}";
 
 /// The base a bare cluster is drawn on: the dotted circle Unicode charts
 /// show an isolated combining mark on.

@@ -34,8 +34,9 @@ Format: context, decision, consequences ([Nygard][nygard]).
 | [24](0024-a-form-for-each-case.md) | A form for each case | Accepted, refines 12, amends 23 |
 | [25](0025-the-frame-is-the-test-oracle.md) | The frame is the test oracle; a scenario is a sequence of events | Accepted, builds on 16, 21 |
 | [26](0026-a-socket-that-speaks-the-scenario-language.md) | A socket that speaks the scenario language | Accepted, realizes 14, 21 |
-| [27](0027-a-sandbox-for-the-debug-build.md) | A sandbox, in the debug build only | Superseded by 29 |
-| [28](0028-a-scenario-starts-and-ends-the-editor.md) | A scenario starts and ends the editor | Accepted, extends 25, 27 |
-| [29](0029-the-run-around-the-editor-is-the-drivers.md) | The run around the editor is the sandbox's, a process of its own | Accepted, supersedes 27 |
+| [27](0027-a-sandbox-for-the-debug-build.md) | A sandbox, in the debug build only | Superseded by 30 |
+| [28](0028-a-scenario-starts-and-ends-the-editor.md) | A scenario starts and ends the editor | Superseded by 30 |
+| [29](0029-the-run-around-the-editor-is-the-drivers.md) | The run around the editor is the sandbox's, a process of its own | Superseded by 30 |
+| [30](0030-the-sandbox-and-the-replay.md) | The sandbox and the replay | Accepted, supersedes 27, 28, 29; keeps 25, 26 |
 
 [nygard]: https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions

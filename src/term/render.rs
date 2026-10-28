@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn control_characters_are_replaced() {
-        assert_eq!(drawn("a\u{7}b", 0..3), "a·b");
+        assert_eq!(drawn("a\u{7}b", 0..3), "a\u{fffd}b");
     }
 
     /// A mark with no base of its own gets one, so that the terminal draws
