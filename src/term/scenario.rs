@@ -1,7 +1,7 @@
-//! The scenario language (ADR 25): what a line says, read but not done.
+//! The scenario language: what a line says, read but not done.
 //! The doing is elsewhere — `sandbox` runs a scenario against a headless
 //! editor or carries its lines out in a live one, and `socket` takes the
-//! lines from outside (ADR 26).
+//! lines from outside.
 //!
 //! One instruction per line; blank lines and `#` comments are skipped.
 //!
@@ -16,8 +16,8 @@
 //!   %file NAME "TEXT"   a file in the scenario's directory
 //!   %clipboard "TEXT"   what the desktop clipboard holds, as if copied elsewhere
 //!   %stdin "TEXT"  what is piped into the editor; a terminal otherwise
-//!   %start ARGS    the editor, started with ARGS as its command line
-//!                  (ADR 28); without this line it starts, as `ned` alone
+//!   %start ARGS    the editor, started with ARGS as its command line;
+//!                  without this line it starts, as `ned` alone
 //!                  would, on the first line that is not a `%` line
 //!   %reset         the run as it was before anything: an editor still
 //!                  running is ended, the directory emptied
@@ -37,7 +37,7 @@
 //! how the editor ended, what it handed on, what it wrote, what it put on
 //! the clipboard. Neither is the
 //! editor's: the headless run and the sandbox binary carry them out, the
-//! editor's socket refuses them unread (ADR 29). A `?` line that does not
+//! editor's socket refuses them unread. A `?` line that does not
 //! hold is an error naming the line, like any other. The other lines are
 //! the editor's own.
 //!
@@ -109,7 +109,7 @@ fn snapshot_caption(line: &str) -> Option<&str> {
 
 /// One instruction, read but not yet carried out. Reading is separate from
 /// doing because the same lines come from a file in a test and from a
-/// socket in a live editor (ADR 26), and only the doing differs.
+/// socket in a live editor, and only the doing differs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     /// What the terminal would have sent: the events of a key, of typed
@@ -267,7 +267,7 @@ fn mods(names: &str) -> Result<KeyModifiers> {
 }
 
 /// What the socket answers to the line that made the editor exit, in place
-/// of `ok` (ADR 28): the code, and for a pipeline what went downstream.
+/// of `ok`: the code, and for a pipeline what went downstream.
 /// The sandbox binary reads the `exit` off it to know the editor is gone.
 pub fn outcome(outcome: &Outcome) -> String {
     let mut out = format!("exit {}\n", outcome.code);

@@ -1,6 +1,6 @@
 # A search with no hit leaves the text and the cursor as they were and says
-# so in the status bar. The search itself goes on with nothing to show
-# (ADR 22): typing clears the message, and the status keeps saying so.
+# so in the status bar. The search itself goes on with nothing to show:
+# typing clears the message, and the status keeps saying so.
 
 size 30 5
 paste "one two"

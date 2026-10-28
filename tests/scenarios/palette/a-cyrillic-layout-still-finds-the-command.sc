@@ -1,5 +1,5 @@
 # A combination is matched by the physical key, not by the letter the
-# layout puts on it (ADR 7): Ctrl+Shift+з, which is Ctrl+Shift+P on a
+# layout puts on it: Ctrl+Shift+з, which is Ctrl+Shift+P on a
 # Cyrillic layout, opens the palette just the same. Plain letters are never
 # mapped, since they are text: typed into the query they stay Cyrillic and
 # match no command, which the count says.

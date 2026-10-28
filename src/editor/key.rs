@@ -128,8 +128,8 @@ impl FromStr for Key {
 
 impl Key {
     /// Normalized for a keymap: a character is lowercased, its case being in
-    /// the SHIFT flag, and under CTRL or ALT mapped to its physical position
-    /// (ADR 7). Only combinations can be layout-dependent; plain text never is.
+    /// the SHIFT flag, and under CTRL or ALT mapped to its physical position.
+    /// Only combinations can be layout-dependent; plain text never is.
     pub fn new(code: KeyCode, mods: Mods) -> Self {
         let code = match code {
             KeyCode::Char(c) if mods.intersects(Mods::CTRL | Mods::ALT) => {

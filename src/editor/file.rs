@@ -60,8 +60,8 @@ impl Editor {
     }
 
     /// Writes the buffer where it came from, unless another writer got
-    /// there first: then it asks rather than overwriting their work blindly
-    /// (ADR 20), and the answer carries `after` on. True once written.
+    /// there first: then it asks rather than overwriting their work blindly,
+    /// and the answer carries `after` on. True once written.
     fn write(&mut self, after: After) -> bool {
         if self.buffer().changed_on_disk() {
             self.panel = Some(Panel::Confirm(Confirm::overwrite(after)));

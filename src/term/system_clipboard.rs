@@ -1,4 +1,4 @@
-//! The desktop clipboard, reached through external helpers (ADR 11).
+//! The desktop clipboard, reached through external helpers.
 
 use std::env;
 use std::io::{self, IsTerminal, Read, Write};

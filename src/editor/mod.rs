@@ -53,10 +53,10 @@ pub enum Exit {
     Abort,
 }
 
-/// The editor behind its boundary (ADR 16): commands go in through
+/// The editor behind its boundary: commands go in through
 /// `execute`, reports from its own workers through `receive`, and what comes
 /// out is read-only. No `&mut` to anything inside leaves this type, and no
-/// thread but the one holding it ever touches it (ADR 21).
+/// thread but the one holding it ever touches it.
 pub struct Editor {
     workspace: Workspace,
     /// How the terminal was last divided; what the focused view's area came
@@ -233,7 +233,7 @@ impl Editor {
         view.resize(self.screen.text, buffer);
     }
 
-    /// The only way in (ADR 16). Routes to the method that does the work;
+    /// The only way in. Routes to the method that does the work;
     /// what a command means is decided here and nowhere else.
     pub fn execute(&mut self, command: Command) {
         // A message answers the last command; the next one supersedes it.
@@ -631,7 +631,7 @@ impl Editor {
             return String::new();
         };
         let needle = quoted(&search.query().needle);
-        // A search with nothing to count is still on (ADR 22), and says so
+        // A search with nothing to count is still on, and says so
         // the way the message did, rather than as a count of zero.
         if search.hits().is_empty() {
             return format!("Not found {needle}");

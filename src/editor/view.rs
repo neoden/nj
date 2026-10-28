@@ -80,7 +80,7 @@ pub struct View {
     selections: SelectionSet,
     /// The buffer version the selections are positions in. The view in focus
     /// is kept current by the editor; any other is brought up to date when it
-    /// is next looked at (ADR 18).
+    /// is next looked at.
     seen: Version,
     pub top_line: usize,
     pub left_column: usize,

@@ -70,7 +70,7 @@ fn mouse(event: MouseEvent) -> Option<Mouse> {
 
 /// The event a terminal would send for `key`: the other direction, for a
 /// scenario that is written in key names and has to enter where real input
-/// enters (ADR 25). A shifted letter arrives from the terminal as its
+/// enters. A shifted letter arrives from the terminal as its
 /// uppercase form with SHIFT set, and so it does here.
 pub fn event(key: Key) -> Event {
     let code = match key.code {

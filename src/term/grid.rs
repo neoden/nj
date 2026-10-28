@@ -1,4 +1,4 @@
-//! The shadow grid of ADR 5: a frame is composed into cells first, and only
+//! The shadow grid: a frame is composed into cells first, and only
 //! what differs from the frame before is sent to the terminal. The grid is
 //! also what a test looks at, since a stream of escape sequences is not
 //! something one can compare with an expectation.

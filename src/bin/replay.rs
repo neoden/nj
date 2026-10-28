@@ -1,4 +1,4 @@
-//! Replays a scenario in a live editor, one line at a time (ADR 29). The
+//! Replays a scenario in a live editor, one line at a time. The
 //! editor runs in the sandbox, in a terminal of its own; this side sends
 //! the sandbox every line of the file over its socket and shows what came
 //! back.
@@ -122,7 +122,7 @@ mod live {
 
     impl Sandbox {
         /// One line in, the answer out: the lines up to the blank one that
-        /// ends every answer (ADR 26), each with its newline.
+        /// ends every answer, each with its newline.
         fn ask(&mut self, line: &str) -> Result<String> {
             writeln!(self.stream, "{line}")?;
             let mut answer = String::new();

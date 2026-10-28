@@ -1,6 +1,6 @@
 # A buffer remembers the file it was read from, as it was then. When the
 # file has been written by someone else since, Ctrl+S does not overwrite
-# their work blindly: it asks (ADR 20). Esc leaves both the file and the
+# their work blindly: it asks. Esc leaves both the file and the
 # buffer as they are; `o` writes over. Once written, the buffer knows the
 # file again and the next save does not ask. What the save was for rides
 # along: a save on the way out still quits after the question.

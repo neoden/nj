@@ -1,4 +1,4 @@
-//! Positions that survive edits (ADR 18). A byte offset addresses one
+//! Positions that survive edits. A byte offset addresses one
 //! version of the text; an anchor is that offset together with the version it
 //! came from, and resolving it means running it forward through everything
 //! that happened since. Nothing here knows about text — only about what was

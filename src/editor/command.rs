@@ -1,4 +1,4 @@
-//! Everything the editor can be asked to do, as values (ADR 16). The keymap
+//! Everything the editor can be asked to do, as values. The keymap
 //! produces them, the palette will list them, a socket will send them; the
 //! editor executes them and nothing else reaches it.
 //!

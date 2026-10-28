@@ -1,5 +1,5 @@
 # Enter in the find field starts the search and lands on the first hit after
-# the cursor; the prompt closes but the search goes on (ADR 22, 23). F3 walks
+# the cursor; the prompt closes but the search goes on. F3 walks
 # forward, Shift+F3 back, and both wrap around the ends of the text.
 
 size 30 7

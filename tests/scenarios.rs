@@ -1,6 +1,6 @@
 //! Runs every `.sc` under `tests/scenarios` through `term::scenario` and
-//! checks that the frames written in the file are what the screen shows
-//! (ADR 25). Scenarios are grouped in a directory per area, and a scenario
+//! checks that the frames written in the file are what the screen shows.
+//! Scenarios are grouped in a directory per area, and a scenario
 //! is named by its path from there: `search/esc-ends-the-search`.
 //!
 //!   cargo test --test scenarios                    all of them

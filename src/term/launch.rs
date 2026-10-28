@@ -1,8 +1,7 @@
 //! What comes before there is an editor and what comes after it: the
 //! command line, the buffer the editor starts with, and how the process
 //! ends once the editor has exited. In the library rather than in `main.rs`
-//! so that a scenario starts and ends the editor the way a launch does
-//! (ADR 28).
+//! so that a scenario starts and ends the editor the way a launch does.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;

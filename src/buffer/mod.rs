@@ -26,7 +26,7 @@ const BOM: &str = "\u{feff}";
 const UNDO_LIMIT: usize = 1000;
 
 /// Steps the journal keeps. An anchor older than that cannot be resolved,
-/// which is said rather than answered wrongly (ADR 18). A step is a few
+/// which is said rather than answered wrongly. A step is a few
 /// ranges, so this is cheap to keep long.
 const JOURNAL_LIMIT: usize = 4096;
 
@@ -96,8 +96,8 @@ pub enum Backing {
 /// One open text: what is being edited, plus everything needed to write it
 /// back where it came from.
 ///
-/// The text is private, and the one call that changes it writes the journal
-/// (ADR 18): a position taken at some version can then be brought forward to
+/// The text is private, and the one call that changes it writes the journal:
+/// a position taken at some version can then be brought forward to
 /// the current one, however long ago and by whomever it was taken.
 #[derive(Debug)]
 pub struct Buffer {

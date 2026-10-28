@@ -1,6 +1,6 @@
 //! How the terminal is divided between the text, a panel and the status bar.
 //! A view is handed its area from here rather than working one out itself,
-//! which is what lets a second view exist (ADR 15).
+//! which is what lets a second view exist.
 
 /// A rectangle of the terminal, in cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

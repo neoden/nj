@@ -1,4 +1,4 @@
-//! The sandbox (ADR 29): a process in the terminal that runs the editor as
+//! The sandbox: a process in the terminal that runs the editor as
 //! its child under the conditions a scenario assumes, and answers for
 //! everything around the editor. It listens on a socket for lines of the
 //! scenario language. The `%` lines it carries out itself: `%file` in the
@@ -132,7 +132,7 @@ mod live {
                 Err(error) => format!("error: {error:#}\n"),
             };
             // The answer ends with a newline of its own; this adds the
-            // blank line that ends every answer (ADR 26).
+            // blank line that ends every answer.
             if writeln!(out, "{answer}").is_err() {
                 break;
             }
@@ -284,7 +284,7 @@ mod live {
 
         /// An editor's own line: to the editor, started first if the run
         /// has none yet, as `ned` alone would be. After the exit nothing
-        /// is taken (ADR 28): `?exit` and `?stdout` say what became of it.
+        /// is taken:`?exit` and `?stdout` say what became of it.
         fn forward(&mut self, line: &str) -> Result<String> {
             match &mut self.stage {
                 Stage::Before => self.start(Args::default())?,
@@ -295,7 +295,7 @@ mod live {
                 unreachable!("started above");
             };
             let answer = running.editor.ask(line)?;
-            // The editor leaving is the answer (ADR 28); the process's own
+            // The editor leaving is the answer; the process's own
             // end is the one reported.
             if answer.starts_with("exit ") {
                 return self.finish();
@@ -362,7 +362,7 @@ mod live {
         /// Waits for the editor's process to end and keeps its outcome:
         /// the exit code and, for a pipeline, what it wrote. An editor
         /// ended by a signal has no exit code and no outcome: that is an
-        /// error, and the run is left without an editor (ADR 28).
+        /// error, and the run is left without an editor.
         fn finish(&mut self) -> Result<String> {
             let Stage::Running(running) = &mut self.stage else {
                 unreachable!("finished while running");

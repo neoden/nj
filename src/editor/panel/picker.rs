@@ -7,7 +7,7 @@ pub const VISIBLE: usize = 10;
 
 /// Candidates per report. Bounded so a directory with a hundred thousand
 /// files still draws its first frame at once, and so that receiving one
-/// batch stays within a frame (ADR 21).
+/// batch stays within a frame.
 const BATCH: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

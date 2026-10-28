@@ -1,4 +1,4 @@
-//! A frame as text, for a scenario to read and a test to compare (ADR 25).
+//! A frame as text, for a scenario to read and a test to compare.
 //! One line per screen row, prefixed with the row's number; under a row, when
 //! any cell on it carries a style worth seeing, a second line with a letter
 //! per cell. Empty rows that follow one another collapse into a range. Given

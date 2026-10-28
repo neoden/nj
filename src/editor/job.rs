@@ -1,4 +1,4 @@
-//! Background work (ADR 21). A job is a thread that owns nothing but what it
+//! Background work. A job is a thread that owns nothing but what it
 //! was handed and reports back through the one channel the main loop waits
 //! on. The editor is never touched from a worker: a report is data, and what
 //! to do with it is decided on arrival.
@@ -27,7 +27,7 @@ pub enum Message {
     Terminate,
 }
 
-/// A line from the socket (ADR 26), and where its answer goes. The line is
+/// A line from the socket, and where its answer goes. The line is
 /// read by the loop, not here: the editor's layer knows nothing of the
 /// language it is written in.
 #[derive(Debug)]

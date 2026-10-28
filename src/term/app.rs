@@ -23,7 +23,7 @@ pub fn signals() -> Result<Signals> {
     Ok(Signals::new([SIGTERM, SIGHUP, SIGINT])?)
 }
 
-/// One queue, one thread that owns the editor (ADR 21). The terminal is read
+/// One queue, one thread that owns the editor. The terminal is read
 /// on a thread of its own, because `event::read` blocks and the queue is
 /// what the loop has to wait on.
 pub fn run(
@@ -48,7 +48,7 @@ pub fn run(
     });
 
     // A signal asking the process to end is one more sender on the same
-    // queue (ADR 21): the loop wakes for it as for a key.
+    // queue: the loop wakes for it as for a key.
     let queue = editor.sender();
     thread::spawn(move || {
         for _ in signals.forever() {

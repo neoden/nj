@@ -2,7 +2,7 @@
 //!
 //! A buffer owns the text, the history and where it came from; a view owns
 //! the selections, the scroll position and the area of the screen it was
-//! given (ADR 15). Nothing here is ever removed yet, so a plain index is a
+//! given. Nothing here is ever removed yet, so a plain index is a
 //! stable handle.
 
 use super::view::View;
@@ -51,7 +51,7 @@ impl Workspace {
         id
     }
 
-    /// Another window onto a buffer, with its own cursors (ADR 9).
+    /// Another window onto a buffer, with its own cursors.
     pub fn open_view(&mut self, buffer: BufferId) -> ViewId {
         self.views.push(View::new(buffer, &self.buffers[buffer.0]));
         ViewId(self.views.len() - 1)
@@ -119,7 +119,7 @@ mod tests {
     use crate::text::selection::SelectionSet;
     use crate::text::transaction::{CursorAfter, Transaction};
 
-    /// Two views on one buffer keep their own cursors (ADR 9), and the one
+    /// Two views on one buffer keep their own cursors, and the one
     /// not in focus is carried along through the edits it did not see.
     #[test]
     fn a_view_left_behind_catches_up_when_it_is_focused_again() {

@@ -15,5 +15,3 @@ here even when the tests pass.
 - No shell one-liners (sed, awk) for editing files.
 - Code and comments in English; comments only where the why is not obvious.
 - The owner commits. `docs/*.md` stay uncommitted working notes.
-- Decisions go to `docs/adr` in Nygard format; do not cite these docs as
-  authority in an argument, argue the point itself.

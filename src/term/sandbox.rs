@@ -1,10 +1,10 @@
-//! The headless run of a scenario, for the tests and the drive example
-//! (ADR 25): an editor under the conditions the scenario assumes — a fake
+//! The headless run of a scenario, for the tests and the drive example:
+//! an editor under the conditions the scenario assumes — a fake
 //! clipboard, a directory of its own under `target`, a frame of the size
 //! the scenario says, 40×10 until it says — started, driven and ended by
-//! the scenario's lines (ADR 28). Test machinery, so debug builds only. A
+//! the scenario's lines. Test machinery, so debug builds only. A
 //! live editor gets the same conditions from the sandbox binary, which
-//! runs it as a child process (ADR 29) and shares `Workdir` and `Frames`
+//! runs it as a child process and shares `Workdir` and `Frames`
 //! from here.
 
 use std::cell::RefCell;
@@ -32,7 +32,7 @@ pub const SOCKET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/sandbox.so
 
 /// The frames a run has taken, as far as a snapshot needs them: the one
 /// before, for the next to differ from. Taken headless by the run and, in
-/// the debug build, over the socket by the live editor (ADR 29).
+/// the debug build, over the socket by the live editor.
 #[derive(Default)]
 pub struct Frames {
     previous: Option<Grid>,
@@ -126,7 +126,7 @@ impl Sandbox {
         self.editor().resize(width, height);
     }
 
-    /// Starts the editor as `args` would from the shell (ADR 28): `stdin`
+    /// Starts the editor as `args` would from the shell:`stdin`
     /// is the pipe, the sandbox keeps the other end of the clipboard. The
     /// socket is the process's, not the editor's, and has no meaning here.
     /// An editor started after another begins as the first did, with the

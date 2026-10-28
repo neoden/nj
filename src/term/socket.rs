@@ -1,7 +1,7 @@
-//! The socket of ADR 26: a Unix socket that takes lines of the scenario
+//! A Unix socket that takes lines of the scenario
 //! language and answers each. The threads here own the socket and nothing
 //! else; a line goes to the loop as a message and the answer comes back on
-//! a channel, so the editor is touched by its own thread only (ADR 21).
+//! a channel, so the editor is touched by its own thread only.
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -89,7 +89,7 @@ impl Drop for Listener {
 /// would be; `wait`, for its own jobs; `size`, the frame to draw, which
 /// the server then holds; and, in the debug build, `---`, answered with
 /// the frame dumped as the test dumps it. The `%` lines are about the run
-/// around the editor and are set up by whoever drives it (ADR 29).
+/// around the editor and are set up by whoever drives it.
 #[derive(Default)]
 pub struct Server {
     /// The frame to draw instead of the whole terminal, once `size` said.
@@ -116,7 +116,7 @@ impl Server {
     /// refused rather than shown in part.
     pub fn answer(&mut self, editor: &mut Editor, line: &str, terminal: (usize, usize)) -> String {
         // The run around the editor is set up by whoever drives it, never
-        // over the socket (ADR 29); the prefix says so before the verb does.
+        // over the socket; the prefix says so before the verb does.
         if scenario::belongs_to_run(line) {
             return "error: a `%` or `?` line is the run's and is not taken over the socket\n"
                 .to_owned();
@@ -129,7 +129,7 @@ impl Server {
                     return format!("error: {error:#}\n");
                 }
                 // The editor leaving is the answer: the loop ends after this
-                // and the connection goes with it (ADR 28).
+                // and the connection goes with it.
                 if editor.exit().is_some() {
                     return match Outcome::of(editor) {
                         Ok(outcome) => scenario::outcome(&outcome),

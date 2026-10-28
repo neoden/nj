@@ -1,4 +1,4 @@
-//! Composes a frame into the grid (ADR 5). Nothing here writes to the
+//! Composes a frame into the grid. Nothing here writes to the
 //! terminal: the grid is filled from the editor's state, and the renderer
 //! flushes what changed since the frame before.
 

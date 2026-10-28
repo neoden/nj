@@ -1,9 +1,9 @@
-//! One table resolves every keystroke (ADR 8). A binding is a key, the
+//! One table resolves every keystroke. A binding is a key, the
 //! context it holds in, and the command it means; the first binding that
 //! matches wins, so a key can mean different things in different places by
 //! being listed more than once, most specific first.
 //!
-//! An open panel owns the keyboard (ADR 12) not by intercepting keys but by
+//! An open panel owns the keyboard not by intercepting keys but by
 //! this table: commands that act on the text are bound in `Context::Text`,
 //! and in a panel they simply do not match.
 
