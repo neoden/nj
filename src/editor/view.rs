@@ -75,7 +75,9 @@ pub struct Row {
 #[derive(Debug)]
 pub struct View {
     pub buffer: BufferId,
-    pub selections: SelectionSet,
+    /// Written only by `place` and `put`, so that a command cannot move the
+    /// cursors and forget what the move owes the screen.
+    selections: SelectionSet,
     /// The buffer version the selections are positions in. The view in focus
     /// is kept current by the editor; any other is brought up to date when it
     /// is next looked at (ADR 18).
@@ -229,6 +231,25 @@ impl View {
             .top_line
             .saturating_add_signed(delta)
             .min(self.max_top_line(buffer));
+    }
+
+    pub fn selections(&self) -> &SelectionSet {
+        &self.selections
+    }
+
+    /// Puts the cursors somewhere else and brings the primary one on screen.
+    /// A command that moves them goes through here, so that a cursor left
+    /// off screen is not something it can forget.
+    pub fn place(&mut self, buffer: &Buffer, selections: SelectionSet) {
+        self.selections = selections;
+        self.scroll_to_cursor(buffer);
+    }
+
+    /// Puts the cursors somewhere else and leaves the screen where it is:
+    /// for a command whose cursors are already on screen, or that must not
+    /// move it. Calling this instead of `place` says so.
+    pub fn put(&mut self, selections: SelectionSet) {
+        self.selections = selections;
     }
 
     pub fn move_selections(&mut self, buffer: &Buffer, motion: Motion, extend: bool) {

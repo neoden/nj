@@ -47,7 +47,7 @@ impl Context {
             Context::Any => true,
             Context::Text => editor.panel().is_none(),
             Context::MultipleCursors => {
-                editor.panel().is_none() && editor.view().selections.len() > 1
+                editor.panel().is_none() && editor.view().selections().len() > 1
             }
             Context::Searching => editor.panel().is_none() && editor.has_search(),
             Context::Panel => editor.panel().is_some(),

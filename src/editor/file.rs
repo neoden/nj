@@ -27,7 +27,7 @@ impl Editor {
         if let Some(job) = self.watchers.remove(&id) {
             self.jobs.cancel(job);
         }
-        let Backing::File { path, on_disk } = &self.workspace.buffer(id).backing else {
+        let Backing::File { path, on_disk } = self.workspace.buffer(id).backing() else {
             return;
         };
         let (path, mut seen) = (path.clone(), *on_disk);

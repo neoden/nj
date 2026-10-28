@@ -385,12 +385,12 @@ impl Editor {
     fn set_selections(&mut self, selections: SelectionSet) {
         let (view, buffer) = self.workspace.focus_mut();
         let text = buffer.text();
-        view.selections = selections.mapped(|selection| Selection {
+        let snapped = selections.mapped(|selection| Selection {
             anchor: text.snap(selection.anchor),
             head: text.snap(selection.head),
             goal_column: None,
         });
-        view.scroll_to_cursor(buffer);
+        view.place(buffer, snapped);
     }
 
     /// Screen cells into the view's own coordinates: past its gutter, down
@@ -412,20 +412,25 @@ impl Editor {
         self.close_panel();
         let (view, buffer) = self.workspace.focus_mut();
         let offset = view.offset_at_screen(buffer, row, column);
-        match kind {
-            ClickKind::Place => view.selections = SelectionSet::single(offset),
-            ClickKind::Add => view.selections.push(Selection::cursor(offset)),
+        let clicked = match kind {
+            ClickKind::Place => SelectionSet::single(offset),
+            ClickKind::Add => {
+                let mut added = view.selections().clone();
+                added.push(Selection::cursor(offset));
+                added
+            }
             // Extending is one selection's business: the primary keeps its
             // anchor, and any other cursor goes, as under a plain click.
-            ClickKind::Extend => {
-                view.selections = Selection {
-                    anchor: view.selections.primary().anchor,
-                    head: offset,
-                    goal_column: None,
-                }
-                .into();
+            ClickKind::Extend => Selection {
+                anchor: view.selections().primary().anchor,
+                head: offset,
+                goal_column: None,
             }
-        }
+            .into(),
+        };
+        // The click landed on screen, so the screen stays: a cursor placed
+        // on the top row must not pull the margin above it into view.
+        view.put(clicked);
     }
 
     /// A drag follows a click, which closed any panel there was. One still
@@ -439,13 +444,12 @@ impl Editor {
             return;
         };
         let (view, buffer) = self.workspace.focus_mut();
-        view.selections = Selection {
-            anchor: view.selections.primary().anchor,
+        let dragged = Selection {
+            anchor: view.selections().primary().anchor,
             head: view.offset_at_screen(buffer, row, column),
             goal_column: None,
-        }
-        .into();
-        view.scroll_to_cursor(buffer);
+        };
+        view.place(buffer, dragged.into());
     }
 
     /// What a query field opens holding. A selection spanning lines means
@@ -632,12 +636,12 @@ impl Editor {
         if search.hits().is_empty() {
             return format!("Not found {needle}");
         }
-        let count = search.count(self.view().selections.primary().min());
+        let count = search.count(self.view().selections().primary().min());
         format!("{count} {needle}")
     }
 
     fn selected_text(&self) -> Option<String> {
-        let primary = self.view().selections.primary();
+        let primary = self.view().selections().primary();
         match primary.is_empty() {
             true => None,
             false => Some(self.buffer().text().substring(primary.range())),
@@ -661,8 +665,7 @@ impl Editor {
         let (view, buffer) = self.workspace.focus_mut();
         let text = buffer.text();
         let line = line.min(text.line_count().saturating_sub(1));
-        view.selections = Selection::cursor(text.line_start(line)).into();
-        view.scroll_to_cursor(buffer);
+        view.place(buffer, Selection::cursor(text.line_start(line)).into());
     }
 
     fn set_language(&mut self, language: &'static Language) {
@@ -686,7 +689,7 @@ impl Editor {
     /// first of those belongs in a typing group.
     fn insert(&mut self, inserted: &str, kind: EditKind) {
         let transaction = Transaction::edit(
-            &self.view().selections,
+            self.view().selections(),
             CursorAfter::EndOfChange,
             |selection| (selection.range(), inserted.to_owned()),
         );
@@ -695,7 +698,7 @@ impl Editor {
 
     fn copy(&mut self) {
         let (view, buffer) = self.workspace.focus();
-        self.clipboard.copy_from(buffer.text(), &view.selections);
+        self.clipboard.copy_from(buffer.text(), view.selections());
 
         let text = self.clipboard.text();
         if let Some(desktop) = &mut self.desktop {
@@ -706,7 +709,7 @@ impl Editor {
     fn cut(&mut self) {
         self.copy();
         let (view, buffer) = self.workspace.focus();
-        if let Some(transaction) = self.clipboard.cut_from(buffer.text(), &view.selections) {
+        if let Some(transaction) = self.clipboard.cut_from(buffer.text(), view.selections()) {
             self.apply(transaction, EditKind::Other);
         }
     }
@@ -717,7 +720,7 @@ impl Editor {
             return;
         }
         let (view, buffer) = self.workspace.focus();
-        let transaction = self.clipboard.paste_into(buffer.text(), &view.selections);
+        let transaction = self.clipboard.paste_into(buffer.text(), view.selections());
         self.apply(transaction, EditKind::Other);
     }
 
@@ -734,7 +737,7 @@ impl Editor {
 
     fn insert_newline(&mut self) {
         let (view, buffer) = self.workspace.focus();
-        let transaction = lines::newline(buffer.text(), &view.selections);
+        let transaction = lines::newline(buffer.text(), view.selections());
         self.apply(transaction, EditKind::Other);
     }
 
@@ -743,15 +746,15 @@ impl Editor {
     fn indent(&mut self) {
         let (view, buffer) = self.workspace.focus();
         let selecting = view
-            .selections
+            .selections()
             .iter()
             .any(|selection| !selection.is_empty());
         let transaction = match selecting {
-            true => lines::indent(buffer.text(), &view.selections, buffer.indent),
+            true => lines::indent(buffer.text(), view.selections(), buffer.indent()),
             false => lines::tab_stops(
                 buffer.text(),
-                &view.selections,
-                buffer.indent,
+                view.selections(),
+                buffer.indent(),
                 buffer.tab_width(),
             ),
         };
@@ -760,19 +763,19 @@ impl Editor {
 
     fn outdent(&mut self) {
         let (view, buffer) = self.workspace.focus();
-        if let Some(transaction) = lines::outdent(buffer.text(), &view.selections, buffer.indent) {
+        if let Some(transaction) = lines::outdent(buffer.text(), view.selections(), buffer.indent()) {
             self.apply(transaction, EditKind::Other);
         }
     }
 
     fn toggle_comment(&mut self) {
         let (view, buffer) = self.workspace.focus();
-        let Some(token) = buffer.language.line_comment else {
+        let Some(token) = buffer.language().line_comment else {
             self.message = Some("No line comment for this language".to_owned());
             return;
         };
         if let Some(transaction) =
-            lines::toggle_comment(buffer.text(), &view.selections, token, buffer.tab_width())
+            lines::toggle_comment(buffer.text(), view.selections(), token, buffer.tab_width())
         {
             self.apply(transaction, EditKind::Other);
         }
@@ -782,7 +785,7 @@ impl Editor {
         let (view, buffer) = self.workspace.focus();
         column_at(
             buffer.text(),
-            view.selections.primary().head,
+            view.selections().primary().head,
             buffer.tab_width(),
         )
     }
@@ -790,12 +793,12 @@ impl Editor {
     /// A cursor with nothing selected eats the neighbouring text instead.
     fn delete(&mut self, motion: Motion) {
         let text = self.buffer().text();
-        let indent = self.buffer().indent;
+        let indent = self.buffer().indent();
         // Cursors are disjoint, but what each one reaches for is not: two
         // cursors in one word both want the whole word. What an earlier
         // cursor takes is not taken again.
         let mut taken = 0;
-        let changes = self.view().selections.iter().map(|selection| {
+        let changes = self.view().selections().iter().map(|selection| {
             let head = selection.head;
             let range = if !selection.is_empty() {
                 selection.range()
@@ -815,7 +818,7 @@ impl Editor {
             (range, String::new())
         });
         let transaction =
-            Transaction::over(&self.view().selections, CursorAfter::EndOfChange, changes);
+            Transaction::over(self.view().selections(), CursorAfter::EndOfChange, changes);
 
         let kind = match motion {
             Motion::Grapheme(direction) => EditKind::Delete(direction),
@@ -828,12 +831,16 @@ impl Editor {
 
     fn remove_secondary_cursors(&mut self) {
         let (view, buffer) = self.workspace.focus_mut();
-        view.selections.collapse_to_primary();
-        view.scroll_to_cursor(buffer);
+        let primary = view.selections().primary();
+        view.place(buffer, primary.into());
     }
 
     fn cancel_selection(&mut self) {
-        self.view_mut().selections.collapse_to_cursors();
+        let view = self.view_mut();
+        let cursors = view
+            .selections()
+            .mapped(|selection| Selection::cursor(selection.head));
+        view.put(cursors);
     }
 
     /// Takes the lines a selection touches, break included. Pressing again
@@ -841,7 +848,7 @@ impl Editor {
     fn select_line(&mut self) {
         let (view, buffer) = self.workspace.focus_mut();
         let text = buffer.text();
-        view.selections = view.selections.mapped(|selection| {
+        let lines = view.selections().mapped(|selection| {
             let last = text.line_of(selection.max());
             Selection {
                 anchor: text.line_start(text.line_of(selection.min())),
@@ -852,19 +859,19 @@ impl Editor {
                 goal_column: None,
             }
         });
-        view.scroll_to_cursor(buffer);
+        view.place(buffer, lines);
     }
 
     /// The view stays where it is: jumping to the end of the file is not what
     /// anyone wants from selecting everything.
     fn select_all(&mut self) {
         let (view, buffer) = self.workspace.focus_mut();
-        view.selections = Selection {
+        let all = Selection {
             anchor: 0,
             head: buffer.text().len(),
             goal_column: None,
-        }
-        .into();
+        };
+        view.put(all.into());
     }
 
     /// Moves the page without moving the cursors, which may leave them off
@@ -880,32 +887,32 @@ impl Editor {
     }
 
     fn undo(&mut self) {
-        let (view, buffer) = self.workspace.focus_edit();
-        if let Some(selections) = buffer.undo() {
-            view.selections = selections;
-            view.mark_current(buffer);
-            view.scroll_to_cursor(buffer);
-            self.refresh_search();
+        if let Some(selections) = self.workspace.focus_edit().1.undo() {
+            self.edited(selections);
         }
     }
 
     fn redo(&mut self) {
-        let (view, buffer) = self.workspace.focus_edit();
-        if let Some(selections) = buffer.redo() {
-            view.selections = selections;
-            view.mark_current(buffer);
-            view.scroll_to_cursor(buffer);
-            self.refresh_search();
+        if let Some(selections) = self.workspace.focus_edit().1.redo() {
+            self.edited(selections);
         }
     }
 
-    /// The buffer changes here and nowhere else in the editor; the view
-    /// gets the cursors the transaction placed, which are already current.
+    /// The buffer changes here, in `undo` and in `redo`, and nowhere else
+    /// in the editor.
     fn apply(&mut self, transaction: Transaction, kind: EditKind) {
-        let (view, buffer) = self.workspace.focus_edit();
-        view.selections = buffer.apply(transaction, kind);
+        let selections = self.workspace.focus_edit().1.apply(transaction, kind);
+        self.edited(selections);
+    }
+
+    /// The text of the focused buffer has just changed, and these are the
+    /// cursors the change left behind. They are placed in the current text,
+    /// so there is nothing to catch up on; and the search, if one is open,
+    /// has hits in the old text.
+    fn edited(&mut self, selections: SelectionSet) {
+        let (view, buffer) = self.workspace.focus_mut();
+        view.place(buffer, selections);
         view.mark_current(buffer);
-        view.scroll_to_cursor(buffer);
         self.refresh_search();
     }
 

@@ -143,16 +143,6 @@ impl SelectionSet {
         moved
     }
 
-    pub fn collapse_to_primary(&mut self) {
-        let primary = self.primary();
-        self.selections = vec![primary];
-        self.primary = 0;
-    }
-
-    pub fn collapse_to_cursors(&mut self) {
-        *self = self.mapped(|selection| Selection::cursor(selection.head));
-    }
-
     /// Lines under any cursor, each named once however many cursors sit on
     /// it. A selection ending exactly on a line start does not reach that
     /// line — it only swallowed the break before it.
@@ -336,25 +326,5 @@ mod tests {
         let mut set = SelectionSet::from_selections(vec![selection(4, 2), selection(0, 2)], 1);
         set.push(selection(0, 0));
         assert_eq!(set.primary(), selection(0, 2));
-    }
-
-    #[test]
-    fn removing_secondary_cursors_keeps_the_primary_selection() {
-        let mut set: SelectionSet = selection(20, 25).into();
-        set.push(selection(0, 5));
-        set.collapse_to_primary();
-
-        assert_eq!(set.len(), 1);
-        assert_eq!(set.primary(), selection(20, 25));
-    }
-
-    #[test]
-    fn cancelling_a_selection_leaves_a_cursor_at_its_head() {
-        let mut set = set(&[selection(4, 10), selection(20, 15)]);
-        set.collapse_to_cursors();
-
-        let heads: Vec<_> = set.iter().map(|selection| selection.head).collect();
-        assert_eq!(heads, [10, 15]);
-        assert!(set.iter().all(Selection::is_empty));
     }
 }

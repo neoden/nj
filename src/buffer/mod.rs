@@ -102,10 +102,12 @@ pub enum Backing {
 #[derive(Debug)]
 pub struct Buffer {
     text: Text,
-    pub framing: Framing,
-    pub backing: Backing,
-    pub language: &'static Language,
-    pub indent: Indent,
+    framing: Framing,
+    backing: Backing,
+    language: &'static Language,
+    /// Derived from `language` by `set_language`, so the two are never
+    /// written separately.
+    indent: Indent,
     /// Bounded, so the oldest step falls off the front.
     undo_stack: VecDeque<Group>,
     redo_stack: Vec<Group>,
@@ -271,6 +273,18 @@ impl Buffer {
     pub fn set_language(&mut self, language: &'static Language) {
         self.language = language;
         self.indent = indent::detect(&self.text, language.indent);
+    }
+
+    pub fn language(&self) -> &'static Language {
+        self.language
+    }
+
+    pub fn indent(&self) -> Indent {
+        self.indent
+    }
+
+    pub fn backing(&self) -> &Backing {
+        &self.backing
     }
 
     pub fn tab_width(&self) -> usize {
@@ -899,10 +913,7 @@ mod tests {
         let path = scratch("pipeline-copy");
         let _ = fs::remove_file(&path);
 
-        let mut buffer = Buffer::parse("in\n");
-        buffer.backing = Backing::Stdio {
-            committed: buffer.text.clone(),
-        };
+        let mut buffer = Buffer::from_pipe("in\n".as_bytes()).unwrap();
         insert(&mut buffer, 0, "edited ");
         buffer.save_as(path.clone()).unwrap();
 
@@ -919,10 +930,7 @@ mod tests {
 
     #[test]
     fn a_pipeline_hands_on_what_was_last_saved() {
-        let mut buffer = Buffer::parse("in\r\n");
-        buffer.backing = Backing::Stdio {
-            committed: buffer.text.clone(),
-        };
+        let mut buffer = Buffer::from_pipe("in\r\n".as_bytes()).unwrap();
 
         // Nothing saved: the input passes through, framing included.
         let mut out = Vec::new();

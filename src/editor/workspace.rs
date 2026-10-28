@@ -128,7 +128,7 @@ mod tests {
         let second = workspace.open_view(BufferId(0));
 
         workspace.focus_on(second);
-        workspace.focus_mut().0.selections = SelectionSet::single(4);
+        workspace.focus_mut().0.put(SelectionSet::single(4));
 
         // Back in the first view, insert at the very start.
         workspace.focus_on(first);
@@ -137,14 +137,15 @@ mod tests {
             Transaction::edit(&SelectionSet::single(0), CursorAfter::EndOfChange, |_| {
                 (0..0, "___".to_owned())
             });
-        view.selections = buffer.apply(transaction, EditKind::Other);
+        let placed = buffer.apply(transaction, EditKind::Other);
+        view.put(placed);
         view.mark_current(buffer);
-        assert_eq!(view.selections.primary().head, 3);
+        assert_eq!(view.selections().primary().head, 3);
 
         // The second view still says 4 — until it is looked at.
-        assert_eq!(workspace.view(second).selections.primary().head, 4);
+        assert_eq!(workspace.view(second).selections().primary().head, 4);
         workspace.focus_on(second);
-        assert_eq!(workspace.view(second).selections.primary().head, 7);
-        assert_eq!(workspace.view(first).selections.primary().head, 3);
+        assert_eq!(workspace.view(second).selections().primary().head, 7);
+        assert_eq!(workspace.view(first).selections().primary().head, 3);
     }
 }

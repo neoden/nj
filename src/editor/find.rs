@@ -49,10 +49,9 @@ impl Editor {
             return;
         }
 
-        let selections = search.selections(self.view().selections.primary().min());
+        let selections = search.selections(self.view().selections().primary().min());
         let (view, buffer) = self.workspace.focus_mut();
-        view.selections = selections;
-        view.scroll_to_cursor(buffer);
+        view.place(buffer, selections);
         self.end_search();
     }
 
@@ -76,7 +75,7 @@ impl Editor {
             return;
         };
         let left = search.hits().len();
-        let from = self.view().selections.primary().min();
+        let from = self.view().selections().primary().min();
         let first = search.next_hit(from, Direction::Forward);
         self.search = Some(search);
         self.last_replacement = Some(replacement.clone());
@@ -157,7 +156,7 @@ impl Editor {
     /// Where the next hit is looked for: past the primary selection going
     /// forward, before it going back — so the one selected is not found again.
     fn from(&self, direction: Direction) -> usize {
-        let primary = self.view().selections.primary();
+        let primary = self.view().selections().primary();
         match direction {
             Direction::Forward => primary.max(),
             Direction::Backward => primary.min(),
@@ -166,8 +165,7 @@ impl Editor {
 
     fn select_hit(&mut self, hit: Range<usize>) {
         let (view, buffer) = self.workspace.focus_mut();
-        view.selections = Query::selection(hit).into();
-        view.scroll_to_cursor(buffer);
+        view.place(buffer, Query::selection(hit).into());
     }
 
     /// `a` while replacing: every hit not answered for yet becomes the
@@ -186,8 +184,9 @@ impl Editor {
             return;
         };
 
-        let selections = search.rest(self.view().selections.primary().min(), left);
-        self.view_mut().selections = selections;
+        let selections = search.rest(self.view().selections().primary().min(), left);
+        // The screen follows the insertion, not the cursors on their own.
+        self.view_mut().put(selections);
         self.close_panel();
         self.insert(&replacement, EditKind::Other);
     }
@@ -201,12 +200,12 @@ impl Editor {
 
         let (view, buffer) = self.workspace.focus_mut();
         let text = buffer.text();
-        let selected = |hit: &Range<usize>| view.selections.iter().any(|s| s.range() == *hit);
+        let selected = |hit: &Range<usize>| view.selections().iter().any(|s| s.range() == *hit);
 
         // Hits already under a cursor are passed over, not stopped at: the
         // primary need not be the last one added. Coming back round to the
         // first hit found means there is nothing left to add.
-        let from = view.selections.primary().max();
+        let from = view.selections().primary().max();
         let Some(first) = query.find(text, from, Direction::Forward) else {
             return;
         };
@@ -221,7 +220,11 @@ impl Editor {
             hit = next;
         }
 
-        view.selections.push(Query::selection(hit.clone()));
+        // The new cursor is the one to show, not the primary, which stays
+        // where it was.
+        let mut added = view.selections().clone();
+        added.push(Query::selection(hit.clone()));
+        view.put(added);
         view.reveal(buffer, hit.end);
         self.remember_occurrences(query);
     }
@@ -245,13 +248,12 @@ impl Editor {
         // The primary stays the occurrence the person is on; the others are
         // added around it, as `Ctrl+D` would have added them one by one.
         let (view, buffer) = self.workspace.focus_mut();
-        let at = view.selections.primary().range();
+        let at = view.selections().primary().range();
         let primary = selections
             .iter()
             .position(|selection| selection.range() == at)
             .unwrap_or(0);
-        view.selections = SelectionSet::from_selections(selections, primary);
-        view.scroll_to_cursor(buffer);
+        view.place(buffer, SelectionSet::from_selections(selections, primary));
         self.remember_occurrences(query);
     }
 
@@ -260,8 +262,8 @@ impl Editor {
     fn take_query(&mut self) -> Option<Query> {
         let (view, buffer) = self.workspace.focus_mut();
         let text = buffer.text();
-        if view.selections.iter().any(Selection::is_empty) {
-            view.selections = view.selections.mapped(|selection| {
+        if view.selections().iter().any(Selection::is_empty) {
+            let words = view.selections().mapped(|selection| {
                 if !selection.is_empty() {
                     return selection;
                 }
@@ -272,10 +274,12 @@ impl Editor {
                     goal_column: None,
                 }
             });
+            // A word is where its cursor was, so the screen has it already.
+            view.put(words);
             // The run begins: it hunts the word, if the cursors took one.
-            let query = agreed_text(text, &view.selections).map(Query::word);
+            let query = agreed_text(text, view.selections()).map(Query::word);
             self.occurrences = Some(Occurrences {
-                selections: view.selections.clone(),
+                selections: view.selections().clone(),
                 query,
             });
             return None;
@@ -283,19 +287,19 @@ impl Editor {
 
         // The same run going on: what it hunts was settled when it began.
         if let Some(hunt) = &self.occurrences
-            && hunt.selections == view.selections
+            && hunt.selections == *view.selections()
         {
             return hunt.query.clone();
         }
 
         // Anything else moving the cursors means the user chose this text,
         // exactly as it stands — if the selections agree on one.
-        agreed_text(text, &view.selections).map(Query::literal)
+        agreed_text(text, view.selections()).map(Query::literal)
     }
 
     fn remember_occurrences(&mut self, query: Query) {
         self.occurrences = Some(Occurrences {
-            selections: self.view().selections.clone(),
+            selections: self.view().selections().clone(),
             query: Some(query),
         });
     }

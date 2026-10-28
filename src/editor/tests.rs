@@ -41,7 +41,7 @@ fn selections_from_outside_are_snapped_into_the_text() {
 fn ranges(editor: &Editor) -> Vec<std::ops::Range<usize>> {
     editor
         .view()
-        .selections
+        .selections()
         .iter()
         .map(Selection::range)
         .collect()
@@ -191,7 +191,7 @@ fn too_many_hits_are_refused_rather_than_partly_selected() {
     over.execute(Command::Panel(PanelCommand::Search(Direction::Forward)));
     assert_eq!(over.message(), None);
     over.execute(Command::Select(Select::AllOccurrences));
-    assert_eq!(over.view().selections.len(), 1);
+    assert_eq!(over.view().selections().len(), 1);
     assert!(over.message().unwrap().starts_with("More than"));
     // Refused, so the search was not used up.
     assert!(over.has_search());
@@ -200,5 +200,5 @@ fn too_many_hits_are_refused_rather_than_partly_selected() {
     let mut under = editor(&"x ".repeat(MAX_CURSORS), 0);
     under.select_next_occurrence();
     under.select_all_occurrences();
-    assert_eq!(under.view().selections.len(), MAX_CURSORS);
+    assert_eq!(under.view().selections().len(), MAX_CURSORS);
 }
