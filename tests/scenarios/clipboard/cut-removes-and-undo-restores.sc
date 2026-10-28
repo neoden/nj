@@ -35,7 +35,7 @@ key Ctrl+V
 5| …h]* · Text · 2 lines · 1:18
 
 key Ctrl+Home
-key Ctrl+Alt+Down
+key Shift+Alt+Down
 key Shift+Ctrl+Right
 key Ctrl+X
 ?clipboard "one\nfour"

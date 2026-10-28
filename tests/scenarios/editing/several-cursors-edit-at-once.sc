@@ -1,14 +1,14 @@
 # Every cursor edits at once, each at its own place. Typing, Backspace and
 # Enter apply to all of them, and one undo takes back what all of them did.
-# A cursor is added on the line above or below with Ctrl+Alt+Up or Down,
+# A cursor is added on the line above or below with Shift+Alt+Up or Down,
 # at the same column, which here is the end of every line.
 
 size 30 7
 paste "one\ntwo\nsix"
 key Ctrl+Home
 key End
-key Ctrl+Alt+Down
-key Ctrl+Alt+Down
+key Shift+Alt+Down
+key Shift+Alt+Down
 
 --- three cursors, one at the end of each line
 0|1 one

@@ -37,8 +37,8 @@ key Ctrl+L
 
 key Esc
 key Ctrl+Home
-key Ctrl+Alt+Down
-key Ctrl+Alt+Down
+key Shift+Alt+Down
+key Shift+Alt+Down
 key Ctrl+L
 
 --- three cursors, three lines: each took its own

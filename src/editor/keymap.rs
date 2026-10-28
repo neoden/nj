@@ -125,7 +125,7 @@ const NONE: Mods = Mods::empty();
 const CTRL: Mods = Mods::CTRL;
 const SHIFT: Mods = Mods::SHIFT;
 const CTRL_SHIFT: Mods = Mods::CTRL.union(Mods::SHIFT);
-const CTRL_ALT: Mods = Mods::CTRL.union(Mods::ALT);
+const SHIFT_ALT: Mods = Mods::SHIFT.union(Mods::ALT);
 
 const fn bind(code: KeyCode, mods: Mods, context: Context, command: Command) -> Binding {
     Binding {
@@ -303,15 +303,17 @@ pub static KEYMAP: &[Binding] = &[
     ),
     bind(Char('l'), CTRL, Text, Command::Select(Select::Line)),
     bind(Char('/'), CTRL, Text, Command::Edit(Edit::ToggleComment)),
+    // Shift+Alt, not Ctrl+Alt: a desktop keeps Ctrl+Alt+arrows for itself,
+    // and they never reach the terminal.
     bind(
         Up,
-        CTRL_ALT,
+        SHIFT_ALT,
         Text,
         Command::Select(Select::AddCursor(Backward)),
     ),
     bind(
         Down,
-        CTRL_ALT,
+        SHIFT_ALT,
         Text,
         Command::Select(Select::AddCursor(Forward)),
     ),

@@ -40,7 +40,7 @@ key Shift+Tab
 
 key Esc
 key Ctrl+Home
-key Ctrl+Alt+Down
+key Shift+Alt+Down
 key Ctrl+L
 
 --- two cursors on two lines: Ctrl+L selects both, meeting at the break and staying two

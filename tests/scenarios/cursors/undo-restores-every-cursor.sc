@@ -6,8 +6,8 @@
 size 30 7
 paste "one\ntwo\nthree"
 key Ctrl+Home
-key Ctrl+Alt+Down
-key Ctrl+Alt+Down
+key Shift+Alt+Down
+key Shift+Alt+Down
 key Shift+End
 
 --- three cursors with their lines selected

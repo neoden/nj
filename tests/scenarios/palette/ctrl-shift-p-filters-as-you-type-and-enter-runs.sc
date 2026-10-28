@@ -40,7 +40,7 @@ type "sel"
  2|3 three
  3-5|
  6|────────────────────────────────────────
- 7|   Add cursor below       Ctrl+Alt+Down
+ 7|   Add cursor below      Alt+Shift+Down
  8|   Select all occurrences  Ctrl+Shift+L
  9|   Select next occurrence        Ctrl+D
 10|   Select line                   Ctrl+L
