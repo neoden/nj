@@ -24,9 +24,7 @@ impl Editor {
     /// that the stamp moved; whether it matters is checked on arrival.
     pub(super) fn watch(&mut self, id: BufferId) {
         // Whatever file the buffer had before is no longer its concern.
-        if let Some(job) = self.watchers.remove(&id) {
-            self.jobs.cancel(job);
-        }
+        self.unwatch(id);
         let Backing::File { path, on_disk } = self.workspace.buffer(id).backing() else {
             return;
         };
@@ -44,6 +42,12 @@ impl Editor {
             }
         });
         self.watchers.insert(id, job);
+    }
+
+    fn unwatch(&mut self, id: BufferId) {
+        if let Some(job) = self.watchers.remove(&id) {
+            self.jobs.cancel(job);
+        }
     }
 
     /// Saves, and carries on with what the save was for once the text has
@@ -181,6 +185,7 @@ impl Editor {
         self.close_panel();
         self.occurrences = None;
         self.message = None;
+        self.unwatch(self.workspace.focused_buffer());
         let id = self.workspace.replace(buffer);
         self.refresh_search();
         self.watch(id);
