@@ -1,8 +1,9 @@
 # Ctrl+L selects the line the cursor is on, whole, with its line break, so
 # the head lands at the start of the next line; pressed again it takes the
-# next line too, and on the last line it ends at the end of the text. Each
-# cursor takes its own line. Ctrl+A selects everything, from any number of
-# cursors to one selection.
+# next line too, and on the last line it ends at the end of the text. A
+# selection across lines grows to all of them whole. Each cursor takes its
+# own line. Ctrl+A selects everything, from any number of cursors to one
+# selection.
 
 size 30 6
 paste "one\ntwo\nthree"
@@ -34,6 +35,31 @@ key Ctrl+L
 2|3 three
  |  ~~~~~^
 5| …ch]* · Text · 3 lines · 3:6
+
+key Esc
+key Ctrl+Home
+key Right
+key Shift+Down
+key Shift+Right
+
+--- a selection from inside the first line to inside the second
+0|1 one
+ |   ~~~
+1|2 two
+ |  ~~^
+2|3 three
+5| …ch]* · Text · 3 lines · 2:3
+
+key Ctrl+L
+
+--- Ctrl+L takes both lines whole: the head is at the start of the third
+0|1 one
+ |  ~~~~
+1|2 two
+ |  ~~~~
+2|3 three
+ |  ^
+5| …ch]* · Text · 3 lines · 3:1
 
 key Esc
 key Ctrl+Home

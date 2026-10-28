@@ -74,3 +74,31 @@ key Ctrl+/
 3|4     let y = 2;
  |  ~~~~~~~~~~~~~~~
 
+%file mixed.rs "\tone();\n  two();"
+key Ctrl+O
+type "mixed.rs"
+key Enter
+type "d"
+wait
+key Ctrl+A
+key Ctrl+/
+
+--- mixed indents, a tab and two spaces: the marker goes at the shallowest column, before a tab it cannot split
+0|1 //  one();
+ |  ~~~~~~~~~~~
+1|2   // two();
+ |  ~~~~~~~~~~~^
+2-4|
+6| …rs* · Rust · 2 lines · 2:12
+
+key Ctrl+/
+key Ctrl+S
+?file mixed.rs "\tone();\n  two();"
+
+--- and comes off again, the tab intact
+0|1     one();
+ |  ~~~~~~~~~~~
+1|2   two();
+ |  ~~~~~~~~^
+6| …d.rs · Rust · 2 lines · 2:9
+
