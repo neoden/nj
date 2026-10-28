@@ -17,6 +17,15 @@ use crate::text::layout::{self, Glyph};
 /// Drawn in place of a control character, which has no glyph of its own.
 pub const CONTROL_PLACEHOLDER: &str = "·";
 
+/// The base a bare cluster is drawn on: the dotted circle Unicode charts
+/// show an isolated combining mark on.
+pub const BARE_BASE: &str = "\u{25cc}";
+
+/// A bare cluster with its base, as one printable cluster.
+pub fn based(cluster: &str) -> String {
+    format!("{BARE_BASE}{cluster}")
+}
+
 /// What a cell shows. A cluster wider than one column takes the cells after
 /// it as continuations, which print nothing of their own.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +125,7 @@ impl Grid {
                 Glyph::Text(cluster) => self.put(x + cell.column, y, cluster, cell.width, style),
                 Glyph::Tab => self.put(x + cell.column, y, " ", 1, style),
                 Glyph::Control => self.put(x + cell.column, y, CONTROL_PLACEHOLDER, 1, style),
+                Glyph::Bare(cluster) => self.put(x + cell.column, y, &based(cluster), 1, style),
             }
             columns = cell.end_column();
         }

@@ -38,6 +38,7 @@ mod live {
     use std::time::{Duration, Instant};
 
     use anyhow::{Context, Result, bail};
+    use rustix::process::{Pid, Signal, kill_process};
     use signal_hook::consts::{SIGINT, SIGTERM};
 
     use ned::term::launch::{Args, Outcome};
@@ -82,11 +83,11 @@ mod live {
         let workdir = Workdir::enter_at(run)?;
         let listener = listen(&socket)?;
         listener.set_nonblocking(true)?;
-        let mut sandbox = Sandbox::new()?;
+        let mut sandbox = Sandbox::new(workdir)?;
         // One client at a time, each served to the end of its connection.
-        // A client is a scenario: where the last one left the editor
-        // exited, the next begins before an editor and in an empty
-        // directory, as a scenario does.
+        // A connection changes nothing by itself: the next client finds
+        // the run where the last one left it, and starts over with
+        // `%reset` if that is what it wants.
         while !stop.load(Ordering::Relaxed) {
             let stream = match listener.accept() {
                 Ok((stream, _)) => stream,
@@ -96,10 +97,6 @@ mod live {
                 }
                 Err(error) => return Err(error.into()),
             };
-            if let Stage::Exited(_) = sandbox.stage {
-                workdir.renew()?;
-                sandbox = Sandbox::new()?;
-            }
             serve(stream, &mut sandbox, &stop);
         }
         sandbox.leave();
@@ -195,15 +192,38 @@ mod live {
     }
 
     struct Sandbox {
+        /// The run's directory, entered; the process's working directory.
+        workdir: Workdir,
         stage: Stage,
         /// What `%stdin` gave, until the editor starts and reads it.
         stdin: Option<String>,
     }
 
     impl Sandbox {
-        /// A run before its editor, in a directory that is empty, with the
+        /// A run before its editor, in `workdir`, which is empty, with the
         /// helpers put in place for the editor to find.
-        fn new() -> Result<Self> {
+        fn new(workdir: Workdir) -> Result<Self> {
+            let sandbox = Self {
+                workdir,
+                stage: Stage::Before,
+                stdin: None,
+            };
+            sandbox.prepare()?;
+            Ok(sandbox)
+        }
+
+        /// `%reset`: the run as `new` made it, whatever has happened since.
+        /// An editor still running is ended first.
+        fn reset(&mut self) -> Result<()> {
+            self.leave();
+            self.stage = Stage::Before;
+            self.stdin = None;
+            self.workdir.renew()?;
+            self.prepare()
+        }
+
+        /// The helpers, written into the directory.
+        fn prepare(&self) -> Result<()> {
             fs::create_dir_all(HELPERS)?;
             let clipboard = std::env::current_dir()?.join(CLIPBOARD);
             for (name, body) in HELPER_SCRIPTS {
@@ -212,10 +232,7 @@ mod live {
                 fs::write(&path, script)?;
                 fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
             }
-            Ok(Self {
-                stage: Stage::Before,
-                stdin: None,
-            })
+            Ok(())
         }
 
         /// Carries out one line and says what came of it, each line of the
@@ -224,14 +241,8 @@ mod live {
             let Some(instruction) = scenario::parse(line)? else {
                 return Ok("ok\n".to_owned());
             };
-            // An editor the person quit by hand is gone without a line
-            // having said so.
-            if let Stage::Running(running) = &mut self.stage
-                && running.child.try_wait()?.is_some()
-            {
-                self.finish()?;
-            }
             match instruction {
+                Instruction::Reset => self.reset()?,
                 Instruction::File(name, text) => {
                     fs::write(&name, text).with_context(|| format!("cannot write {name}"))?;
                 }
@@ -331,11 +342,13 @@ mod live {
             Ok(())
         }
 
-        /// The sandbox is leaving: an editor still running goes with it,
-        /// so that the terminal is not left to a child nobody drives.
+        /// An editor still running is asked to end, as the system would ask
+        /// it, and the sandbox waits until it has: the editor restores the
+        /// terminal on its way out, as it does on any exit, and nothing here
+        /// has to. For `%reset`, and for the sandbox's own leaving.
         fn leave(&mut self) {
             if let Stage::Running(running) = &mut self.stage {
-                let _ = running.child.kill();
+                let _ = kill_process(Pid::from_child(&running.child), Signal::TERM);
                 let _ = running.child.wait();
             }
         }

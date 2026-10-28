@@ -6,6 +6,8 @@
 //!   cargo run -q --bin sandbox              in a terminal of its own
 //!   cargo run -q --bin replay -- FILE.sc    in another
 //!
+//! The sandbox is reset first, so the scenario begins as the file does,
+//! whatever the last replay left there — an editor still open included.
 //! Each line is shown and sent on Enter; `a` sends the rest without
 //! stopping, `q` stops. At `---` the frame the sandbox answers is compared
 //! with the frame in the file, and both are printed only where they
@@ -58,6 +60,12 @@ mod live {
             reader: BufReader::new(stream.try_clone()?),
             stream,
         };
+        // A replay is the scenario from its first line, so the run begins
+        // where the file does: no editor from last time, an empty directory.
+        let answer = sandbox.ask("%reset")?;
+        if answer != "ok\n" {
+            bail!("the sandbox would not reset: {}", answer.trim_end());
+        }
 
         let mut expected = expected_frames(&script).into_iter();
         let mut differ = 0;

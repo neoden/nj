@@ -131,6 +131,14 @@ impl Editor {
         self.proceed(after);
     }
 
+    /// The process has been asked to end — a signal, the terminal going
+    /// away. The one exit that does not ask: there is nobody to ask, and
+    /// the terminal may already be gone. Nothing is written; what was last
+    /// saved is what stands, as after `q` to the quit question.
+    pub fn terminate(&mut self) {
+        self.exit = Some(Exit::Quit);
+    }
+
     /// Nothing is ever discarded without being asked about first.
     pub(super) fn request_quit(&mut self) {
         match self.buffer().is_modified() {

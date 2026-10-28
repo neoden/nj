@@ -148,7 +148,7 @@ enum Stage {
 /// Runs `script` against a fresh headless editor and returns its snapshots,
 /// in order. An error names the line it happened on.
 pub fn run(script: &str) -> Result<Vec<Snapshot>> {
-    let _workdir = Workdir::enter()?;
+    let workdir = Workdir::enter()?;
     let mut sandbox = Sandbox::new();
     let mut stage = Stage::Before;
     // What `%stdin` gave, until the editor starts and reads it.
@@ -178,6 +178,16 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
             }
             Instruction::Clipboard(text) => {
                 sandbox.pasteboard.set(text);
+                continue;
+            }
+            // Whatever the stage: the editor, if any, is dropped with the
+            // rest of the run, and the next line finds the run as the
+            // first line did.
+            Instruction::Reset => {
+                workdir.renew().with_context(at)?;
+                sandbox = Sandbox::new();
+                stage = Stage::Before;
+                stdin = None;
                 continue;
             }
             other => other,
@@ -234,7 +244,7 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
             Instruction::Stdin(_) | Instruction::Start(_) => {
                 bail!("{}: the editor is already running", at())
             }
-            Instruction::File(..) | Instruction::Clipboard(..) => {
+            Instruction::File(..) | Instruction::Clipboard(..) | Instruction::Reset => {
                 unreachable!("a condition is set above")
             }
         }
@@ -403,5 +413,22 @@ mod tests {
         // Whole, and the default ten rows: the eight blank ones are listed.
         assert!(shown[2].frame.starts_with("0|1 kept\n"), "{}", shown[2].frame);
         assert!(shown[2].frame.contains("\n1-8|\n"), "{}", shown[2].frame);
+    }
+
+    /// `%reset` is the same whether the editor runs, has exited or was
+    /// never started: afterwards the directory is empty, a `%stdin` given
+    /// before is forgotten, and the next line starts an editor as the
+    /// first line of a run would.
+    #[test]
+    fn reset_takes_the_run_back_to_before_anything() {
+        let shown = run(
+            "%file a.txt \"a\"\n%stdin \"piped\"\ntype \"x\"\n%reset\nsize 60 2\nkey Ctrl+O\ntype \"a.txt\"\nkey Enter\n---\n\nkey Ctrl+Q\n%reset\n%reset\ntype \"y\"\n---\n",
+        )
+        .unwrap();
+        assert!(shown[0].frame.starts_with("0|1\n"), "{}", shown[0].frame);
+        assert!(shown[0].frame.contains("cannot read a.txt"), "{}", shown[0].frame);
+        // The second editor begins afresh: the default frame, whole.
+        assert!(shown[1].frame.starts_with("0|1 y\n"), "{}", shown[1].frame);
+        assert!(shown[1].frame.contains("\n1-8|\n"), "{}", shown[1].frame);
     }
 }

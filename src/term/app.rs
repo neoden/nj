@@ -6,6 +6,8 @@ use std::thread;
 
 use anyhow::{Result, bail};
 use crossterm::event::{self, Event};
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+use signal_hook::iterator::Signals;
 
 use super::input;
 use super::render::Renderer;
@@ -13,10 +15,23 @@ use super::socket::Server;
 use crate::editor::Editor;
 use crate::editor::job::Message;
 
+/// The signals that ask the process to end, caught from here on: a signal
+/// arriving before `run` forwards them is kept, not acted on by default.
+/// Caught before the terminal is touched, so that none can leave it in raw
+/// mode. Ctrl+C in raw mode is a key, not SIGINT; `kill -INT` still is.
+pub fn signals() -> Result<Signals> {
+    Ok(Signals::new([SIGTERM, SIGHUP, SIGINT])?)
+}
+
 /// One queue, one thread that owns the editor (ADR 21). The terminal is read
 /// on a thread of its own, because `event::read` blocks and the queue is
 /// what the loop has to wait on.
-pub fn run(editor: &mut Editor, out: &mut impl Write, server: &mut Server) -> Result<()> {
+pub fn run(
+    editor: &mut Editor,
+    out: &mut impl Write,
+    server: &mut Server,
+    mut signals: Signals,
+) -> Result<()> {
     let mut renderer = Renderer::new();
 
     // Started only now: the terminal has been set up, and its answer to the
@@ -27,6 +42,17 @@ pub fn run(editor: &mut Editor, out: &mut impl Write, server: &mut Server) -> Re
             if let Some(input) = input::translate(event)
                 && queue.send(Message::Input(input)).is_err()
             {
+                return;
+            }
+        }
+    });
+
+    // A signal asking the process to end is one more sender on the same
+    // queue (ADR 21): the loop wakes for it as for a key.
+    let queue = editor.sender();
+    thread::spawn(move || {
+        for _ in signals.forever() {
+            if queue.send(Message::Terminate).is_err() {
                 return;
             }
         }
@@ -48,14 +74,23 @@ pub fn run(editor: &mut Editor, out: &mut impl Write, server: &mut Server) -> Re
         let mut inputs = Vec::new();
         let mut remotes = Vec::new();
         let mut reports = Vec::new();
+        let mut terminate = false;
         let mut sort = |message| match message {
             Message::Input(event) => inputs.push(event),
             Message::Remote(remote) => remotes.push(remote),
             Message::Report(report) => reports.push(report),
+            Message::Terminate => terminate = true,
         };
         sort(first);
         while let Some(message) = editor.pending() {
             sort(message);
+        }
+
+        // Before anything that came with it: the process is ending, and a
+        // keystroke in the same burst would act on an editor about to go.
+        if terminate {
+            editor.terminate();
+            return Ok(());
         }
 
         for input in inputs {

@@ -14,12 +14,17 @@ use super::panel::picker::Candidate;
 use super::workspace::BufferId;
 
 /// What the main loop wakes up for: a keystroke or the like from the
-/// terminal, something a worker has to say, or a line from the socket.
+/// terminal, something a worker has to say, a line from the socket, or
+/// the system asking the process to end.
 #[derive(Debug)]
 pub enum Message {
     Input(Input),
     Report(Report),
     Remote(Remote),
+    /// A signal that asks the process to end: SIGTERM, SIGHUP, SIGINT.
+    /// Not a command — nobody at the keyboard asked for it, and it is not
+    /// for the palette — and not a report, the editor did no work for it.
+    Terminate,
 }
 
 /// A line from the socket (ADR 26), and where its answer goes. The line is
@@ -179,7 +184,9 @@ mod tests {
     fn next_report(rx: &Receiver<Message>) -> Report {
         match rx.recv().unwrap() {
             Message::Report(report) => report,
-            Message::Input(_) | Message::Remote(_) => panic!("no input was sent"),
+            Message::Input(_) | Message::Remote(_) | Message::Terminate => {
+                panic!("no input was sent")
+            }
         }
     }
 

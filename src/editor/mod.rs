@@ -160,7 +160,7 @@ impl Editor {
         while self.jobs.any_pending() {
             match self.wait() {
                 Some(Message::Report(report)) => self.receive(report),
-                Some(Message::Input(_) | Message::Remote(_)) => {}
+                Some(Message::Input(_) | Message::Remote(_) | Message::Terminate) => {}
                 None => return,
             }
         }

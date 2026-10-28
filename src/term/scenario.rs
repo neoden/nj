@@ -19,6 +19,8 @@
 //!   %start ARGS    the editor, started with ARGS as its command line
 //!                  (ADR 28); without this line it starts, as `ned` alone
 //!                  would, on the first line that is not a `%` line
+//!   %reset         the run as it was before anything: an editor still
+//!                  running is ended, the directory emptied
 //!   --- CAPTION    a snapshot: the frame as the screen shows it here. The
 //!                  first is whole, each later one is the rows that changed
 //!                  since the one before, or `same` when none did. CAPTION
@@ -114,6 +116,9 @@ pub enum Instruction {
     Stdin(String),
     /// The editor, started with this command line.
     Start(Args),
+    /// The run taken back to before anything: the editor gone, the
+    /// directory empty.
+    Reset,
     Wait,
     /// A frame to take, under this caption.
     Snapshot(String),
@@ -181,6 +186,7 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
         "%clipboard" => Instruction::Clipboard(quoted(rest)?),
         "%stdin" => Instruction::Stdin(quoted(rest)?),
         "%start" => Instruction::Start(launch::args(rest.split_whitespace().map(str::to_owned))?),
+        "%reset" => Instruction::Reset,
         other => bail!("unknown instruction `{other}`"),
     };
     Ok(Some(instruction))

@@ -11,6 +11,11 @@ pub enum Glyph<'a> {
     Tab,
     /// Unprintable; the renderer substitutes a placeholder.
     Control,
+    /// Measures zero on its own — combining marks with nothing to lean on,
+    /// a zero-width space — and so cannot be printed as is: a terminal
+    /// would attach it to the cell before and draw nothing in this one.
+    /// It takes a cell all the same, and the renderer gives it a base.
+    Bare(&'a str),
 }
 
 /// One grapheme cluster placed on the display grid.
@@ -58,9 +63,11 @@ impl<'a> Iterator for Cells<'a> {
         } else if is_control(grapheme) {
             (Glyph::Control, 1)
         } else {
-            // A cluster of combining marks alone measures zero; give it a cell
-            // anyway so that no two clusters share a column.
-            (Glyph::Text(grapheme), grapheme.width().max(1))
+            match grapheme.width() {
+                // A cell anyway, so that no two clusters share a column.
+                0 => (Glyph::Bare(grapheme), 1),
+                width => (Glyph::Text(grapheme), width),
+            }
         };
 
         self.column += width;
@@ -170,6 +177,14 @@ mod tests {
         assert_eq!(cells.len(), 2);
         assert_eq!(cells[0].width, 1);
         assert_eq!(cells[1].byte, 3);
+        assert_eq!(cells[1].column, 1);
+    }
+
+    #[test]
+    fn a_mark_with_no_base_is_bare_and_takes_a_cell() {
+        let cells: Vec<_> = cells("\u{301}z", TAB).collect();
+        assert_eq!(cells[0].glyph, Glyph::Bare("\u{301}"));
+        assert_eq!(cells[0].width, 1);
         assert_eq!(cells[1].column, 1);
     }
 

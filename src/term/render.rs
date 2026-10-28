@@ -9,7 +9,7 @@ use anyhow::Result;
 use crossterm::queue;
 use crossterm::terminal::{Clear, ClearType};
 
-use super::grid::{CONTROL_PLACEHOLDER, Grid};
+use super::grid::{CONTROL_PLACEHOLDER, Grid, based};
 use crate::editor::Editor;
 use crate::editor::panel::Panel;
 use crate::editor::panel::field::Field;
@@ -230,6 +230,7 @@ fn draw_row(
                 Glyph::Text(text) => painter.put(cell.column, text, cell.width),
                 Glyph::Tab => painter.blanks(visible.clone()),
                 Glyph::Control => painter.put(cell.column, CONTROL_PLACEHOLDER, 1),
+                Glyph::Bare(text) => painter.put(cell.column, &based(text), 1),
             }
         }
         column = visible.end;
@@ -391,6 +392,7 @@ fn pad(text: &str, width: usize) -> String {
         }
         match cell.glyph {
             Glyph::Text(text) => out.push_str(text),
+            Glyph::Bare(text) => out.push_str(&based(text)),
             _ => out.push(' '),
         }
         column = cell.end_column();
@@ -459,6 +461,13 @@ mod tests {
     #[test]
     fn control_characters_are_replaced() {
         assert_eq!(drawn("a\u{7}b", 0..3), "a·b");
+    }
+
+    /// A mark with no base of its own gets one, so that the terminal draws
+    /// a cell for it where the layout counted one.
+    #[test]
+    fn a_bare_mark_is_drawn_on_a_base() {
+        assert_eq!(drawn("\u{301}z", 0..2), "\u{25cc}\u{301}z");
     }
 
     /// The window a row is drawn through follows the view's scrolling.

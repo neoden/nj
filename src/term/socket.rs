@@ -167,7 +167,8 @@ impl Server {
                 Instruction::File(..)
                 | Instruction::Clipboard(_)
                 | Instruction::Stdin(_)
-                | Instruction::Start(_),
+                | Instruction::Start(_)
+                | Instruction::Reset,
             )) => unreachable!("a `%` line is refused by its prefix"),
         }
     }

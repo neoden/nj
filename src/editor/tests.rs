@@ -1062,6 +1062,18 @@ fn an_unchanged_document_quits_at_once() {
     assert!(editor.panel.is_none());
 }
 
+/// A signal is the one exit that does not ask: there is nobody to ask. It
+/// ends as a quit, so what was last saved is what stands.
+#[test]
+fn a_termination_quits_without_asking_whatever_is_unsaved() {
+    let mut dirty = editor("text", 0);
+    dirty.insert("!", EditKind::Other);
+    dirty.terminate();
+
+    assert_eq!(dirty.exit(), Some(Exit::Quit));
+    assert!(dirty.panel.is_none());
+}
+
 /// An abort is a quit that fails on purpose; it still asks when there is
 /// something to lose.
 #[test]

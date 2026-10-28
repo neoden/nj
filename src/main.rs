@@ -11,6 +11,9 @@ use ned::term::{app, launch};
 
 fn main() -> Result<ExitCode> {
     terminal::install_panic_hook();
+    // Before the terminal: from here on a signal ends the editor in order,
+    // and the terminal is never left as `Terminal::enter` set it.
+    let signals = app::signals()?;
     let args = launch::args(std::env::args().skip(1))?;
     let pipe = (!io::stdin().is_terminal()).then(|| io::stdin().lock());
     let buffer = launch::buffer(args.file.as_deref(), pipe)?;
@@ -33,7 +36,7 @@ fn main() -> Result<ExitCode> {
 
     // The terminal is restored before anything else is printed, or it would
     // land on the alternate screen and vanish with it.
-    let result = app::run(&mut editor, &mut io::stdout(), &mut server);
+    let result = app::run(&mut editor, &mut io::stdout(), &mut server, signals);
     drop(term);
     result?;
 
