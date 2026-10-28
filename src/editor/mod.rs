@@ -405,13 +405,11 @@ impl Editor {
         let Some((row, column)) = self.cell_in_view(row, column) else {
             return;
         };
-        // A click in the text takes the keyboard back there: a field or a
-        // list gives way to it. A question does not, having to be answered.
-        match &self.panel {
-            Some(Panel::Confirm(_) | Panel::Replacing(_)) => return,
-            Some(_) => self.close_panel(),
-            None => {}
-        }
+        // A click in the text takes the keyboard back there, and whatever
+        // panel was up — a field, a list, a question — gives way to it, as
+        // it would to Esc. The click is then a click: it puts the cursor
+        // where it landed, so that a drag from it has a cursor to start at.
+        self.close_panel();
         let (view, buffer) = self.workspace.focus_mut();
         let offset = view.offset_at_screen(buffer, row, column);
         match add {
@@ -420,8 +418,9 @@ impl Editor {
         }
     }
 
-    /// A drag follows a click, which closed any panel that gives way. One
-    /// still open is a question, or the button went down outside the text.
+    /// A drag follows a click, which closed any panel there was. One still
+    /// open means the button went down outside the text, and so the drag
+    /// has no cursor to start at.
     fn drag(&mut self, row: usize, column: usize) {
         if self.panel.is_some() {
             return;

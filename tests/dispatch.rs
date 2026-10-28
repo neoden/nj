@@ -764,10 +764,11 @@ fn clicks_land_past_the_gutter_and_drags_extend() {
     assert_eq!(ranges(&editor), [0..8]);
 }
 
-/// An open panel has the keyboard, and the mouse does not go round it: a
-/// click in the text closes a field, and a question is not clicked away.
+/// A click in the text closes whatever panel is up — a field or a question
+/// alike — and is then a click: it puts the cursor where it landed, and a
+/// drag from there selects. A click on the panel itself is nobody's.
 #[test]
-fn a_click_in_the_text_closes_a_prompt_and_leaves_a_question() {
+fn a_click_in_the_text_closes_the_panel_and_puts_the_cursor() {
     let mut editor = editor_with("hello\nworld");
     let gutter = editor.view().gutter as u16;
     let down = MouseEventKind::Down(MouseButton::Left);
@@ -783,10 +784,16 @@ fn a_click_in_the_text_closes_a_prompt_and_leaves_a_question() {
 
     ctrl(&mut editor, 'q');
     assert!(matches!(editor.panel(), Some(Panel::Confirm(_))));
-    mouse(&mut editor, down, gutter, 0, KeyModifiers::NONE);
-    mouse(&mut editor, drag, gutter + 2, 0, KeyModifiers::NONE);
+    let panel_row = editor.view().height() as u16;
+    mouse(&mut editor, down, gutter, panel_row, KeyModifiers::NONE);
     assert!(matches!(editor.panel(), Some(Panel::Confirm(_))));
     assert_eq!(ranges(&editor), [9..9]);
+
+    mouse(&mut editor, down, gutter, 0, KeyModifiers::NONE);
+    assert!(editor.panel().is_none());
+    assert_eq!(ranges(&editor), [0..0]);
+    mouse(&mut editor, drag, gutter + 2, 0, KeyModifiers::NONE);
+    assert_eq!(ranges(&editor), [0..2]);
 }
 
 #[test]
