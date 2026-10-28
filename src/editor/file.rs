@@ -187,7 +187,13 @@ impl Editor {
         self.message = None;
         self.unwatch(self.workspace.focused_buffer());
         let id = self.workspace.replace(buffer);
-        self.refresh_search();
+        // The search carries over, found again in the new text. Started
+        // over rather than caught up: every buffer counts its versions from
+        // zero, so the new one's version says nothing about the old one's.
+        self.search = self
+            .search
+            .take()
+            .and_then(|search| self.new_session(search.query().clone()));
         self.watch(id);
     }
 

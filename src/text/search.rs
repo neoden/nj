@@ -7,6 +7,7 @@
 use std::ops::Range;
 
 use super::Text;
+use super::anchor::Version;
 use super::movement::{Class, Direction};
 use super::selection::{Selection, SelectionSet};
 
@@ -109,17 +110,26 @@ pub struct Session {
     query: Query,
     /// Sorted and disjoint, like the matches they came from.
     hits: Vec<Range<usize>>,
+    /// The version of the text the hits were found in. They are offsets
+    /// into that text and no other, so whoever uses them says which
+    /// version they have, and a version that moved means a new scan.
+    seen: Version,
 }
 
 impl Session {
-    /// A search for `query`: every hit of it in `text`. There is no search
-    /// for nothing, so an empty query makes none.
-    pub fn new(query: Query, text: &Text) -> Option<Self> {
+    /// A search for `query`: every hit of it in `text`, which is at
+    /// `version`. There is no search for nothing, so an empty query makes
+    /// none.
+    pub fn new(query: Query, text: &Text, version: Version) -> Option<Self> {
         if query.is_empty() {
             return None;
         }
         let hits = query.all(text).collect();
-        Some(Self { query, hits })
+        Some(Self {
+            query,
+            hits,
+            seen: version,
+        })
     }
 
     pub fn query(&self) -> &Query {
@@ -130,10 +140,16 @@ impl Session {
         &self.hits
     }
 
-    /// Finds the hits again in a text that has changed. An edit can make or
-    /// break a hit anywhere, so none of the old ones are trusted.
-    pub fn refresh(&mut self, text: &Text) {
+    /// Brings the hits up to `text` at `version`. Nothing to do while the
+    /// version is the one they were found in; otherwise they are found
+    /// again from scratch, since an edit can make or break a hit anywhere
+    /// and none of the old ones are trusted.
+    pub fn catch_up(&mut self, text: &Text, version: Version) {
+        if self.seen == version {
+            return;
+        }
         self.hits = self.query.all(text).collect();
+        self.seen = version;
     }
 
     /// The next hit in `direction` from `from`, wrapping: forward at or
@@ -257,13 +273,13 @@ mod tests {
         let text = text("anything");
         assert_eq!(Query::literal("").find(&text, 0, Direction::Forward), None);
         assert_eq!(Query::literal("").all(&text).count(), 0);
-        assert!(Session::new(Query::literal(""), &text).is_none());
+        assert!(Session::new(Query::literal(""), &text, 0).is_none());
     }
 
     #[test]
     fn a_session_walks_its_hits_and_counts_them() {
         let text = text("a a a");
-        let session = Session::new(Query::literal("a"), &text).unwrap();
+        let session = Session::new(Query::literal("a"), &text, 0).unwrap();
 
         assert_eq!(session.next_hit(3, Direction::Forward), Some(4..5));
         assert_eq!(session.next_hit(5, Direction::Forward), Some(0..1));
@@ -275,7 +291,22 @@ mod tests {
         assert_eq!(session.selections(2).primary().range(), 2..3);
         assert_eq!(session.selections(2).len(), 3);
 
-        let session = Session::new(Query::literal("zz"), &text).unwrap();
+        let session = Session::new(Query::literal("zz"), &text, 0).unwrap();
         assert_eq!(session.count(0), "0");
+    }
+
+    /// The hits belong to one version of the text. Handed the same version
+    /// they stay as they are, whatever text comes with it; handed another
+    /// they are found again in it.
+    #[test]
+    fn a_session_scans_again_only_when_the_version_moved() {
+        let mut session = Session::new(Query::literal("a"), &text("a a"), 0).unwrap();
+        assert_eq!(session.hits(), [0..1, 2..3]);
+
+        session.catch_up(&text("a"), 0);
+        assert_eq!(session.hits(), [0..1, 2..3]);
+
+        session.catch_up(&text("xa a a"), 1);
+        assert_eq!(session.hits(), [1..2, 3..4, 5..6]);
     }
 }

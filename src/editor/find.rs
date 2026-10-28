@@ -38,7 +38,8 @@ impl Editor {
     /// Turns the hits into cursors. The search is over with that: its hits
     /// are what is selected now.
     pub(super) fn select_all_matches(&mut self) {
-        let Some(search) = &self.search else {
+        let at = self.view().selections().primary().min();
+        let Some(search) = self.session() else {
             return;
         };
         if search.hits().is_empty() {
@@ -49,7 +50,7 @@ impl Editor {
             return;
         }
 
-        let selections = search.selections(self.view().selections().primary().min());
+        let selections = search.selections(at);
         let (view, buffer) = self.workspace.focus_mut();
         view.place(buffer, selections);
         self.end_search();
@@ -59,7 +60,7 @@ impl Editor {
     /// selection goes to its first hit from the cursor. A field with nothing
     /// in it starts no search.
     pub(super) fn start_search(&mut self, needle: String, direction: Direction) {
-        let Some(search) = Session::new(Query::literal(needle), self.buffer().text()) else {
+        let Some(search) = self.new_session(Query::literal(needle)) else {
             return;
         };
         self.search = Some(search);
@@ -71,7 +72,7 @@ impl Editor {
     /// where the selection begins, not past its end as `F3` looks: a hit
     /// that is selected is the one to ask about first, not last.
     pub(super) fn start_replacing(&mut self, needle: String, replacement: String) {
-        let Some(search) = Session::new(Query::literal(needle), self.buffer().text()) else {
+        let Some(search) = self.new_session(Query::literal(needle)) else {
             return;
         };
         let left = search.hits().len();
@@ -123,8 +124,7 @@ impl Editor {
     pub(super) fn go_to_match(&mut self, direction: Direction) {
         let from = self.from(direction);
         let hit = self
-            .search
-            .as_ref()
+            .session()
             .and_then(|search| search.next_hit(from, direction));
         match hit {
             Some(hit) => self.select_hit(hit),
@@ -138,7 +138,7 @@ impl Editor {
         if self.search.is_none()
             && let Some(query) = self.last.take()
         {
-            self.search = Session::new(query, self.buffer().text());
+            self.search = self.new_session(query);
         }
         if self.has_search() {
             self.go_to_match(direction);
@@ -151,6 +151,12 @@ impl Editor {
         if let Some(search) = self.search.take() {
             self.last = Some(search.query().clone());
         }
+    }
+
+    /// A search for `query` in the buffer in focus, as it is now.
+    pub(super) fn new_session(&self, query: Query) -> Option<Session> {
+        let buffer = self.buffer();
+        Session::new(query, buffer.text(), buffer.version())
     }
 
     /// Where the next hit is looked for: past the primary selection going
@@ -180,11 +186,12 @@ impl Editor {
         };
         replacing.replaced += replacing.left;
         let (replacement, left) = (replacing.replacement.clone(), replacing.left);
-        let Some(search) = &self.search else {
+        let at = self.view().selections().primary().min();
+        let Some(search) = self.session() else {
             return;
         };
 
-        let selections = search.rest(self.view().selections().primary().min(), left);
+        let selections = search.rest(at, left);
         // The screen follows the insertion, not the cursors on their own.
         self.view_mut().put(selections);
         self.close_panel();

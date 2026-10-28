@@ -148,6 +148,8 @@ impl Editor {
             }
             Report::Ended(job) => self.jobs.ended(job),
         }
+        // As at the end of `execute`: a report may one day change the text.
+        self.session();
     }
 
     /// Handles every report the tasks in flight will send, and returns when
@@ -350,6 +352,10 @@ impl Editor {
                 }
             }
         }
+        // The frame drawn next reads the hits through `&self` and cannot
+        // catch them up itself, so they are caught up here, whatever the
+        // command did to the text.
+        self.session();
     }
 
     /// Runs a command where the keyboard is: on an open panel's field, on
@@ -907,21 +913,22 @@ impl Editor {
 
     /// The text of the focused buffer has just changed, and these are the
     /// cursors the change left behind. They are placed in the current text,
-    /// so there is nothing to catch up on; and the search, if one is open,
-    /// has hits in the old text.
+    /// so there is nothing to catch up on. The search is not told: it sees
+    /// the version move when its hits are next asked for.
     fn edited(&mut self, selections: SelectionSet) {
         let (view, buffer) = self.workspace.focus_mut();
         view.place(buffer, selections);
         view.mark_current(buffer);
-        self.refresh_search();
     }
 
-    /// The hits are offsets into the text as it was when they were found.
-    /// Called from the three places the text changes: `apply`, `undo`, `redo`.
-    fn refresh_search(&mut self) {
-        if let Some(search) = &mut self.search {
-            search.refresh(self.workspace.focus().1.text());
-        }
+    /// The search going on, with its hits brought up to the text as it is
+    /// now. The one way a command reads them, so that a hit found before
+    /// an edit cannot be used after it.
+    pub(super) fn session(&mut self) -> Option<&Session> {
+        let buffer = self.workspace.focus().1;
+        let search = self.search.as_mut()?;
+        search.catch_up(buffer.text(), buffer.version());
+        Some(search)
     }
 }
 
