@@ -516,24 +516,16 @@ mod tests {
     }
 
     #[test]
-    fn the_text_sits_in_the_band_with_the_status_bar_on_the_last_row() {
+    fn the_text_starts_at_the_left_edge_with_the_status_bar_on_the_last_row() {
         let editor = editor_of("hello\n", 200, 4);
-        let margin = editor.view().area.x;
-        assert!(margin > 0);
+        assert_eq!(editor.view().area.x, 0);
 
         let grid = composed(&editor, 200, 4);
-        let row = grid.row_text(0);
-        assert_eq!(&row[..margin], " ".repeat(margin));
-        assert!(row[margin..].starts_with("1 hello"));
-        assert!(grid.row_text(1)[margin..].starts_with("2 "));
+        assert!(grid.row_text(0).starts_with("1 hello"));
+        assert!(grid.row_text(1).starts_with("2 "));
         assert_eq!(grid.row_text(2).trim(), "");
         assert!(grid.row_text(3).trim_end().ends_with("2 lines · 1:1"));
-        assert_eq!(style_at(&grid, margin, 3), CellStyle::Status);
-
-        // A terminal narrower than the cap keeps the editor at the left edge.
-        let editor = editor_of("hello\n", 80, 4);
-        assert_eq!(editor.view().area.x, 0);
-        assert!(composed(&editor, 80, 4).row_text(0).starts_with("1 hello"));
+        assert_eq!(style_at(&grid, 0, 3), CellStyle::Status);
     }
 
     /// The loop resizes before it draws, but nothing else guarantees the

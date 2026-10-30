@@ -225,13 +225,7 @@ impl Editor {
     pub fn resize(&mut self, term_width: usize, term_height: usize) {
         let panel = self.panel_height();
         let (view, buffer) = self.workspace.focus_mut();
-        let line_count = buffer.text().line_count();
-        self.screen = Screen::divide(
-            term_width,
-            term_height,
-            view::gutter_width(line_count),
-            panel,
-        );
+        self.screen = Screen::divide(term_width, term_height, panel);
         view.resize(self.screen.text, buffer);
     }
 

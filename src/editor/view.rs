@@ -523,8 +523,7 @@ mod tests {
     }
 
     fn fit(view: &mut View, width: usize, height: usize, buffer: &Buffer) {
-        let line_count = buffer.text().line_count();
-        let screen = Screen::divide(width, height, gutter_width(line_count), 0);
+        let screen = Screen::divide(width, height, 0);
         view.resize(screen.text, buffer);
     }
 
