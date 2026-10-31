@@ -15,7 +15,7 @@ key Ctrl+Shift+S
 
 --- the field is seeded with the buffer's own name
 0|1 ours!
- |::-----^--------------------------------
+ |-------^--------------------------------
 1-4|
 5|────────────────────────────────────────
 6| Save as: ours.txt
@@ -38,7 +38,7 @@ key Enter
 
 --- a file by that name exists: asked before it is overwritten
 0|1 ours!?
- |::------^-------------------------------
+ |--------^-------------------------------
 3|────────────────────────────────────────
 4| File exists
 5|   o     Overwrite
@@ -80,7 +80,7 @@ key Enter
 
 --- its own name, but another writer got there first: the question a plain save asks
 0|1 ours!?!
- |::-------^------------------------------
+ |---------^------------------------------
 3|────────────────────────────────────────
 4| File changed on disk
 5|   o     Overwrite

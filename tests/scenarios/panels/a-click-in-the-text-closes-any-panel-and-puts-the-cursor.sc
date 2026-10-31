@@ -11,7 +11,7 @@ type "al"
 
 --- the search field is open, the cursor still at the start
 0|1 alpha
- |::^-------------------------------------
+ |--^-------------------------------------
 1|2 beta
 2-5|
 6|────────────────────────────────────────
@@ -25,7 +25,7 @@ click 5 1
 --- the click closed the field and put the cursor in the text
 0|1 alpha
 1|2 beta
- |::---^----------------------------------
+ |-----^----------------------------------
 6-8|
 9|      [scratch]* · Text · 2 lines · 2:4
 
@@ -48,7 +48,7 @@ click 4 0
 
 --- a click in the text takes the question back and puts the cursor
 0|1 alpha
- |::--^-----------------------------------
+ |----^-----------------------------------
 1|2 beta
 3-8|
 9|      [scratch]* · Text · 2 lines · 1:3

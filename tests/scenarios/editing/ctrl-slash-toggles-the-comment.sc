@@ -10,7 +10,7 @@ key Ctrl+/
 
 --- plain text has no line comment: a message, no change
 0|1 note
- |::----^-----------------------
+ |------^-----------------------
 1-5|
 6| No line comme …1 lines · 1:5
 
@@ -25,7 +25,7 @@ key Down
 --- the scratch text discarded, a Rust file is open; the cursor is on the first indented line
 0|1 fn main() {
 1|2     let x = 1;
- |::^---------------------------
+ |--^---------------------------
 2|3
 3|4     let y = 2;
 4|5 }
@@ -35,14 +35,14 @@ key Ctrl+/
 
 --- one line commented, the marker at its own indent
 1|2     // let x = 1;
- |::^---------------------------
+ |--^---------------------------
 6| ….rs* · Rust · 5 lines · 2:1
 
 key Ctrl+/
 
 --- the same key uncomments it
 1|2     let x = 1;
- |::^---------------------------
+ |--^---------------------------
 
 key Up
 key Shift+Down

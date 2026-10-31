@@ -10,7 +10,7 @@ type "fish"
 
 --- the field holds the query; nothing is marked until Enter
 0|1 one fish
- |::^---------------------------
+ |--^---------------------------
 1|2 two fish
 2|3 red fish
 3|──────────────────────────────

@@ -79,7 +79,7 @@ key Down
 --- on the short line both are pulled in to the same end: one cursor
 1|2 abcdefgh
 2|3 ab
- |::--^-------------------------
+ |----^-------------------------
 7| …ch]* · Text · 5 lines · 3:3
 
 key Down
@@ -87,6 +87,6 @@ key Down
 --- it stays one, and the merge forgot both goals: from here Down keeps column three
 2|3 ab
 3|4 abcdefgh
- |::--^-------------------------
+ |----^-------------------------
 7| …ch]* · Text · 5 lines · 4:3
 

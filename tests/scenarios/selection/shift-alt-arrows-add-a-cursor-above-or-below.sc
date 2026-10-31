@@ -46,7 +46,7 @@ key Shift+Alt+Up
 
 --- and the next: only the primary is left
 1|2 abcdef
- |::------^---------------------
+ |--------^---------------------
 2|3 abcdef
 6| …ch]* · Text · 4 lines · 2:7
 
@@ -69,7 +69,7 @@ key Shift+Alt+Down
 --- Down takes the cursor above away rather than adding below
 0|1 ab
 1|2 abcdef
- |::------^---------------------
+ |--------^---------------------
 6| …ch]* · Text · 4 lines · 2:7
 
 key Esc

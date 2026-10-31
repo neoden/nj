@@ -23,14 +23,14 @@ key Ctrl+V
 
 --- pasted at the end, after a space; the cursor is after the paste
 0|1 one two three one
- |::-----------------^----------
+ |-------------------^----------
 5| …h]* · Text · 1 lines · 1:18
 
 key Ctrl+V
 
 --- the copy is not spent: pasted again
 0|1 one two three oneone
- |::--------------------^-------
+ |----------------------^-------
 5| …h]* · Text · 1 lines · 1:21
 
 key Home
@@ -39,7 +39,7 @@ key Ctrl+V
 
 --- pasted over a selection: `one` replaced by `one`, nothing else moved
 0|1 one two three oneone
- |::---^------------------------
+ |-----^------------------------
 5| …ch]* · Text · 1 lines · 1:4
 
 key Right
@@ -48,6 +48,6 @@ key Ctrl+V
 
 --- over `two`: the selection is gone and the copy stands in its place
 0|1 one one three oneone
- |::-------^--------------------
+ |---------^--------------------
 5| …ch]* · Text · 1 lines · 1:8
 

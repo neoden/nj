@@ -11,7 +11,7 @@ key Ctrl+Q
 
 --- room for the whole question
 0|1 one
- |::---^----------------------------------
+ |-----^----------------------------------
 1-2|
 3|────────────────────────────────────────
 4| Unsaved changes
@@ -25,7 +25,7 @@ size 40 7
 
 --- cut down: the last line goes, the text keeps a row, the status its place
 0|1 one
- |::---^----------------------------------
+ |-----^----------------------------------
 1|────────────────────────────────────────
 2| Unsaved changes
 3|   s     Save and quit
@@ -37,7 +37,7 @@ size 40 4
 
 --- too short for a panel: none is drawn
 0|1 one
- |::---^----------------------------------
+ |-----^----------------------------------
 1-2|
 3|      [scratch]* · Text · 1 lines · 1:4
 

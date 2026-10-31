@@ -13,7 +13,7 @@ key Ctrl+Shift+Q
 
 --- unsaved changes: the question, with abort as the one answer
 0|1 kept!
- |::-----^--------------------------------
+ |-------^--------------------------------
 1-2|
 3|────────────────────────────────────────
 4| Unsaved changes

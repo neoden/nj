@@ -25,7 +25,7 @@ key Right
 
 --- the first catches up with the second: one cursor
 0|1 ab
- |::--^-------------------------
+ |----^-------------------------
 5| …ch]* · Text · 1 lines · 1:3
 
 key Left
@@ -42,7 +42,7 @@ key Backspace
 
 --- the second took `a` and landed on the first: one cursor
 0|1
- |::^---------------------------
+ |--^---------------------------
 5| …ch]* · Text · 1 lines · 1:1
 
 type "ab ab"

@@ -12,7 +12,7 @@ paste "a\tb\n\tx\nabc"
 0|1 a   b
 1|2     x
 2|3 ab�c
- |::----^-----------------
+ |------^-----------------
 3|
 4| … Text · 3 lines · 3:5
 
@@ -21,7 +21,7 @@ key Right
 
 --- on the tab: the caret marks the column, the tab's first cell
 0|1 a   b
- |::-^--------------------
+ |---^--------------------
 2|3 ab�c
 4| … Text · 3 lines · 1:2
 
@@ -29,7 +29,7 @@ key Right
 
 --- after it: one keystroke, three cells
 0|1 a   b
- |::----^-----------------
+ |------^-----------------
 4| … Text · 3 lines · 1:5
 
 key Ctrl+End
@@ -39,6 +39,6 @@ key Left
 --- on the bell: one cell, one step
 0|1 a   b
 2|3 ab�c
- |::--^-------------------
+ |----^-------------------
 4| … Text · 3 lines · 3:3
 

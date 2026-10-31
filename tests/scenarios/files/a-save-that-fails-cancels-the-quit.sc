@@ -13,7 +13,7 @@ type "s"
 
 --- the save failed, so the quit did not happen: still here, still unsaved
 0|1 !
- |::-^----------------------------------------------------------------------------
+ |---^----------------------------------------------------------------------------
 1-3|
 4| cannot write nowhere/below.txt: No suc …here/below.txt* · Text · 1 lines · 1:2
 

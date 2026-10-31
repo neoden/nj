@@ -12,7 +12,7 @@ paste "a日b\néx\ńz"
 0|1 a日b
 1|2 éx
 2|3 ◌́z
- |::--^-------------------
+ |----^-------------------
 3|
 4| … Text · 3 lines · 3:3
 
@@ -21,7 +21,7 @@ key Right
 
 --- after the `a`, one cell in
 0|1 a日b
- |::-^^-------------------
+ |---^^-------------------
 2|3 ◌́z
 4| … Text · 3 lines · 1:2
 
@@ -29,7 +29,7 @@ key Right
 
 --- after the wide character: one keystroke, two cells
 0|1 a日b
- |::---^------------------
+ |-----^------------------
 4| … Text · 3 lines · 1:4
 
 key Right
@@ -40,7 +40,7 @@ key Right
 --- after `e` with its accent: the base and the mark are one cell
 0|1 a日b
 1|2 éx
- |::-^--------------------
+ |---^--------------------
 4| … Text · 3 lines · 2:2
 
 key Down
@@ -50,6 +50,6 @@ key Right
 --- after the lone accent: one cell, though it measures zero
 1|2 éx
 2|3 ◌́z
- |::-^--------------------
+ |---^--------------------
 4| … Text · 3 lines · 3:2
 

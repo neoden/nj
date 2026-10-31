@@ -11,7 +11,7 @@ key Ctrl+Home
 
 --- the cursor at the start
 0|1 alpha
- |::^-------------------------------------
+ |--^-------------------------------------
 1|2 beta gamma
 2|3 delta
 3-4|
@@ -22,14 +22,14 @@ click 0 1
 --- a click on the gutter lands at the start of that line
 0|1 alpha
 1|2 beta gamma
- |::^-------------------------------------
+ |--^-------------------------------------
 5|      [scratch]* · Text · 3 lines · 2:1
 
 click 20 0
 
 --- a click past the end of a line lands at its end
 0|1 alpha
- |::-----^--------------------------------
+ |-------^--------------------------------
 1|2 beta gamma
 5|      [scratch]* · Text · 3 lines · 1:6
 
@@ -38,7 +38,7 @@ click 4 1
 --- a click in a word lands between its letters
 0|1 alpha
 1|2 beta gamma
- |::--^-----------------------------------
+ |----^-----------------------------------
 5|      [scratch]* · Text · 3 lines · 2:3
 
 drag 9 1

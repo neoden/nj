@@ -19,14 +19,14 @@ key Right
 
 --- Right: the cursor at the end of the selection, after `two`, and no further
 0|1 one two
- |::-------^--------------------
+ |---------^--------------------
 
 key Shift+Ctrl+Left
 key Left
 
 --- `two` selected backwards, then Left: the cursor at the start of the selection, before `two`
 0|1 one two
- |::----^-----------------------
+ |------^-----------------------
 5| …ch]* · Text · 2 lines · 1:5
 
 key Shift+End
@@ -35,6 +35,6 @@ key Down
 --- a selection to the end of the line, then Down: other movements move on from the head
 0|1 one two
 1|2 three
- |::-----^----------------------
+ |-------^----------------------
 5| …ch]* · Text · 2 lines · 2:6
 

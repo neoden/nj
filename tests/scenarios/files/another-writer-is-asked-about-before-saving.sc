@@ -15,7 +15,7 @@ key Ctrl+S
 
 --- the file was changed underneath: the save asks instead of writing
 0|1 ours!
- |::-----^--------------------------------
+ |-------^--------------------------------
 1-2|
 3|────────────────────────────────────────
 4| File changed on disk
@@ -43,7 +43,7 @@ key Ctrl+S
 
 --- the next save does not ask
 0|1 ours!?
- |::------^-------------------------------
+ |--------^-------------------------------
 8|       notes.txt · Text · 1 lines · 1:7
 
 type "!"
@@ -53,7 +53,7 @@ type "s"
 
 --- save and quit, but the file changed again: the question first
 0|1 ours!?!
- |::-------^------------------------------
+ |---------^------------------------------
 3|────────────────────────────────────────
 4| File changed on disk
 5|   o     Overwrite

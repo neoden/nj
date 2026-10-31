@@ -15,7 +15,7 @@ wait
 
 --- the palette opens: every command, the one nearest the query highlighted
  0|1 one
-  |::^-------------------------------------
+  |--^-------------------------------------
  1|2 two
  2|────────────────────────────────────────
  3|   Indent                           Tab

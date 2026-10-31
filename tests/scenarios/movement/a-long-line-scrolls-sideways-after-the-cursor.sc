@@ -10,7 +10,7 @@ key Ctrl+Home
 
 --- the line runs off the right edge; the cursor at its start
 0|1 abcdefghijklmnopqr
- |::^-----------------
+ |--^-----------------
 1|2 short
 2-3|
 4| …t · 2 lines · 1:1
@@ -19,7 +19,7 @@ key End
 
 --- End: the view has scrolled so that the cursor is in the last column
 0|1 jklmnopqrstuvwxyz
- |::-----------------^
+ |-------------------^
 1|2
 4| … · 2 lines · 1:27
 
@@ -28,7 +28,7 @@ key Down
 --- Down pulls the cursor to the end of the short line, and the view scrolls back only as far as that: column six, where the short line has nothing left to show
 0|1 fghijklmnopqrstuvw
 1|2
- |::^-----------------
+ |--^-----------------
 4| …t · 2 lines · 2:6
 
 key Home
@@ -36,7 +36,7 @@ key Home
 --- Home scrolls back to column one
 0|1 abcdefghijklmnopqr
 1|2 short
- |::^-----------------
+ |--^-----------------
 4| …t · 2 lines · 2:1
 
 key Up
@@ -60,7 +60,7 @@ key Right
 
 --- seventeen Right on the long line: the cursor is in the last column, nothing has scrolled
 0|1 abcdefghijklmnopqr
- |::-----------------^
+ |-------------------^
 1|2 short
 4| … · 2 lines · 1:18
 
@@ -68,7 +68,7 @@ key Right
 
 --- one more and the view scrolls by exactly one column
 0|1 bcdefghijklmnopqrs
- |::-----------------^
+ |-------------------^
 1|2 hort
 4| … · 2 lines · 1:19
 

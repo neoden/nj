@@ -8,7 +8,7 @@ type "hello"
 
 --- one word typed
 0|1 hello
- |::-----^----------------------
+ |-------^----------------------
 1-3|
 4| …ch]* · Text · 1 lines · 1:6
 
@@ -21,7 +21,7 @@ key Ctrl+Z
 
 --- the word taken back: the buffer as it began, unmarked
 0|1
- |::^---------------------------
+ |--^---------------------------
 4| …tch] · Text · 1 lines · 1:1
 
 key Ctrl+Z

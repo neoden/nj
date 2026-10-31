@@ -6,7 +6,7 @@ type "hello world"
 
 --- one cursor at the end of what was typed
 0|1 hello world
- |::-----------^----------------
+ |-------------^----------------
 1-4|
 5| …h]* · Text · 1 lines · 1:12
 

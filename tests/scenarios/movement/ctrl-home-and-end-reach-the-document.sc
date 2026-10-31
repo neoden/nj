@@ -10,14 +10,14 @@ paste "one\ntwo\nthree\nfour\nfive\nsix"
 1|4 four
 2|5 five
 3|6 six
- |::---^------------------------
+ |-----^------------------------
 4| …ch]* · Text · 6 lines · 6:4
 
 key Ctrl+Home
 
 --- Ctrl+Home: the first line, and the view scrolled up to it
 0|1 one
- |::^---------------------------
+ |--^---------------------------
 1|2 two
 2|3 three
 3|4 four
@@ -29,7 +29,7 @@ key Right
 --- a cursor in the middle of the second line
 0|1 one
 1|2 two
- |::-^--------------------------
+ |---^--------------------------
 4| …ch]* · Text · 6 lines · 2:2
 
 key Ctrl+Shift+End
@@ -52,5 +52,5 @@ key Ctrl+End
 1|4 four
 2|5 five
 3|6 six
- |::---^------------------------
+ |-----^------------------------
 

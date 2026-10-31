@@ -12,7 +12,7 @@ key Right
 
 --- the cursor after two letters
 0|1 alpha
- |::--^-----------------------------------
+ |----^-----------------------------------
 1|2 beta gamma
 2|3 delta
 3-4|
@@ -61,7 +61,7 @@ click 6 1 Shift+Alt
 --- Shift and Alt together: a plain click, one cursor
 0|1 alpha
 1|2 beta gamma
- |::----^---------------------------------
+ |------^---------------------------------
 2|3 delta
 5|      [scratch]* · Text · 3 lines · 2:5
 

@@ -42,7 +42,7 @@ key End
 
 --- the old line is empty: End finds nothing, and both cursors meet there
 0|1
- |::^---------------------------
+ |--^---------------------------
 1|2
 2|3
 4| …ch]* · Text · 3 lines · 1:1

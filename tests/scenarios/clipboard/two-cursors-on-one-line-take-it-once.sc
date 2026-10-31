@@ -35,7 +35,7 @@ key Ctrl+X
 
 --- cut once: one line gone, not two; the cursors land on the same spot and are one
 1|2 two
- |::^---------------------------
+ |--^---------------------------
 2|3 three
 3|
 6| …ch]* · Text · 3 lines · 2:1
@@ -46,7 +46,7 @@ key Ctrl+X
 
 --- a cursor added below and cut: a line each. The break after `one one` is not taken, so an empty last line is left, as VS Code leaves it
 1|2
- |::^---------------------------
+ |--^---------------------------
 2|
 6| …ch]* · Text · 2 lines · 2:1
 
@@ -56,7 +56,7 @@ key Ctrl+X
 
 --- the empty last line cut: the break before it goes, and `one one` is the whole text again
 0|1 one one
- |::-------^--------------------
+ |---------^--------------------
 1|
 6| …ch]* · Text · 1 lines · 1:8
 

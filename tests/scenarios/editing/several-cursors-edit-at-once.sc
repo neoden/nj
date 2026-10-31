@@ -73,7 +73,7 @@ key Esc
 
 --- Esc drops the added cursors; the one placed by hand, on the first line, stays
 0|1 on
- |::--^-------------------------
+ |----^-------------------------
 1|2 tw
 2|3 si
 6| …ch]* · Text · 3 lines · 1:3

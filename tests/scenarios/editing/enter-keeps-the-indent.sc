@@ -12,7 +12,7 @@ type "    deep"
 
 --- a line indented by four
 0|1     deep
- |::--------^-------------------
+ |----------^-------------------
 1-5|
 6| …ch]* · Text · 1 lines · 1:9
 
@@ -22,7 +22,7 @@ type "same"
 --- the new line starts under the first
 0|1     deep
 1|2     same
- |::--------^-------------------
+ |----------^-------------------
 6| …ch]* · Text · 2 lines · 2:9
 
 key Home
@@ -33,7 +33,7 @@ key Enter
 --- Enter inside the indent: two spaces go with the new line
 1|2
 2|3     same
- |::--^-------------------------
+ |----^-------------------------
 6| …ch]* · Text · 3 lines · 3:3
 
 key Up
@@ -41,7 +41,7 @@ key End
 
 --- and nothing stayed behind: the old line is empty
 1|2
- |::^---------------------------
+ |--^---------------------------
 2|3     same
 6| …ch]* · Text · 3 lines · 2:1
 
@@ -52,7 +52,7 @@ key Enter
 --- a new line after `same` starts with its four
 1|2
 3|4
- |::----^-----------------------
+ |------^-----------------------
 6| …ch]* · Text · 4 lines · 4:5
 
 key Enter
@@ -61,7 +61,7 @@ key End
 
 --- Enter on the indent-only line leaves it empty: End finds nothing
 3|4
- |::^---------------------------
+ |--^---------------------------
 4|5
 6| …ch]* · Text · 5 lines · 4:1
 
@@ -71,6 +71,6 @@ key End
 --- the indent moved on to the next line, with the cursor
 3|4
 4|5
- |::----^-----------------------
+ |------^-----------------------
 6| …ch]* · Text · 5 lines · 5:5
 

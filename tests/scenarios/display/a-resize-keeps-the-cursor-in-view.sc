@@ -15,7 +15,7 @@ paste "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten"
 4| 8 eight
 5| 9 nine
 6|10 ten
- |:::---^-----------------------
+ |------^-----------------------
 7| …]* · Text · 10 lines · 10:4
 
 size 30 4
@@ -24,7 +24,7 @@ size 30 4
 0| 8 eight
 1| 9 nine
 2|10 ten
- |:::---^-----------------------
+ |------^-----------------------
 3| …]* · Text · 10 lines · 10:4
 
 size 30 8
@@ -37,7 +37,7 @@ size 30 8
 4| 8 eight
 5| 9 nine
 6|10 ten
- |:::---^-----------------------
+ |------^-----------------------
 7| …]* · Text · 10 lines · 10:4
 
 key Ctrl+Home
@@ -45,7 +45,7 @@ size 30 4
 
 --- at the top, shrinking takes rows from the bottom and the cursor stays
 0| 1 one
- |:::^--------------------------
+ |---^--------------------------
 1| 2 two
 2| 3 three
 3| …h]* · Text · 10 lines · 1:1
@@ -58,7 +58,7 @@ paste " abcdefghijklmnopqrs"
 0| 8 eight
 1| 9 nine
 2|10 ten abcdefghijklmnopqrs
- |:::-----------------------^---
+ |--------------------------^---
 3| …* · Text · 10 lines · 10:24
 
 size 16 4
@@ -67,6 +67,6 @@ size 16 4
 0| 8
 1| 9
 2|10 hijklmnopqrs
- |:::------------^
+ |---------------^
 3| …lines · 10:24
 

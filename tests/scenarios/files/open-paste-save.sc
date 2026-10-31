@@ -10,7 +10,7 @@ wait
 
 --- the file is open, the cursor at its start
 0|1 first line
- |::^---------------------------
+ |--^---------------------------
 1|2 second line
 2-4|
 5| ….txt · Text · 2 lines · 1:1
@@ -21,7 +21,7 @@ key Ctrl+V
 
 --- what the desktop held is in the line, and the file is dirty
 0|1 first linefrom outside
- |::----------------------^-----
+ |------------------------^-----
 5| …xt* · Text · 2 lines · 1:23
 
 key Ctrl+S

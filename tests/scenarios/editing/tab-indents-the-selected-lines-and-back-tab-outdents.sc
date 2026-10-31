@@ -12,7 +12,7 @@ key Tab
 
 --- a bare cursor at the start: the line is indented to the first stop
 0|1     one
- |::----^-----------------------
+ |------^-----------------------
 1|2 two
 2|3 three
 3-4|
@@ -23,7 +23,7 @@ key Tab
 
 --- a cursor one past the stop pads three, not four, to reach the next
 0|1     o   ne
- |::--------^-------------------
+ |----------^-------------------
 5| …ch]* · Text · 3 lines · 1:9
 
 key Ctrl+Home

@@ -31,7 +31,7 @@ key Esc
 
 --- the second collapses the selection to a cursor
 0|1 one
- |::---^------------------------
+ |-----^------------------------
 
 key Esc
 

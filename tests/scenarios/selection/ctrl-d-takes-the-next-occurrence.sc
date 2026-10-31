@@ -45,7 +45,7 @@ key Esc
 --- Esc twice: back to a bare cursor on the second line, where it was placed
 0|1 cat scatter
 1|2 cat
- |::---^------------------------
+ |-----^------------------------
 2|3 cat
 6| …ch]* · Text · 3 lines · 2:4
 

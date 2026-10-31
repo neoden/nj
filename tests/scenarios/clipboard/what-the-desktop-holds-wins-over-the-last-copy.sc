@@ -12,7 +12,7 @@ key Ctrl+C
 
 --- `alpha` copied as a whole line, with nothing selected
 0|1 alpha
- |::^---------------------------
+ |--^---------------------------
 1|2 beta
 2-5|
 6| …ch]* · Text · 2 lines · 1:1
@@ -23,7 +23,7 @@ key Ctrl+V
 
 --- the desktop holds something else now: that is pasted, as text at the cursor
 0|1 alphatheirs
- |::-----------^----------------
+ |-------------^----------------
 6| …h]* · Text · 2 lines · 1:12
 
 key Ctrl+Z
@@ -41,7 +41,7 @@ key Ctrl+V
 --- our own copy of `beta`, as a line: pasted above, the desktop agreed with us
 0|1 beta
 1|2 alphatheirs
- |::^---------------------------
+ |--^---------------------------
 2|3 beta
 6| …ch]* · Text · 3 lines · 2:1
 
@@ -52,7 +52,7 @@ key Ctrl+V
 --- a foreign text ending with a break is still text: it goes in at the cursor, break and all, not above the line
 1|2 alphatheirsgamma
 2|3
- |::^---------------------------
+ |--^---------------------------
 3|4 beta
 6| …ch]* · Text · 4 lines · 3:1
 

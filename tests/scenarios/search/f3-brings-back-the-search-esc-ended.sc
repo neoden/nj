@@ -24,7 +24,7 @@ key Home
 --- the cursor has moved to the second line
 0|1 x one
 1|2 y one
- |::^---------------------------
+ |--^---------------------------
 5| …ch]* · Text · 3 lines · 2:1
 
 key F3

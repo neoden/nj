@@ -15,7 +15,7 @@ key Enter
 0|1 fn a() {
 1|2     one();
 2|3
- |::----^-----------------------
+ |------^-----------------------
 3|4     if b {
 4|5         two();
 5|6     }
@@ -28,7 +28,7 @@ type "y"
 
 --- Tab in the middle of a line: the cursor jumps to the next stop
 2|3     x   y
- |::---------^------------------
+ |-----------^------------------
 7| …xt* · Text · 7 lines · 3:10
 
 key Home
@@ -36,7 +36,7 @@ key Backspace
 
 --- Backspace in the indentation takes the whole tab
 2|3 x   y
- |::^---------------------------
+ |--^---------------------------
 7| …txt* · Text · 7 lines · 3:1
 
 key Down
@@ -49,6 +49,6 @@ key Ctrl+S
 --- Shift+Tab on `two();` takes one tab off; saved, every indent is a tab
 2|3 x   y
 4|5     two();
- |::----^-----------------------
+ |------^-----------------------
 7| ….txt · Text · 7 lines · 5:5
 

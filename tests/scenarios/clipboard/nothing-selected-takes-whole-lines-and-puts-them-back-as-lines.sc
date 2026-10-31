@@ -17,7 +17,7 @@ key Ctrl+C
 --- the cursor inside `beta`, nothing selected: Ctrl+C took the whole line
 0|1 alpha
 1|2 beta
- |::--^-------------------------
+ |----^-------------------------
 2|3 gamma
 3-5|
 6| …ch]* · Text · 3 lines · 2:3
@@ -30,7 +30,7 @@ key Ctrl+V
 1|2 beta
 2|3 beta
 3|4 gamma
- |::-----^----------------------
+ |-------^----------------------
 6| …ch]* · Text · 4 lines · 4:6
 
 key Ctrl+X
@@ -38,7 +38,7 @@ key Ctrl+X
 
 --- Ctrl+X with nothing selected takes `gamma` out whole; the last line has no break after it, so the one before it goes too, and the cursor lands at the end of the line above
 2|3 beta
- |::----^-----------------------
+ |------^-----------------------
 3|
 6| …ch]* · Text · 3 lines · 3:5
 
@@ -48,7 +48,7 @@ key Ctrl+V
 --- the taken line is a line: pasted back above the first
 0|1 gamma
 1|2 alpha
- |::^---------------------------
+ |--^---------------------------
 2|3 beta
 3|4 beta
 6| …ch]* · Text · 4 lines · 2:1
@@ -63,6 +63,6 @@ key Ctrl+V
 --- copied from a selection, the paste goes in at the cursor as text, not as a line
 1|2 alpha
 2|3 belta
- |::---^------------------------
+ |-----^------------------------
 6| …ch]* · Text · 4 lines · 3:4
 

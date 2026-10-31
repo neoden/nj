@@ -11,7 +11,7 @@ paste "a\nb\nc\nd\ne\nf\ng\nh\ni"
 2|7 g
 3|8 h
 4|9 i
- |::-^--------------------
+ |---^--------------------
 5| … Text · 9 lines · 9:2
 
 key Enter
@@ -22,7 +22,7 @@ key Enter
 2| 8 h
 3| 9 i
 4|10
- |:::^--------------------
+ |---^--------------------
 5| …ext · 10 lines · 10:1
 
 paste "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
@@ -33,7 +33,7 @@ paste "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\
 2| 98
 3| 99
 4|100
- |::::^-------------------
+ |----^-------------------
 5| …t · 100 lines · 100:1
 
 key Ctrl+Z
@@ -45,6 +45,6 @@ key Ctrl+Z
 2|7 g
 3|8 h
 4|9 i
- |::-^--------------------
+ |---^--------------------
 5| … Text · 9 lines · 9:2
 

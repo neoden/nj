@@ -10,7 +10,7 @@ key Ctrl+Home
 
 --- the cursor on line 1, at the top
 0| 1 1
- |:::^----------------
+ |---^----------------
 1| 2 2
 2| 3 3
 3| 4 4
@@ -60,7 +60,7 @@ scroll up 5 0
 
 --- the wheel back up stops at the top
 0| 1 1
- |:::^----------------
+ |---^----------------
 1| 2 2
 2| 3 3
 3| 4 4
@@ -73,7 +73,7 @@ key Right
 
 --- the view was three lines down; a cursor movement brings it back to the cursor
 0| 1 1
- |:::-^---------------
+ |----^---------------
 5| … · 12 lines · 1:2
 
 

@@ -32,7 +32,7 @@ key Esc
 
 --- the selection collapses to a cursor
 0|1 a cat
- |::-----^----------------------
+ |-------^----------------------
 
 key Ctrl+F
 type "at"
@@ -59,7 +59,7 @@ key Esc
 
 --- the second collapses the selection
 1|2 a hat
- |::-----^----------------------
+ |-------^----------------------
 
 key Esc
 

@@ -12,7 +12,7 @@ key Ctrl+H
 
 --- the form; nothing was selected, so the query is empty
 0|1 cat dog
- |::^---------------------------
+ |--^---------------------------
 1|
 2|──────────────────────────────
 3| Find:

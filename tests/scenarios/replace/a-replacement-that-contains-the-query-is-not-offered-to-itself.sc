@@ -24,7 +24,7 @@ type "y"
 
 --- the second replaced, and the walk is over: what was written is not offered to itself
 0|1 aa aa
- |::-----^----------------------------------------------------------------
+ |-------^----------------------------------------------------------------
 3-5|
 6| Replaced 2                           [scratch]* · Text · 1 lines · 1:6
 

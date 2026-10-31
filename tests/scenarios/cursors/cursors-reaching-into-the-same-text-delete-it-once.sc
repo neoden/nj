@@ -21,7 +21,7 @@ key Ctrl+Backspace
 
 --- Ctrl+Backspace: `abc` gone once, `d ef` stays, one cursor at the start
 0|1 d ef
- |::^---------------------------
+ |--^---------------------------
 3| …ch]* · Text · 1 lines · 1:1
 
 key Ctrl+A
@@ -38,7 +38,7 @@ key Ctrl+Delete
 
 --- Ctrl+Delete: `abcd` gone once, the space and `ef` stay
 0|1  ef
- |::^---------------------------
+ |--^---------------------------
 3| …ch]* · Text · 1 lines · 1:1
 
 key Ctrl+A
@@ -55,6 +55,6 @@ key Backspace
 
 --- each reaches back to a stop, 0 for both: four spaces gone, two remain before `x`
 0|1   x
- |::^---------------------------
+ |--^---------------------------
 3| …ch]* · Text · 1 lines · 1:1
 

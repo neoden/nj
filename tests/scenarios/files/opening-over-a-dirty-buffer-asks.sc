@@ -16,7 +16,7 @@ key Enter
 
 --- the question, and the text still as it was
 0|1 mine!
- |::-----^--------------------------------
+ |-------^--------------------------------
 1|
 2|────────────────────────────────────────
 3| Unsaved changes
@@ -36,7 +36,7 @@ type "d"
 
 --- discarded: the other file is open
 0|1 theirs
- |::^-------------------------------------
+ |--^-------------------------------------
 2-7|
 8|      theirs.txt · Text · 1 lines · 1:1
 
@@ -52,6 +52,6 @@ wait
 
 --- saved first: the first file is back, as it was on disk
 0|1 mine
- |::^-------------------------------------
+ |--^-------------------------------------
 8|        mine.txt · Text · 1 lines · 1:1
 

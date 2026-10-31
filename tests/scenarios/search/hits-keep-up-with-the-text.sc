@@ -23,7 +23,7 @@ type " ab"
 
 --- a fourth hit was typed in; the count goes up
 0|1 ab ab ab
- |::==-==-==^-------------------
+ |--==-==-==^-------------------
 5| 4 "ab" …Text · 2 lines · 1:9
 
 key Ctrl+Home
@@ -31,7 +31,7 @@ key Delete
 
 --- the first hit is broken: its `b` alone is no hit
 0|1 b ab ab
- |::^-==-==---------------------
+ |--^-==-==---------------------
 5| 3 "ab" …Text · 2 lines · 1:1
 
 key Ctrl+End
@@ -41,7 +41,7 @@ key Backspace
 0|1 b ab ab
  |    == ==
 1|2 a
- |::-^--------------------------
+ |---^--------------------------
 5| 2 "ab" …Text · 2 lines · 2:2
 
 
@@ -49,6 +49,6 @@ key Ctrl+Z
 
 --- undo mends the hit, and the count follows that too
 1|2 ab
- |::==^-------------------------
+ |--==^-------------------------
 5| 3 "ab" …Text · 2 lines · 2:3
 

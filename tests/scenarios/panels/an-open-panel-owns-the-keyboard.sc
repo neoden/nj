@@ -13,7 +13,7 @@ key Backspace
 
 --- the letters and the editing went into the field, the text is as it was
 0|1 alpha beta
- |::----------^---------------------------
+ |------------^---------------------------
 1|
 2|────────────────────────────────────────
 3| Line: 2
@@ -31,7 +31,7 @@ type "x"
 
 --- after Esc the letter goes into the text
 0|1 alpha betax
- |::-----------^--------------------------
+ |-------------^--------------------------
 2-4|
 5|     [scratch]* · Text · 1 lines · 1:12
 

@@ -41,7 +41,7 @@ key Ctrl+F
 
 --- the search is over and nothing is selected: the last query, selected
 1|2 beta
- |::----^-----------------------------
+ |------^-----------------------------
 6|  [scratch]* · Text · 2 lines · 2:5
 
 type "ga"

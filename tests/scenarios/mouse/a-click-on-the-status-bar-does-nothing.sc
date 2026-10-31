@@ -35,6 +35,6 @@ click 20 3
 --- a click under the last line lands on it
 0|1 alpha
 1|2 beta
- |::----^---------------------------------
+ |------^---------------------------------
 5|      [scratch]* · Text · 2 lines · 2:5
 

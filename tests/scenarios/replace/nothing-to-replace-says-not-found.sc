@@ -12,7 +12,7 @@ key Enter
 
 --- not found; no question, nothing changed
 0|1 cat dog
- |::^-------------------------------------
+ |--^-------------------------------------
 1-5|
 6| Not found …ch]* · Text · 1 lines · 1:1
 

@@ -14,7 +14,7 @@ key Ctrl+X
 
 --- ` two` cut: gone from the text, the cursor where it was
 0|1 one three
- |::---^------------------------
+ |-----^------------------------
 1|2 four five
 2-4|
 5| …ch]* · Text · 2 lines · 1:4
@@ -31,7 +31,7 @@ key Ctrl+V
 
 --- the clipboard still holds the cut text: pasted at the end
 0|1 one two three two
- |::-----------------^----------
+ |-------------------^----------
 5| …h]* · Text · 2 lines · 1:18
 
 key Ctrl+Home
@@ -73,6 +73,6 @@ key Ctrl+V
 0|1 one two three two
 1|2 four fiveone
 2|3 four
- |::----^-----------------------
+ |------^-----------------------
 5| …ch]* · Text · 3 lines · 3:5
 

@@ -11,7 +11,7 @@ size 60 3
 
 --- room for everything
 0|1 text
- |::^---------------------------------------------------------
+ |--^---------------------------------------------------------
 1|
 2|         a-rather-long-file-name.txt · Text · 1 lines · 1:1
 
@@ -19,7 +19,7 @@ size 40 3
 
 --- too narrow for the name: it loses its start, the line and column stay
 0|1 text
- |::^-------------------------------------
+ |--^-------------------------------------
 1|
 2| …-file-name.txt · Text · 1 lines · 1:1
 
@@ -34,7 +34,7 @@ size 24 3
 
 --- narrower still: the message is cut at its end, the document at its start
 0|1 text
- |::^---------------------
+ |--^---------------------
 1|
 2| cannot rea …ines · 1:1
 
@@ -42,7 +42,7 @@ size 12 3
 
 --- barely a screen: the line and column are the last to go
 0|1 text
- |::^---------
+ |--^---------
 1|
 2| cann … 1:1
 
