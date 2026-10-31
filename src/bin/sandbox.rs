@@ -242,6 +242,11 @@ mod live {
         /// Carries out one line and says what came of it, each line of the
         /// answer ended by a newline.
         fn carry_out(&mut self, line: &str) -> Result<String> {
+            // The editor's own verb, not a line of the language: handed on
+            // as it is, and answered with the screen as the editor wrote it.
+            if line.trim_end() == "screen" {
+                return self.forward(line);
+            }
             let Some(instruction) = scenario::parse(line)? else {
                 return Ok("ok\n".to_owned());
             };
@@ -265,11 +270,13 @@ mod live {
                     }
                     self.start(args)?;
                 }
-                Instruction::Size(..)
-                | Instruction::Snapshot(_)
-                | Instruction::Input(_)
-                | Instruction::Wait => {
+                Instruction::Size(..) | Instruction::Input(_) | Instruction::Wait => {
                     return self.forward(line);
+                }
+                // The frame is worked out by whoever reads the scenario,
+                // from the screen the editor answers `screen` with.
+                Instruction::Snapshot(..) => {
+                    bail!("a `---` line is the run's: ask `screen` and take the frame yourself")
                 }
                 // The same check as the headless run's, from where this
                 // run keeps things: the outcome in its stage, the clipboard

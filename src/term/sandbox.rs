@@ -19,7 +19,8 @@ use anyhow::{Context, Result, bail};
 use super::grid::Grid;
 use super::launch::{self, Args, Outcome};
 use super::scenario::{self, Expect, Instruction, Line};
-use super::{app, dump, render};
+use super::screen::{Frames, Layer, Screen};
+use super::{app, render};
 use crate::editor::Editor;
 use crate::editor::clipboard::Desktop;
 
@@ -30,30 +31,13 @@ const DEFAULT_SIZE: (usize, usize) = (40, 10);
 /// `--socket` says otherwise: under the project's `target`.
 pub const SOCKET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/sandbox.sock");
 
-/// The frames a run has taken, as far as a snapshot needs them: the one
-/// before, for the next to differ from. Taken headless by the run and, in
-/// the debug build, over the socket by the live editor.
-#[derive(Default)]
-pub struct Frames {
-    previous: Option<Grid>,
-}
-
-impl Frames {
-    /// The frame as the screen shows it at `size`, dumped against the
-    /// frame before.
-    pub fn take(&mut self, editor: &mut Editor, size: (usize, usize)) -> String {
-        // As the loop does before every frame (`app::run`): the screen is
-        // divided afresh, since a panel may have opened or closed.
-        editor.resize(size.0, size.1);
-        let mut grid = Grid::new(size.0, size.1);
-        render::compose(&mut grid, editor);
-        let frame = match dump::dump(&grid, self.previous.as_ref()) {
-            text if text.is_empty() => "same\n".to_owned(),
-            text => text,
-        };
-        self.previous = Some(grid);
-        frame
-    }
+/// The screen at `size`, as the loop would draw it (`app::run`): divided
+/// afresh first, since a panel may have opened or closed.
+pub fn grid(editor: &mut Editor, size: (usize, usize)) -> Grid {
+    editor.resize(size.0, size.1);
+    let mut grid = Grid::new(size.0, size.1);
+    render::compose(&mut grid, editor);
+    grid
 }
 
 /// Whether a `?` line holds. `ended` is how the editor exited, `None`
@@ -166,13 +150,15 @@ impl Sandbox {
         }
     }
 
-    /// The frame as the screen shows it, dumped against the frame before.
-    fn frame(&mut self) -> String {
+    /// The frame of `layer`: what changed on the screen since the last
+    /// snapshot of that layer.
+    fn frame(&mut self, layer: Layer) -> String {
         let editor = self
             .editor
             .as_mut()
             .expect("the run starts the editor first");
-        self.frames.take(editor, self.size)
+        let screen = Screen::of(&grid(editor, self.size));
+        self.frames.take(screen, layer)
     }
 }
 
@@ -207,7 +193,7 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
                 Some(instruction) => instruction,
                 None => continue,
             },
-            Line::Snapshot(caption) => Instruction::Snapshot(caption.to_owned()),
+            Line::Snapshot(layer, caption) => Instruction::Snapshot(layer, caption.to_owned()),
             Line::Frame(_) => continue,
         };
 
@@ -286,8 +272,8 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
                 }
             }
             Instruction::Size(width, height) => sandbox.size(width, height),
-            Instruction::Snapshot(caption) => snapshots.push(Snapshot {
-                frame: sandbox.frame(),
+            Instruction::Snapshot(layer, caption) => snapshots.push(Snapshot {
+                frame: sandbox.frame(layer),
                 caption,
             }),
             Instruction::Stdin(_) | Instruction::Start(_) => {
@@ -382,7 +368,7 @@ mod tests {
     fn a_run_answers_each_snapshot_and_names_the_line_of_an_error() {
         let shown = run("size 6 2\ntype \"ab\"\n--- typed\n\n---\n").unwrap();
         assert_eq!(shown[0].caption, "typed");
-        assert_eq!(shown[0].frame, "0|1 ab\n |::--^-\n1| …1:3\n");
+        assert_eq!(shown[0].frame, "0|1 ab\n |----^-\n1| …1:3\n");
         assert_eq!(shown[1].frame, "same\n");
 
         let error = run("type \"a\"\nbogus\n").unwrap_err();
@@ -410,7 +396,7 @@ mod tests {
         let shown = run("%stdin \"piped\"\n%start\nsize 36 2\n---\n").unwrap();
         assert_eq!(
             shown[0].frame,
-            "0|1 piped\n |::^---------------------------------\n1|     [stdin] · Text · 1 lines · 1:1\n"
+            "0|1 piped\n |--^---------------------------------\n1|     [stdin] · Text · 1 lines · 1:1\n"
         );
 
         let shown =

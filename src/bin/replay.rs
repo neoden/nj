@@ -9,9 +9,10 @@
 //! The sandbox is reset first, so the scenario begins as the file does,
 //! whatever the last replay left there — an editor still open included.
 //! Each line is shown and sent on Enter; `a` sends the rest without
-//! stopping, `q` stops. At `---` the frame the sandbox answers is compared
-//! with the frame in the file, and both are printed only where they
-//! differ. The instructions are described in `term::scenario`.
+//! stopping, `q` stops. At `---` the sandbox is asked for the screen and
+//! the frame is worked out here, as the test works it out, then compared
+//! with the frame in the file; both are printed only where they differ.
+//! The instructions are described in `term::scenario`.
 
 #[cfg(debug_assertions)]
 fn main() -> anyhow::Result<std::process::ExitCode> {
@@ -35,7 +36,8 @@ mod live {
     use anyhow::{Context, Result, bail};
 
     use ned::term::sandbox::SOCKET;
-    use ned::term::scenario::{self, Line};
+    use ned::term::scenario::{self, Instruction, Line};
+    use ned::term::screen::{Frames, Screen};
 
     pub fn main() -> Result<ExitCode> {
         let mut socket = PathBuf::from(SOCKET);
@@ -70,13 +72,16 @@ mod live {
         }
 
         let mut expected = expected_frames(&script).into_iter();
+        let mut frames = Frames::default();
         let mut differ = 0;
         let mut unattended = false;
         for line in scenario::lines(&script) {
             let (text, snapshot) = match line {
                 Line::Text(text) if text.is_empty() || text.starts_with('#') => continue,
-                Line::Text(text) => (text.to_owned(), false),
-                Line::Snapshot(caption) => (format!("--- {caption}"), true),
+                Line::Text(text) => (text.to_owned(), None),
+                Line::Snapshot(layer, caption) => {
+                    (scenario::snapshot_line(layer, caption), Some(layer))
+                }
                 Line::Frame(_) => continue,
             };
             if unattended {
@@ -91,17 +96,27 @@ mod live {
                 unattended = command.trim() == "a";
             }
 
-            let answer = sandbox.ask(&text)?;
-            if !snapshot {
+            let Some(layer) = snapshot else {
+                let answer = sandbox.ask(&text)?;
                 if answer != "ok\n" {
                     println!("    {}", answer.trim_end().replace('\n', "\n    "));
                 }
+                // A reset starts the run over, the frames taken with it.
+                if let Ok(Some(Instruction::Reset)) = scenario::parse(&text) {
+                    frames = Frames::default();
+                }
                 continue;
-            }
+            };
+            // A snapshot is the run's: the sandbox answers with the screen,
+            // and what changed since the last snapshot is worked out here.
             let (number, wanted) = expected.next().expect("a frame per snapshot");
-            if answer != wanted {
+            let answer = sandbox.ask("screen")?;
+            let screen = Screen::read(&answer)
+                .with_context(|| format!("line {number}: {}", answer.trim_end()))?;
+            let frame = frames.take(screen, layer);
+            if frame != wanted {
                 differ += 1;
-                print!("{answer}");
+                print!("{frame}");
                 println!("the file has (line {number}):");
                 print!("{wanted}");
             }
@@ -149,7 +164,7 @@ mod live {
         let mut frames: Vec<(usize, String)> = Vec::new();
         for (index, line) in scenario::lines(script).enumerate() {
             match line {
-                Line::Snapshot(_) => frames.push((index + 1, String::new())),
+                Line::Snapshot(..) => frames.push((index + 1, String::new())),
                 Line::Frame("") | Line::Text(_) => {}
                 Line::Frame(row) => {
                     let (_, frame) = frames.last_mut().expect("a frame follows its snapshot");

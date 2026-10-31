@@ -26,18 +26,23 @@
 //!   ?file NAME "TEXT"   the file in the scenario's directory holds TEXT
 //!   ?nopath NAME   nothing is there, neither a file nor a directory
 //!   ?clipboard "TEXT"   the desktop clipboard holds TEXT
-//!   --- CAPTION    a snapshot: the frame as the screen shows it here. The
-//!                  first is whole, each later one is the rows that changed
-//!                  since the one before, or `same` when none did. CAPTION
-//!                  says what should be seen. In a file the frame follows
-//!                  the line, up to a blank line, and is generated.
+//!   --- CAPTION    a snapshot: the text on the screen and the marks under
+//!                  it. The first is whole, each later one is the rows that
+//!                  changed since the snapshot before, or `same` when none
+//!                  did. CAPTION says what should be seen. In a file the
+//!                  frame follows the line, up to a blank line, and is
+//!                  generated.
+//!   ---ink CAPTION the same for the inks, the colours of the text: what
+//!                  changed since the last `---ink`. Two snapshots in a
+//!                  row when both matter.
 //!
 //! A line beginning with `%` sets the run up around the editor, and one
 //! beginning with `?` checks what the run can see and the screen cannot:
 //! how the editor ended, what it handed on, what it wrote, what it put on
-//! the clipboard. Neither is the
-//! editor's: the headless run and the sandbox binary carry them out, the
-//! editor's socket refuses them unread. A `?` line that does not
+//! the clipboard. A snapshot is the run's too: it asks the editor for the
+//! screen and works out what changed from the one before. None of these
+//! are the editor's: the headless run and the sandbox binary carry them
+//! out, the editor's socket refuses them unread. A `?` line that does not
 //! hold is an error naming the line, like any other. The other lines are
 //! the editor's own.
 //!
@@ -67,6 +72,7 @@ use crossterm::event::{
 
 use super::input;
 use super::launch::{self, Args, Outcome};
+use super::screen::Layer;
 use crate::editor::key::Key;
 
 /// A line of a scenario, as the file is read.
@@ -74,8 +80,9 @@ use crate::editor::key::Key;
 pub enum Line<'a> {
     /// The author's: an instruction, a comment or a blank line.
     Text(&'a str),
-    /// `---` and its caption: a frame is taken here.
-    Snapshot(&'a str),
+    /// `---` or `---ink` and its caption: a frame of that layer is taken
+    /// here.
+    Snapshot(Layer, &'a str),
     /// Generated: a line of the frame under a snapshot, and the blank line
     /// that ends it.
     Frame(&'a str),
@@ -92,19 +99,39 @@ pub fn lines(script: &str) -> impl Iterator<Item = Line<'_>> {
             in_frame = !line.is_empty();
             return Line::Frame(line);
         }
-        match snapshot_caption(line) {
-            Some(caption) => {
+        match snapshot(line) {
+            Some((layer, caption)) => {
                 in_frame = true;
-                Line::Snapshot(caption)
+                Line::Snapshot(layer, caption)
             }
             None => Line::Text(line),
         }
     })
 }
 
-/// The caption of a snapshot line, if this is one.
-fn snapshot_caption(line: &str) -> Option<&str> {
-    line.strip_prefix("---").map(str::trim)
+/// The layer and caption of a snapshot line, if this is one: `---` for the
+/// marks, `---ink` for the inks, the caption after a space.
+fn snapshot(line: &str) -> Option<(Layer, &str)> {
+    let rest = line.strip_prefix("---")?;
+    match rest.strip_prefix("ink") {
+        Some(caption) if caption.is_empty() || caption.starts_with(' ') => {
+            Some((Layer::Inks, caption.trim()))
+        }
+        _ => Some((Layer::Marks, rest.trim())),
+    }
+}
+
+/// A snapshot line as it is written: the inverse of `snapshot`, for the
+/// test that rewrites a scenario and the replay that shows one.
+pub fn snapshot_line(layer: Layer, caption: &str) -> String {
+    let marker = match layer {
+        Layer::Marks => "---",
+        Layer::Inks => "---ink",
+    };
+    match caption {
+        "" => marker.to_owned(),
+        caption => format!("{marker} {caption}"),
+    }
 }
 
 /// One instruction, read but not yet carried out. Reading is separate from
@@ -128,8 +155,8 @@ pub enum Instruction {
     /// directory empty.
     Reset,
     Wait,
-    /// A frame to take, under this caption.
-    Snapshot(String),
+    /// A frame of this layer to take, under this caption.
+    Snapshot(Layer, String),
     /// A `?` line: what the run is to check.
     Expect(Expect),
 }
@@ -153,10 +180,10 @@ pub enum Expect {
 }
 
 /// Whether `line` is the run's rather than the editor's: a `%` line sets
-/// the run up, a `?` line checks it. The socket refuses both without
-/// reading further.
+/// the run up, a `?` line checks it, a `---` line takes a frame of what
+/// the run remembers. The socket refuses all three without reading further.
 pub fn belongs_to_run(line: &str) -> bool {
-    line.starts_with('%') || line.starts_with('?')
+    line.starts_with('%') || line.starts_with('?') || line.starts_with("---")
 }
 
 /// Reads one line of the language. `None` for a blank line or a comment,
@@ -166,8 +193,8 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
     if line.is_empty() || line.starts_with('#') {
         return Ok(None);
     }
-    if let Some(caption) = snapshot_caption(line) {
-        return Ok(Some(Instruction::Snapshot(caption.to_owned())));
+    if let Some((layer, caption)) = snapshot(line) {
+        return Ok(Some(Instruction::Snapshot(layer, caption.to_owned())));
     }
     let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
     let instruction = match verb {
@@ -411,19 +438,27 @@ mod tests {
 
     #[test]
     fn a_frame_runs_from_its_snapshot_to_a_blank_line() {
-        let script = "type a\n--- one letter\n0|1 a\n |::^\n\nkey Esc\n---\n";
+        let script =
+            "type a\n--- one letter\n0|1 a\n |--^\n\nkey Esc\n---\n\n---ink coloured\n\n---inky\n";
         let read: Vec<Line> = lines(script).collect();
         assert_eq!(
             read,
             [
                 Line::Text("type a"),
-                Line::Snapshot("one letter"),
+                Line::Snapshot(Layer::Marks, "one letter"),
                 Line::Frame("0|1 a"),
-                Line::Frame(" |::^"),
+                Line::Frame(" |--^"),
                 Line::Frame(""),
                 Line::Text("key Esc"),
-                Line::Snapshot(""),
+                Line::Snapshot(Layer::Marks, ""),
+                Line::Frame(""),
+                Line::Snapshot(Layer::Inks, "coloured"),
+                Line::Frame(""),
+                // Not the word `ink`, so a caption.
+                Line::Snapshot(Layer::Marks, "inky"),
             ]
         );
+        assert_eq!(snapshot_line(Layer::Marks, "one letter"), "--- one letter");
+        assert_eq!(snapshot_line(Layer::Inks, ""), "---ink");
     }
 }

@@ -108,13 +108,9 @@ fn rendered(written: &str) -> Result<String> {
                 out.push_str(text);
                 out.push('\n');
             }
-            scenario::Line::Snapshot(caption) => {
+            scenario::Line::Snapshot(layer, caption) => {
                 let snapshot = snapshots.next().expect("a frame per snapshot");
-                out.push_str("---");
-                if !caption.is_empty() {
-                    out.push(' ');
-                    out.push_str(caption);
-                }
+                out.push_str(&scenario::snapshot_line(layer, caption));
                 out.push('\n');
                 out.push_str(&snapshot.frame);
                 out.push('\n');

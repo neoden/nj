@@ -16,8 +16,10 @@ use anyhow::{Context, Result, bail};
 use super::app;
 use super::launch::Outcome;
 #[cfg(debug_assertions)]
-use super::sandbox::Frames;
+use super::sandbox;
 use super::scenario::{self, Instruction};
+#[cfg(debug_assertions)]
+use super::screen::Screen;
 use crate::editor::Editor;
 use crate::editor::job::{Message, Remote};
 
@@ -87,15 +89,14 @@ impl Drop for Listener {
 /// what came of it, each line of the answer ended by a newline. The lines
 /// taken are the ones about the editor itself: input, as the keyboard's
 /// would be; `wait`, for its own jobs; `size`, the frame to draw, which
-/// the server then holds; and, in the debug build, `---`, answered with
-/// the frame dumped as the test dumps it. The `%` lines are about the run
-/// around the editor and are set up by whoever drives it.
+/// the server then holds; and, in the debug build, `screen`, answered with
+/// the whole screen as `screen::Screen` writes it, whole every time. The
+/// `%`, `?` and `---` lines are about the run around the editor and are
+/// carried out by whoever drives it.
 #[derive(Default)]
 pub struct Server {
     /// The frame to draw instead of the whole terminal, once `size` said.
     size: Option<(usize, usize)>,
-    #[cfg(debug_assertions)]
-    frames: Frames,
 }
 
 impl Server {
@@ -118,8 +119,24 @@ impl Server {
         // The run around the editor is set up by whoever drives it, never
         // over the socket; the prefix says so before the verb does.
         if scenario::belongs_to_run(line) {
-            return "error: a `%` or `?` line is the run's and is not taken over the socket\n"
+            return "error: a `%`, `?` or `---` line is the run's and is not taken over the socket\n"
                 .to_owned();
+        }
+        // The server's own verb, not a scenario's line: the screen as it
+        // is, whole, with nothing remembered from the time before. Refused
+        // when the terminal has shrunk under `size`: then the screen and
+        // the frame would disagree, and it is not shown in part.
+        if line.trim_end() == "screen" {
+            #[cfg(debug_assertions)]
+            {
+                if let Some(error) = self.size.and_then(|wanted| too_small(terminal, wanted)) {
+                    return error;
+                }
+                let grid = sandbox::grid(editor, self.frame_size(terminal));
+                return Screen::of(&grid).write();
+            }
+            #[cfg(not(debug_assertions))]
+            return "error: the screen is read in the debug build only\n".to_owned();
         }
         match scenario::parse(line) {
             Err(error) => format!("error: {error:#}\n"),
@@ -149,27 +166,13 @@ impl Server {
                 self.size = Some((width, height));
                 "ok\n".to_owned()
             }
-            // The terminal may have shrunk since `size`: then the screen
-            // and the frame would disagree, and the frame is refused rather
-            // than shown in part.
-            #[cfg(debug_assertions)]
-            Ok(Some(Instruction::Snapshot(_))) => {
-                let size = self.frame_size(terminal);
-                if let Some(error) = self.size.and_then(|wanted| too_small(terminal, wanted)) {
-                    return error;
-                }
-                self.frames.take(editor, size)
-            }
-            #[cfg(not(debug_assertions))]
-            Ok(Some(Instruction::Snapshot(_))) => {
-                "error: a frame is taken in the debug build only\n".to_owned()
-            }
             Ok(Some(
                 Instruction::File(..)
                 | Instruction::Clipboard(_)
                 | Instruction::Stdin(_)
                 | Instruction::Start(_)
                 | Instruction::Reset
+                | Instruction::Snapshot(..)
                 | Instruction::Expect(_),
             )) => unreachable!("the run's lines are refused by their prefix"),
         }
@@ -225,18 +228,26 @@ mod tests {
         );
         assert_eq!(server.frame_size(terminal), (40, 6));
 
-        // A frame comes dumped against the one before; a terminal that
-        // shrank since `size` is refused as `size` would have been.
-        let answer = server.answer(&mut editor, "--- typed", terminal);
-        assert!(answer.starts_with("0|1 ab\n |::--^"), "{answer}");
-        assert_eq!(server.answer(&mut editor, "---", terminal), "same\n");
-        let answer = server.answer(&mut editor, "---", (30, 30));
+        // The screen comes whole every time, whatever was asked before; a
+        // terminal that shrank since `size` is refused as `size` would
+        // have been.
+        let answer = server.answer(&mut editor, "screen", terminal);
+        assert!(
+            answer.starts_with("screen 40 6\n0 text|1 ab\n0 mark|"),
+            "{answer}"
+        );
+        assert!(answer.ends_with("end\n"), "{answer}");
+        assert_eq!(server.answer(&mut editor, "screen", terminal), answer);
+        let answer = server.answer(&mut editor, "screen", (30, 30));
         assert!(
             answer.starts_with("error: the terminal is 30×30"),
             "{answer}"
         );
-        // A `%` or `?` line is refused by its prefix, whatever follows it.
+        // A `%`, `?` or `---` line is refused by its prefix, whatever
+        // follows it.
         for line in [
+            "--- typed",
+            "---ink",
             "%file a.txt \"a\"",
             "%clipboard \"c\"",
             "%stdin \"s\"",
@@ -247,7 +258,7 @@ mod tests {
         ] {
             let answer = server.answer(&mut editor, line, terminal);
             assert!(
-                answer.starts_with("error: a `%` or `?` line"),
+                answer.starts_with("error: a `%`, `?` or `---` line"),
                 "{line}: {answer}"
             );
         }
