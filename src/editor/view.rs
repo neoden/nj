@@ -1,7 +1,7 @@
 use std::ops::Range;
 
-use super::screen::Area;
 use super::style::{Ink, Mark};
+use super::ui_layout::Area;
 use super::workspace::BufferId;
 use crate::buffer::Buffer;
 use crate::buffer::syntax::Token;
@@ -532,7 +532,7 @@ fn digits(n: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::super::screen::Screen;
+    use super::super::ui_layout::UiLayout;
     use super::*;
     use crate::text::Text;
 
@@ -550,8 +550,8 @@ mod tests {
     }
 
     fn fit(view: &mut View, width: usize, height: usize, buffer: &Buffer) {
-        let screen = Screen::divide(width, height, 0);
-        view.resize(screen.text, buffer);
+        let ui_layout = UiLayout::divide(width, height, 0);
+        view.resize(ui_layout.text, buffer);
     }
 
     /// Columns of text, whatever the gutter takes.

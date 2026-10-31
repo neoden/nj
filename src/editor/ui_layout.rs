@@ -18,14 +18,14 @@ const MIN_TEXT_ROWS: usize = 1;
 const MIN_PANEL_ROWS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Screen {
+pub struct UiLayout {
     /// Where the text goes, gutter included.
     pub text: Area,
     /// Rows the panel got, which is not always what it asked for.
     pub panel_height: usize,
 }
 
-impl Screen {
+impl UiLayout {
     /// A panel is cut down to what is left rather than pushing the status bar
     /// off the screen, and a screen too short to draw one in gets none at
     /// all.
@@ -65,27 +65,27 @@ mod tests {
 
     #[test]
     fn the_text_takes_the_whole_width() {
-        let screen = Screen::divide(400, 24, 0);
-        assert_eq!(screen.text.x, 0);
-        assert_eq!(screen.text.width, 400);
+        let layout = UiLayout::divide(400, 24, 0);
+        assert_eq!(layout.text.x, 0);
+        assert_eq!(layout.text.width, 400);
     }
 
     #[test]
     fn a_panel_never_pushes_the_status_bar_off_the_screen() {
-        let screen = Screen::divide(80, 24, 13);
-        assert_eq!(screen.panel_height, 13);
-        assert_eq!(screen.text.height, 10);
-        assert_eq!(screen.status_row(), 23);
+        let layout = UiLayout::divide(80, 24, 13);
+        assert_eq!(layout.panel_height, 13);
+        assert_eq!(layout.text.height, 10);
+        assert_eq!(layout.status_row(), 23);
 
         // Asking for more than there is leaves the text a row and the status
         // bar its own.
-        let screen = Screen::divide(80, 12, 13);
-        assert_eq!(screen.panel_height, 10);
-        assert_eq!(screen.text.height, 1);
+        let layout = UiLayout::divide(80, 12, 13);
+        assert_eq!(layout.panel_height, 10);
+        assert_eq!(layout.text.height, 1);
 
         // Too short to draw a panel in at all.
-        let screen = Screen::divide(80, 4, 13);
-        assert_eq!(screen.panel_height, 0);
-        assert_eq!(screen.text.height, 3);
+        let layout = UiLayout::divide(80, 4, 13);
+        assert_eq!(layout.panel_height, 0);
+        assert_eq!(layout.text.height, 3);
     }
 }

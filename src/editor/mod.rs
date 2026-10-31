@@ -11,8 +11,8 @@ pub mod key;
 pub mod keymap;
 pub mod lines;
 pub mod panel;
-pub mod screen;
 pub mod style;
+pub mod ui_layout;
 pub mod view;
 pub mod workspace;
 
@@ -41,7 +41,7 @@ use panel::picker::{self, Candidate, Pick, Picker};
 use panel::replace::Replace;
 use panel::save_as::SaveAs;
 use panel::{After, Panel};
-use screen::Screen;
+use ui_layout::UiLayout;
 use view::View;
 use workspace::{BufferId, Workspace};
 
@@ -61,7 +61,7 @@ pub struct Editor {
     workspace: Workspace,
     /// How the terminal was last divided; what the focused view's area came
     /// from.
-    screen: Screen,
+    ui_layout: UiLayout,
     clipboard: Clipboard,
     panel: Option<Panel>,
     /// Shown on the status bar until the next command.
@@ -95,7 +95,7 @@ impl Editor {
         let (jobs, inbox) = Jobs::new();
         let mut editor = Self {
             workspace: Workspace::single(buffer),
-            screen: Screen::default(),
+            ui_layout: UiLayout::default(),
             clipboard: Clipboard::default(),
             panel: None,
             message: None,
@@ -206,8 +206,8 @@ impl Editor {
         self.search.is_some()
     }
 
-    pub fn screen(&self) -> &Screen {
-        &self.screen
+    pub fn ui_layout(&self) -> &UiLayout {
+        &self.ui_layout
     }
 
     /// Set once the loop should stop, and how the process then ends.
@@ -225,8 +225,8 @@ impl Editor {
     pub fn resize(&mut self, term_width: usize, term_height: usize) {
         let panel = self.panel_height();
         let (view, buffer) = self.workspace.focus_mut();
-        self.screen = Screen::divide(term_width, term_height, panel);
-        view.resize(self.screen.text, buffer);
+        self.ui_layout = UiLayout::divide(term_width, term_height, panel);
+        view.resize(self.ui_layout.text, buffer);
     }
 
     /// The only way in. Routes to the method that does the work;

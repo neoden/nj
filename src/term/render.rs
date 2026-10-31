@@ -75,7 +75,7 @@ impl Default for Renderer {
 /// if one is open, and the status bar on the last row.
 pub fn compose(grid: &mut Grid, editor: &Editor) {
     let (view, buffer) = (editor.view(), editor.buffer());
-    let screen = editor.screen();
+    let ui_layout = editor.ui_layout();
     let x = view.area.x;
     let width = view.area.width;
 
@@ -123,10 +123,10 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
 
     // What the panel asked for is not what it got: only the screen knows how
     // much was left over, and it may have granted nothing at all.
-    let body = screen.panel_height.saturating_sub(2);
+    let body = ui_layout.panel_height.saturating_sub(2);
     if let Some(panel) = editor.panel().filter(|_| body > 0) {
-        let top = screen.panel_top() + 1;
-        rule(grid, x, screen.panel_top(), width);
+        let top = ui_layout.panel_top() + 1;
+        rule(grid, x, ui_layout.panel_top(), width);
         match panel {
             Panel::Find(find) => draw_field(grid, x, &find.query, true, top, width),
             Panel::GotoLine(goto_line) => draw_field(grid, x, &goto_line.line, true, top, width),
@@ -151,13 +151,13 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
                 grid.put_str(x, top, &pad(&replacing.line(), width), CellStyle::default());
             }
         }
-        rule(grid, x, screen.status_row() - 1, width);
+        rule(grid, x, ui_layout.status_row() - 1, width);
     }
 
     let (left, right) = status(editor);
     grid.put_str(
         x,
-        screen.status_row(),
+        ui_layout.status_row(),
         &status_line(&left, &right, width),
         CellStyle::of(Ink::Status),
     );
