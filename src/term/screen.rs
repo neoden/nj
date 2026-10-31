@@ -8,9 +8,8 @@
 //! screen 40 16
 //!  0 text|1 fn main() {}
 //!  0 mark|--------------^
-//!  0 ink |gg kk ffff
+//!  0 ink |  kk ffff
 //! 15 text|     [scratch]* · Rust · 1 lines · 1:13
-//! 15 ink |bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 //! end
 //! ```
 //!
@@ -23,7 +22,9 @@
 //!
 //! Mark letters: `-` current line, `~` selected, `=` a search hit, `^` a
 //! caret. Ink letters: `k` keyword, `s` string, `c` comment, `t` type,
-//! `f` function, `n` constant, `g` gutter, `r` rule, `b` the status bar.
+//! `f` function, `n` constant. A letter is for what the text alone does
+//! not tell: the editor's own furniture — the line numbers, the rules, the
+//! status bar — is told by where it is and what it says, and gets none.
 //!
 //! A frame, as a scenario's `---` writes it: the rows that differ, in
 //! their text or in one layer, from the last frame taken in that layer,
@@ -69,10 +70,7 @@ fn mark_letter(mark: Mark) -> char {
 
 fn ink_letter(ink: Ink) -> char {
     match ink {
-        Ink::Text => ' ',
-        Ink::Gutter => 'g',
-        Ink::Rule => 'r',
-        Ink::Status => 'b',
+        Ink::Text | Ink::Gutter | Ink::Rule | Ink::Status => ' ',
         Ink::Keyword => 'k',
         Ink::String => 's',
         Ink::Comment => 'c',
@@ -274,6 +272,15 @@ mod tests {
     use super::*;
     use crate::editor::style::CellStyle;
 
+    /// `ab` is a keyword on the current line: a cell with both an ink and
+    /// a mark worth a letter.
+    fn keyword_on_current_line() -> CellStyle {
+        CellStyle {
+            ink: Ink::Keyword,
+            mark: Mark::CurrentLine,
+        }
+    }
+
     fn grid_with_a_current_line() -> Grid {
         let mut grid = Grid::new(10, 3);
         let gutter = CellStyle {
@@ -281,7 +288,7 @@ mod tests {
             mark: Mark::CurrentLine,
         };
         grid.put_str(0, 0, "1 ", gutter);
-        grid.put_str(2, 0, "ab", CellStyle::marked(Mark::CurrentLine));
+        grid.put_str(2, 0, "ab", keyword_on_current_line());
         grid.put_str(4, 0, "c", CellStyle::marked(Mark::Cursor));
         // The rest of the current line is painted to the edge, as `compose`
         // does, and shows up as letters where the text shows nothing.
@@ -298,21 +305,20 @@ mod tests {
             mark: Mark::CurrentLine,
         };
         grid.put_str(0, 0, "1 ", gutter);
-        grid.put_str(2, 0, "ab", CellStyle::marked(Mark::CurrentLine));
+        grid.put_str(2, 0, "ab", keyword_on_current_line());
         grid.put_str(4, 0, "c", CellStyle::marked(Mark::Cursor));
         grid.put_str(5, 0, "     ", CellStyle::marked(Mark::CurrentLine));
         grid.put_str(0, 11, "status", CellStyle::of(Ink::Status));
 
         // Rows 1 to 10 have nothing and are not there; row 11 has no marks
-        // and so no mark line. The gutter is `-` in the marks and `g` in
-        // the inks.
+        // and no ink worth a letter, so no second line at all. The gutter
+        // is `-` in the marks and nothing in the inks.
         let expected = [
             "screen 10 12",
             " 0 text|1 abc",
             " 0 mark|----^-----",
-            " 0 ink |gg",
+            " 0 ink |  kk",
             "11 text|status",
-            "11 ink |bbbbbb",
             "end",
             "",
         ];
@@ -339,7 +345,7 @@ mod tests {
         );
         assert_eq!(
             frame(&screen, None, Layer::Inks),
-            "0|1 abc\n |gg\n1|\n2|status\n |bbbbbb\n"
+            "0|1 abc\n |  kk\n1|\n2|status\n"
         );
     }
 
@@ -414,7 +420,7 @@ mod tests {
         assert!(
             frames
                 .take(screen.clone(), Layer::Inks)
-                .starts_with("0|1 abc\n |gg\n")
+                .starts_with("0|1 abc\n |  kk\n")
         );
         assert_eq!(frames.take(screen, Layer::Inks), "same\n");
     }
