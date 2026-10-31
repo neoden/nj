@@ -83,6 +83,12 @@ impl Transaction {
         }
     }
 
+    /// In the order of the cursors, each in the coordinates of the text
+    /// before the transaction.
+    pub fn changes(&self) -> &[Change] {
+        &self.changes
+    }
+
     pub fn selections_before(&self) -> &SelectionSet {
         &self.before
     }

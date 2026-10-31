@@ -204,8 +204,15 @@ fn set_style(out: &mut impl Write, style: CellStyle) -> Result<()> {
         Ink::Gutter if style.mark == Mark::CurrentLine => {
             queue!(out, SetForegroundColor(Color::Grey))?
         }
-        Ink::Gutter | Ink::Rule => queue!(out, SetForegroundColor(Color::DarkGrey))?,
+        Ink::Gutter | Ink::Rule | Ink::Comment => queue!(out, SetForegroundColor(Color::DarkGrey))?,
         Ink::Status => queue!(out, SetAttribute(Attribute::Reverse))?,
+        // The terminal's own palette, so that the text looks at home in
+        // whatever scheme the terminal has.
+        Ink::Keyword => queue!(out, SetForegroundColor(Color::Magenta))?,
+        Ink::String => queue!(out, SetForegroundColor(Color::Green))?,
+        Ink::Type => queue!(out, SetForegroundColor(Color::Yellow))?,
+        Ink::Function => queue!(out, SetForegroundColor(Color::Blue))?,
+        Ink::Constant => queue!(out, SetForegroundColor(Color::Cyan))?,
     }
     match style.mark {
         Mark::None => {}

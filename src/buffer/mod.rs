@@ -4,6 +4,7 @@
 
 pub mod indent;
 pub mod language;
+pub mod syntax;
 
 use std::collections::VecDeque;
 use std::fs;
@@ -19,6 +20,7 @@ use crate::text::selection::SelectionSet;
 use crate::text::transaction::Transaction;
 use crate::text::{Text, TextBuilder};
 use language::{Indent, Language};
+use syntax::Syntax;
 
 const BOM: &str = "\u{feff}";
 
@@ -108,6 +110,9 @@ pub struct Buffer {
     /// Derived from `language` by `set_language`, so the two are never
     /// written separately.
     indent: Indent,
+    /// Likewise from `language`, and `None` for one without a grammar.
+    /// Edited by `splice` alongside the text.
+    syntax: Option<Syntax>,
     /// Bounded, so the oldest step falls off the front.
     undo_stack: VecDeque<Group>,
     redo_stack: Vec<Group>,
@@ -154,6 +159,7 @@ impl Default for Buffer {
             backing: Backing::Scratch,
             language: &language::PLAIN,
             indent: language::PLAIN.indent,
+            syntax: None,
             undo_stack: VecDeque::new(),
             redo_stack: Vec::new(),
             last_edit: None,
@@ -204,6 +210,9 @@ impl Buffer {
     fn splice(&mut self, transaction: Transaction) -> Transaction {
         let splices = transaction.splices();
         let inverse = transaction.apply(&mut self.text);
+        if let Some(syntax) = &mut self.syntax {
+            syntax.update(&self.text, inverse.changes());
+        }
         self.journal.push_back(splices);
         if self.journal.len() > JOURNAL_LIMIT {
             self.journal.pop_front();
@@ -273,6 +282,12 @@ impl Buffer {
     pub fn set_language(&mut self, language: &'static Language) {
         self.language = language;
         self.indent = indent::detect(&self.text, language.indent);
+        self.syntax = Syntax::new(language, &self.text);
+    }
+
+    /// The syntax tree, for languages that have a grammar.
+    pub fn syntax(&self) -> Option<&Syntax> {
+        self.syntax.as_ref()
     }
 
     pub fn language(&self) -> &'static Language {

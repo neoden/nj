@@ -204,6 +204,22 @@ impl Text {
         self.rope.byte_to_line_idx(byte, LINES)
     }
 
+    /// The text in `range`, piece by piece as it is stored, for a reader
+    /// that takes it that way.
+    pub fn chunks_in(&self, range: Range<usize>) -> impl Iterator<Item = &str> {
+        self.rope.slice(range).chunks()
+    }
+
+    /// The text from `byte` to the end of the chunk it falls in: what a
+    /// reader that asks for the text piece by piece gets. Empty at the end.
+    pub fn chunk_at(&self, byte: usize) -> &str {
+        if byte >= self.len() {
+            return "";
+        }
+        let (chunk, start) = self.rope.chunk(byte);
+        &chunk[byte - start..]
+    }
+
     pub fn insert(&mut self, at: usize, text: &str) {
         self.rope.insert(at, text);
     }

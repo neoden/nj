@@ -15,7 +15,7 @@ use crate::editor::panel::Panel;
 use crate::editor::panel::field::Field;
 use crate::editor::panel::picker::Picker;
 use crate::editor::style::{CellStyle, Ink, Mark};
-use crate::editor::view::LineHighlight;
+use crate::editor::view::{LineHighlight, Row};
 use crate::text::layout::{self, Glyph};
 
 /// Panels and the status bar hold one-line strings rather than code, so a tab
@@ -79,9 +79,21 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
     let x = view.area.x;
     let width = view.area.width;
 
-    for (row, y) in view.rows(buffer).zip(view.area.y..) {
+    // The tokens of the lines on the screen, read once for the frame.
+    let rows: Vec<Row> = view.rows(buffer).collect();
+    let tokens = match (buffer.syntax(), rows.first(), rows.last()) {
+        (Some(syntax), Some(first), Some(last)) => {
+            let text = buffer.text();
+            let from = text.line_start(first.line);
+            let to = text.line_start(last.line) + text.line_len(last.line);
+            syntax.tokens(text, from..to)
+        }
+        _ => Vec::new(),
+    };
+
+    for (row, y) in rows.iter().zip(view.area.y..) {
         let text = buffer.text().line_str(row.line);
-        let highlight = view.highlight_line(buffer, row.line, editor.matches());
+        let highlight = view.highlight_line(buffer, row.line, editor.matches(), &tokens);
         // Wrapped continuations leave the gutter empty: the number belongs to
         // the logical line, not to every row it spans.
         let number = match row.index {
@@ -255,7 +267,10 @@ struct Painter<'a> {
 
 impl Painter<'_> {
     fn put(&mut self, column: usize, cluster: &str, width: usize) {
-        let style = CellStyle::marked(self.highlight.mark_at(column));
+        let style = CellStyle {
+            ink: self.highlight.ink_at(column),
+            mark: self.highlight.mark_at(column),
+        };
         self.grid
             .put(self.x + column - self.left, self.y, cluster, width, style);
     }
@@ -419,6 +434,36 @@ mod tests {
         let mut editor = Editor::new(Buffer::from_text(Text::from_str(content)));
         editor.resize(width, height);
         editor
+    }
+
+    #[test]
+    fn tokens_colour_the_text_under_the_marks() {
+        let mut buffer = Buffer::from_text(Text::from_str("fn main() {}\n"));
+        buffer.set_language(crate::buffer::language::detect(std::path::Path::new(
+            "x.rs",
+        )));
+        let mut editor = Editor::new(buffer);
+        editor.resize(80, 3);
+        let grid = composed(&editor, 80, 3);
+        let gutter = editor.view().gutter;
+
+        // `fn` is a keyword on the current line, under the cursor's mark too.
+        assert_eq!(
+            style_at(&grid, gutter, 0),
+            CellStyle {
+                ink: Ink::Keyword,
+                mark: Mark::Cursor,
+            }
+        );
+        assert_eq!(
+            style_at(&grid, gutter + 1, 0),
+            CellStyle {
+                ink: Ink::Keyword,
+                mark: Mark::CurrentLine,
+            }
+        );
+        assert_eq!(style_at(&grid, gutter + 3, 0).ink, Ink::Function);
+        assert_eq!(style_at(&grid, gutter + 7, 0).ink, Ink::Text);
     }
 
     fn composed(editor: &Editor, width: usize, height: usize) -> Grid {

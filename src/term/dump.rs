@@ -7,7 +7,7 @@
 
 use crate::editor::style::{CellStyle, Ink, Mark};
 
-use super::grid::Grid;
+use super::grid::{Cell, Grid, Symbol};
 
 /// The letter a style shows in the line under a row. Only the mark earns a
 /// letter: what the text is, the row's text already makes visible — a
@@ -59,8 +59,17 @@ pub fn dump(grid: &Grid, previous: Option<&Grid>) -> String {
     };
 
     for y in 0..grid.height() {
-        let same =
-            previous.is_some_and(|p| (0..grid.width()).all(|x| p.cell(x, y) == grid.cell(x, y)));
+        // Changed in what the frame shows: the ink is not printed, so a row
+        // that only changed colour is the same row here.
+        fn shown(cell: &Cell) -> (&Symbol, Mark) {
+            (&cell.symbol, cell.style.mark)
+        }
+        let same = previous.is_some_and(|p| {
+            (0..grid.width()).all(|x| {
+                let (before, now) = (p.cell(x, y), grid.cell(x, y));
+                before.map(shown) == now.map(shown)
+            })
+        });
         if same {
             if let Some(from) = empty_from.take() {
                 flush_empty(&mut out, from, y - 1);
@@ -131,6 +140,11 @@ mod tests {
         assert_eq!(dump(&after, Some(&after)), "");
         // A frame of another size has nothing to differ from.
         assert_eq!(dump(&after, Some(&Grid::new(6, 4))), dump(&after, None));
+
+        // A row that only changed colour reads the same, so it is not printed.
+        let mut coloured = after.clone();
+        coloured.put_str(0, 0, "keep", CellStyle::of(Ink::Keyword));
+        assert_eq!(dump(&coloured, Some(&after)), "");
     }
 
     #[test]

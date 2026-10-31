@@ -1,9 +1,10 @@
 use std::ops::Range;
 
 use super::screen::Area;
-use super::style::Mark;
+use super::style::{Ink, Mark};
 use super::workspace::BufferId;
 use crate::buffer::Buffer;
+use crate::buffer::syntax::Token;
 use crate::text::anchor::{Anchor, Bias, Version};
 use crate::text::layout;
 use crate::text::movement::{self, Direction, Motion};
@@ -12,8 +13,9 @@ use crate::text::selection::{Selection, SelectionSet};
 /// Rows kept between the cursor and the edge of the screen while scrolling.
 const SCROLL_MARGIN: usize = 2;
 
-/// Where selections, carets and search hits fall on one line, in display
-/// columns. A cell under several of them takes the topmost.
+/// Where selections, carets, search hits and syntax tokens fall on one
+/// line, in display columns. A cell under several marks takes the topmost;
+/// a cell inside several tokens takes the innermost.
 #[derive(Debug, Default)]
 pub struct LineHighlight {
     matched: Vec<Range<usize>>,
@@ -21,6 +23,9 @@ pub struct LineHighlight {
     carets: Vec<usize>,
     /// The line a lone bare cursor sits on.
     current: bool,
+    /// In the order the query gave them: a token inside another comes
+    /// after it.
+    inks: Vec<(Range<usize>, Ink)>,
 }
 
 impl LineHighlight {
@@ -38,6 +43,14 @@ impl LineHighlight {
 
     pub fn is_current(&self) -> bool {
         self.current
+    }
+
+    pub fn ink_at(&self, column: usize) -> Ink {
+        self.inks
+            .iter()
+            .rev()
+            .find(|(range, _)| range.contains(&column))
+            .map_or(Ink::Text, |(_, ink)| *ink)
     }
 
     pub fn mark_at(&self, column: usize) -> Mark {
@@ -433,14 +446,16 @@ impl View {
         }
     }
 
-    /// Selections and carets crossing `line`, in display columns. A selection
-    /// running past the end of a line highlights one extra column, to show
-    /// that the line break itself is selected.
+    /// Selections, carets, search hits and tokens crossing `line`, in
+    /// display columns. A selection running past the end of a line
+    /// highlights one extra column, to show that the line break itself is
+    /// selected. `tokens` are sorted by start and may nest.
     pub fn highlight_line(
         &self,
         buffer: &Buffer,
         line: usize,
         matches: &[Range<usize>],
+        tokens: &[Token<'_>],
     ) -> LineHighlight {
         let text = buffer.text();
         let tab_width = buffer.tab_width();
@@ -466,6 +481,18 @@ impl View {
             let from = column_of(found.start.max(start));
             let to = column_of(found.end.min(end));
             highlight.matched.push(from..to);
+        }
+
+        // Nested, so not sorted by end: the cut-off is by start, and a token
+        // over by then is skipped rather than searched for.
+        for token in tokens
+            .iter()
+            .take_while(|token| token.range.start < end)
+            .filter(|token| token.range.end > start)
+        {
+            let from = column_of(token.range.start.max(start));
+            let to = column_of(token.range.end.min(end));
+            highlight.inks.push((from..to, Ink::named(token.name)));
         }
 
         for selection in self.selections.touching(start..end) {
@@ -855,7 +882,7 @@ mod tests {
         }
         .into();
 
-        let highlight = view.highlight_line(&buffer, 0, &[]);
+        let highlight = view.highlight_line(&buffer, 0, &[], &[]);
         let marks: Vec<_> = (0..5).map(|column| highlight.mark_at(column)).collect();
         assert_eq!(
             marks,
@@ -874,8 +901,8 @@ mod tests {
         let buffer = buf("one\ntwo\n");
         let mut view = view_of(&buffer, 0);
 
-        assert!(view.highlight_line(&buffer, 0, &[]).current);
-        assert!(!view.highlight_line(&buffer, 1, &[]).current);
+        assert!(view.highlight_line(&buffer, 0, &[], &[]).current);
+        assert!(!view.highlight_line(&buffer, 1, &[], &[]).current);
 
         view.selections = Selection {
             anchor: 0,
@@ -883,11 +910,49 @@ mod tests {
             goal_column: None,
         }
         .into();
-        assert!(!view.highlight_line(&buffer, 0, &[]).current);
+        assert!(!view.highlight_line(&buffer, 0, &[], &[]).current);
 
         view.selections = SelectionSet::single(0);
         view.selections.push(Selection::cursor(4));
-        assert!(!view.highlight_line(&buffer, 0, &[]).current);
+        assert!(!view.highlight_line(&buffer, 0, &[], &[]).current);
+    }
+
+    #[test]
+    fn tokens_are_laid_out_in_columns_and_the_inner_one_wins() {
+        // A tab before the token shifts it by the tab's width, not its byte.
+        let buffer = buf("\tfoo!(x)\n");
+        let view = view_of(&buffer, 0);
+        let tokens = [
+            Token {
+                range: 1..5,
+                name: "function.macro",
+            },
+            Token {
+                range: 4..5,
+                name: "punctuation.bracket",
+            },
+            Token {
+                range: 9..10,
+                name: "keyword",
+            },
+        ];
+
+        let highlight = view.highlight_line(&buffer, 0, &[], &tokens);
+        let inks: Vec<_> = (0..9).map(|column| highlight.ink_at(column)).collect();
+        assert_eq!(
+            inks,
+            [
+                Ink::Text,
+                Ink::Text,
+                Ink::Text,
+                Ink::Text,
+                Ink::Function,
+                Ink::Function,
+                Ink::Function,
+                Ink::Text,
+                Ink::Text,
+            ]
+        );
     }
 
     #[test]
@@ -896,7 +961,7 @@ mod tests {
         let mut view = view_of(&buffer, 1);
         set_width(&mut view, 6);
 
-        let highlight = view.highlight_line(&buffer, 0, &[]);
+        let highlight = view.highlight_line(&buffer, 0, &[], &[]);
         assert!((0..view.width()).all(|column| highlight.mark_at(column) != Mark::None));
     }
 

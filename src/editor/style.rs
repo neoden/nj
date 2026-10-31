@@ -4,7 +4,8 @@
 //! on the current line, without a variant for every combination. The
 //! terminal layer that paints these does not care what they mean.
 
-/// What the text in a cell is. Syntax tokens will join this list.
+/// What the text in a cell is: a part of the editor's own furniture, or a
+/// kind of token in the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Ink {
     #[default]
@@ -12,6 +13,32 @@ pub enum Ink {
     Gutter,
     Rule,
     Status,
+    Keyword,
+    String,
+    Comment,
+    Type,
+    Function,
+    Constant,
+}
+
+impl Ink {
+    /// The ink for a token as a highlight query names it. The names are a
+    /// convention shared by the grammars' own queries, dotted from general
+    /// to specific — `function.method`, `comment.documentation` — and the
+    /// general part decides. A name not known here is plain text, so a
+    /// query is never wrong, only less colourful.
+    pub fn named(name: &str) -> Self {
+        let general = name.split('.').next().unwrap_or(name);
+        match general {
+            "keyword" | "attribute" => Ink::Keyword,
+            "string" | "escape" => Ink::String,
+            "comment" => Ink::Comment,
+            "type" | "constructor" => Ink::Type,
+            "function" => Ink::Function,
+            "constant" | "number" | "boolean" => Ink::Constant,
+            _ => Ink::Text,
+        }
+    }
 }
 
 /// What lies under the text: a state of the editor, not of the text. A cell
@@ -47,5 +74,19 @@ impl CellStyle {
             ink: Ink::Text,
             mark,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_token_is_known_by_the_general_part_of_its_name() {
+        assert_eq!(Ink::named("keyword"), Ink::Keyword);
+        assert_eq!(Ink::named("function.method"), Ink::Function);
+        assert_eq!(Ink::named("comment.documentation"), Ink::Comment);
+        assert_eq!(Ink::named("punctuation.bracket"), Ink::Text);
+        assert_eq!(Ink::named("variable"), Ink::Text);
     }
 }
