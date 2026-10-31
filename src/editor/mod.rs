@@ -763,7 +763,8 @@ impl Editor {
 
     fn outdent(&mut self) {
         let (view, buffer) = self.workspace.focus();
-        if let Some(transaction) = lines::outdent(buffer.text(), view.selections(), buffer.indent()) {
+        if let Some(transaction) = lines::outdent(buffer.text(), view.selections(), buffer.indent())
+        {
             self.apply(transaction, EditKind::Other);
         }
     }

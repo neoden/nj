@@ -62,7 +62,10 @@ impl Mouse {
             MouseKind::Press => Command::Select(Select::Click {
                 row,
                 column,
-                kind: match (self.mods.contains(Mods::SHIFT), self.mods.contains(Mods::ALT)) {
+                kind: match (
+                    self.mods.contains(Mods::SHIFT),
+                    self.mods.contains(Mods::ALT),
+                ) {
                     (true, false) => ClickKind::Extend,
                     (false, true) => ClickKind::Add,
                     _ => ClickKind::Place,

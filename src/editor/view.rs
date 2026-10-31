@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use super::screen::Area;
-use super::style::CellStyle;
+use super::style::Mark;
 use super::workspace::BufferId;
 use crate::buffer::Buffer;
 use crate::text::anchor::{Anchor, Bias, Version};
@@ -40,17 +40,17 @@ impl LineHighlight {
         self.current
     }
 
-    pub fn style_at(&self, column: usize) -> CellStyle {
+    pub fn mark_at(&self, column: usize) -> Mark {
         if self.carets.contains(&column) {
-            CellStyle::Cursor
+            Mark::Cursor
         } else if self.selected.iter().any(|range| range.contains(&column)) {
-            CellStyle::Selected
+            Mark::Selected
         } else if self.matched.iter().any(|range| range.contains(&column)) {
-            CellStyle::Matched
+            Mark::Matched
         } else if self.current {
-            CellStyle::CurrentLine
+            Mark::CurrentLine
         } else {
-            CellStyle::Normal
+            Mark::None
         }
     }
 }
@@ -856,15 +856,15 @@ mod tests {
         .into();
 
         let highlight = view.highlight_line(&buffer, 0, &[]);
-        let styles: Vec<_> = (0..5).map(|column| highlight.style_at(column)).collect();
+        let marks: Vec<_> = (0..5).map(|column| highlight.mark_at(column)).collect();
         assert_eq!(
-            styles,
+            marks,
             [
-                CellStyle::Normal,
-                CellStyle::Selected,
-                CellStyle::Selected,
-                CellStyle::Cursor,
-                CellStyle::Normal,
+                Mark::None,
+                Mark::Selected,
+                Mark::Selected,
+                Mark::Cursor,
+                Mark::None,
             ]
         );
     }
@@ -897,7 +897,7 @@ mod tests {
         set_width(&mut view, 6);
 
         let highlight = view.highlight_line(&buffer, 0, &[]);
-        assert!((0..view.width()).all(|column| highlight.style_at(column) != CellStyle::Normal));
+        assert!((0..view.width()).all(|column| highlight.mark_at(column) != Mark::None));
     }
 
     #[test]

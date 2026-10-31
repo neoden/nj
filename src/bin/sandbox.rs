@@ -67,7 +67,9 @@ mod live {
         let mut arguments = std::env::args().skip(1);
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
-                "--socket" => socket = PathBuf::from(arguments.next().context("--socket takes a path")?),
+                "--socket" => {
+                    socket = PathBuf::from(arguments.next().context("--socket takes a path")?)
+                }
                 other => bail!("unknown argument `{other}`"),
             }
         }
@@ -122,7 +124,9 @@ mod live {
             match reader.read_line(&mut line) {
                 Ok(0) => break,
                 Ok(_) => {}
-                Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                Err(error)
+                    if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+                {
                     continue;
                 }
                 Err(_) => break,
@@ -333,7 +337,9 @@ mod live {
             // clipboard is the run's and the desktop's is left alone.
             let helpers = std::env::current_dir()?.join(HELPERS);
             let path = match std::env::var_os("PATH") {
-                Some(rest) => std::env::join_paths(std::iter::once(helpers).chain(std::env::split_paths(&rest)))?,
+                Some(rest) => std::env::join_paths(
+                    std::iter::once(helpers).chain(std::env::split_paths(&rest)),
+                )?,
                 None => helpers.into_os_string(),
             };
             command.env("PATH", path);
@@ -415,8 +421,9 @@ mod live {
                 Ok(stream) => return Connection::over(stream),
                 Err(_) if Instant::now() < patience => thread::sleep(Duration::from_millis(50)),
                 Err(error) => {
-                    return Err(error)
-                        .with_context(|| format!("the editor does not listen at {}", socket.display()));
+                    return Err(error).with_context(|| {
+                        format!("the editor does not listen at {}", socket.display())
+                    });
                 }
             }
         }

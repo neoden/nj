@@ -14,7 +14,7 @@ use crate::editor::Editor;
 use crate::editor::panel::Panel;
 use crate::editor::panel::field::Field;
 use crate::editor::panel::picker::Picker;
-use crate::editor::style::CellStyle;
+use crate::editor::style::{CellStyle, Ink, Mark};
 use crate::editor::view::LineHighlight;
 use crate::text::layout::{self, Glyph};
 
@@ -88,9 +88,12 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
             0 => format!("{:>1$} ", row.line + 1, view.gutter - 1),
             _ => " ".repeat(view.gutter),
         };
-        let gutter = match highlight.is_current() {
-            true => CellStyle::GutterCurrent,
-            false => CellStyle::Gutter,
+        let gutter = CellStyle {
+            ink: Ink::Gutter,
+            mark: match highlight.is_current() {
+                true => Mark::CurrentLine,
+                false => Mark::None,
+            },
         };
         grid.put_str(x, y, &number, gutter);
         let left = row.start_column + view.left_column;
@@ -129,11 +132,11 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
             Panel::Picker(picker) => draw_picker(grid, x, picker, top, width, body),
             Panel::Confirm(confirm) => {
                 for (row, line) in confirm.rows().iter().take(body).enumerate() {
-                    grid.put_str(x, top + row, &pad(line, width), CellStyle::Normal);
+                    grid.put_str(x, top + row, &pad(line, width), CellStyle::default());
                 }
             }
             Panel::Replacing(replacing) => {
-                grid.put_str(x, top, &pad(&replacing.line(), width), CellStyle::Normal);
+                grid.put_str(x, top, &pad(&replacing.line(), width), CellStyle::default());
             }
         }
         rule(grid, x, screen.status_row() - 1, width);
@@ -144,7 +147,7 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
         x,
         screen.status_row(),
         &status_line(&left, &right, width),
-        CellStyle::Status,
+        CellStyle::of(Ink::Status),
     );
 }
 
@@ -252,7 +255,7 @@ struct Painter<'a> {
 
 impl Painter<'_> {
     fn put(&mut self, column: usize, cluster: &str, width: usize) {
-        let style = self.highlight.style_at(column);
+        let style = CellStyle::marked(self.highlight.mark_at(column));
         self.grid
             .put(self.x + column - self.left, self.y, cluster, width, style);
     }
@@ -280,10 +283,10 @@ fn draw_picker(
     let rows = picker.visible(height - 1).count();
 
     for (row, (index, candidate)) in picker.visible(rows).enumerate() {
-        let style = match index == picker.selected {
-            true => CellStyle::Selected,
-            false => CellStyle::Normal,
-        };
+        let style = CellStyle::marked(match index == picker.selected {
+            true => Mark::Selected,
+            false => Mark::None,
+        });
         // Indented to line up with the text of the query below; the detail,
         // if any, sits at the right edge with the same space the status bar
         // keeps there.
@@ -303,7 +306,7 @@ fn draw_picker(
 }
 
 fn rule(grid: &mut Grid, x: usize, y: usize, width: usize) {
-    grid.put_str(x, y, &"─".repeat(width), CellStyle::Rule);
+    grid.put_str(x, y, &"─".repeat(width), CellStyle::of(Ink::Rule));
 }
 
 /// The right half is the document — path, language, line and column — and
@@ -357,7 +360,7 @@ fn draw_field(grid: &mut Grid, x: usize, field: &Field, active: bool, y: usize, 
     let contents = field.contents();
     let label = format!(" {} ", field.label);
     let offset = layout::line_width(&label, PANEL_TAB_WIDTH).min(width);
-    grid.put_str(x, y, &pad(&label, offset), CellStyle::Normal);
+    grid.put_str(x, y, &pad(&label, offset), CellStyle::default());
 
     let room = width - offset;
     let column_of = |byte| layout::column_of_byte(&contents, byte, PANEL_TAB_WIDTH);
@@ -506,11 +509,11 @@ mod tests {
         assert_eq!(
             styles,
             [
-                CellStyle::Normal,
-                CellStyle::Selected,
-                CellStyle::Selected,
-                CellStyle::Cursor,
-                CellStyle::Normal,
+                CellStyle::default(),
+                CellStyle::marked(Mark::Selected),
+                CellStyle::marked(Mark::Selected),
+                CellStyle::marked(Mark::Cursor),
+                CellStyle::default(),
             ]
         );
     }
@@ -525,7 +528,7 @@ mod tests {
         assert!(grid.row_text(1).starts_with("2 "));
         assert_eq!(grid.row_text(2).trim(), "");
         assert!(grid.row_text(3).trim_end().ends_with("2 lines · 1:1"));
-        assert_eq!(style_at(&grid, 0, 3), CellStyle::Status);
+        assert_eq!(style_at(&grid, 0, 3), CellStyle::of(Ink::Status));
     }
 
     /// The loop resizes before it draws, but nothing else guarantees the
@@ -544,11 +547,17 @@ mod tests {
         let editor = editor_of("one\ntwo\n", 80, 5);
         let grid = composed(&editor, 80, 5);
 
-        assert_eq!(style_at(&grid, 0, 0), CellStyle::GutterCurrent);
-        assert_eq!(style_at(&grid, 2, 0), CellStyle::Cursor);
-        assert_eq!(style_at(&grid, 3, 0), CellStyle::CurrentLine);
-        assert_eq!(style_at(&grid, 0, 1), CellStyle::Gutter);
-        assert_eq!(style_at(&grid, 3, 1), CellStyle::Normal);
+        assert_eq!(
+            style_at(&grid, 0, 0),
+            CellStyle {
+                ink: Ink::Gutter,
+                mark: Mark::CurrentLine,
+            }
+        );
+        assert_eq!(style_at(&grid, 2, 0), CellStyle::marked(Mark::Cursor));
+        assert_eq!(style_at(&grid, 3, 0), CellStyle::marked(Mark::CurrentLine));
+        assert_eq!(style_at(&grid, 0, 1), CellStyle::of(Ink::Gutter));
+        assert_eq!(style_at(&grid, 3, 1), CellStyle::default());
     }
 
     #[test]
@@ -564,17 +573,17 @@ mod tests {
         let grid = composed(&editor, 40, 8);
 
         assert!(grid.row_text(4).starts_with("───"));
-        assert_eq!(style_at(&grid, 0, 4), CellStyle::Rule);
+        assert_eq!(style_at(&grid, 0, 4), CellStyle::of(Ink::Rule));
         assert!(grid.row_text(5).starts_with(" Find: tw"));
-        assert_eq!(style_at(&grid, 9, 5), CellStyle::Cursor);
+        assert_eq!(style_at(&grid, 9, 5), CellStyle::marked(Mark::Cursor));
         assert!(grid.row_text(6).starts_with("───"));
         // The status bar is composed from the editor as well: a search going
         // on reports there, in the left half.
         assert!(grid.row_text(7).starts_with(" 1/1 "));
-        assert_eq!(style_at(&grid, 0, 7), CellStyle::Status);
+        assert_eq!(style_at(&grid, 0, 7), CellStyle::of(Ink::Status));
 
         // The hit the search landed on is selected in the text above.
-        assert_eq!(style_at(&grid, 2, 1), CellStyle::Selected);
+        assert_eq!(style_at(&grid, 2, 1), CellStyle::marked(Mark::Selected));
     }
 
     /// A field slides under its caret, as the text does: what is typed past
@@ -590,7 +599,7 @@ mod tests {
         let grid = composed(&editor, 20, 8);
 
         assert_eq!(grid.row_text(5), " Find: opqrstuvwxyz ");
-        assert_eq!(style_at(&grid, 19, 5), CellStyle::Cursor);
+        assert_eq!(style_at(&grid, 19, 5), CellStyle::marked(Mark::Cursor));
 
         editor.execute(Command::Move {
             motion: Motion::LineEdge(Direction::Backward),
@@ -598,7 +607,7 @@ mod tests {
         });
         let grid = composed(&editor, 20, 8);
         assert_eq!(grid.row_text(5), " Find: abcdefghijklm");
-        assert_eq!(style_at(&grid, 7, 5), CellStyle::Cursor);
+        assert_eq!(style_at(&grid, 7, 5), CellStyle::marked(Mark::Cursor));
     }
 
     #[test]

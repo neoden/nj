@@ -116,7 +116,9 @@ impl Sandbox {
 
     /// The editor, which the run has started before it sends anything.
     fn editor(&mut self) -> &mut Editor {
-        self.editor.as_mut().expect("the run starts the editor first")
+        self.editor
+            .as_mut()
+            .expect("the run starts the editor first")
     }
 
     /// `size`: the terminal is now this big, and the editor, which the
@@ -166,7 +168,10 @@ impl Sandbox {
 
     /// The frame as the screen shows it, dumped against the frame before.
     fn frame(&mut self) -> String {
-        let editor = self.editor.as_mut().expect("the run starts the editor first");
+        let editor = self
+            .editor
+            .as_mut()
+            .expect("the run starts the editor first");
         self.frames.take(editor, self.size)
     }
 }
@@ -451,15 +456,30 @@ mod tests {
         assert!(run(piped).unwrap().is_empty());
 
         for (script, error) in [
-            ("%file a.txt \"kept\"\n?file a.txt \"lost\"\n", "line 2: a.txt holds \"kept\", not \"lost\""),
+            (
+                "%file a.txt \"kept\"\n?file a.txt \"lost\"\n",
+                "line 2: a.txt holds \"kept\", not \"lost\"",
+            ),
             ("?file a.txt \"kept\"\n", "line 1: a.txt: No such file"),
-            ("%file a.txt \"kept\"\n?nopath a.txt\n", "line 2: a.txt is there"),
+            (
+                "%file a.txt \"kept\"\n?nopath a.txt\n",
+                "line 2: a.txt is there",
+            ),
             ("?nopath .\n", "line 1: . is there"),
-            ("type \"x\"\n?clipboard \"x\"\n", "line 2: the clipboard holds nothing, not \"x\""),
-            ("type \"x\"\n?exit 0\n", "line 2: the editor is still running"),
+            (
+                "type \"x\"\n?clipboard \"x\"\n",
+                "line 2: the clipboard holds nothing, not \"x\"",
+            ),
+            (
+                "type \"x\"\n?exit 0\n",
+                "line 2: the editor is still running",
+            ),
             ("key Ctrl+Q\n?exit 1\n", "line 2: exit 0, not 1"),
             ("key Ctrl+Q\n?stdout \"\"\n", "line 2: not a pipeline"),
-            ("%stdin \"in\"\nkey Ctrl+Q\n?stdout \"x\"\n", "line 3: stdout \"in\", not \"x\""),
+            (
+                "%stdin \"in\"\nkey Ctrl+Q\n?stdout \"x\"\n",
+                "line 3: stdout \"in\", not \"x\"",
+            ),
         ] {
             let shown = format!("{:#}", run(script).unwrap_err());
             assert!(shown.starts_with(error), "{script:?}: {shown}");
@@ -490,7 +510,11 @@ mod tests {
         )
         .unwrap();
         // Whole, and the default ten rows: the eight blank ones are listed.
-        assert!(shown[1].frame.starts_with("0|1 kept\n"), "{}", shown[1].frame);
+        assert!(
+            shown[1].frame.starts_with("0|1 kept\n"),
+            "{}",
+            shown[1].frame
+        );
         assert!(shown[1].frame.contains("\n1-8|\n"), "{}", shown[1].frame);
     }
 
@@ -505,7 +529,11 @@ mod tests {
         )
         .unwrap();
         assert!(shown[0].frame.starts_with("0|1\n"), "{}", shown[0].frame);
-        assert!(shown[0].frame.contains("cannot read a.txt"), "{}", shown[0].frame);
+        assert!(
+            shown[0].frame.contains("cannot read a.txt"),
+            "{}",
+            shown[0].frame
+        );
         // The second editor begins afresh: the default frame, whole.
         assert!(shown[1].frame.starts_with("0|1 y\n"), "{}", shown[1].frame);
         assert!(shown[1].frame.contains("\n1-8|\n"), "{}", shown[1].frame);

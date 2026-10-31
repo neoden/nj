@@ -59,7 +59,8 @@ impl Workspace {
     /// Another window onto a buffer, with its own cursors.
     pub fn open_view(&mut self, buffer: BufferId) -> ViewId {
         let id = ViewId(self.fresh());
-        self.views.insert(id, View::new(buffer, &self.buffers[&buffer]));
+        self.views
+            .insert(id, View::new(buffer, &self.buffers[&buffer]));
         id
     }
 

@@ -11,7 +11,7 @@ use crossterm::style::{
 };
 use crossterm::{cursor, queue};
 
-use crate::editor::style::CellStyle;
+use crate::editor::style::{CellStyle, Ink, Mark};
 use crate::text::layout::{self, Glyph};
 
 /// Drawn in place of a control character, which has no glyph of its own:
@@ -57,7 +57,7 @@ impl Default for Cell {
     fn default() -> Self {
         Self {
             symbol: Symbol::Char(' '),
-            style: CellStyle::Normal,
+            style: CellStyle::default(),
         }
     }
 }
@@ -198,20 +198,23 @@ const CURRENT_LINE: Color = Color::AnsiValue(236);
 
 fn set_style(out: &mut impl Write, style: CellStyle) -> Result<()> {
     queue!(out, SetAttribute(Attribute::Reset))?;
-    match style {
-        CellStyle::Normal => {}
-        CellStyle::CurrentLine => queue!(out, SetBackgroundColor(CURRENT_LINE))?,
-        CellStyle::Selected => queue!(out, SetBackgroundColor(Color::DarkGrey))?,
+    match style.ink {
+        Ink::Text => {}
+        // The number of the current line is lit, the others stay dim.
+        Ink::Gutter if style.mark == Mark::CurrentLine => {
+            queue!(out, SetForegroundColor(Color::Grey))?
+        }
+        Ink::Gutter | Ink::Rule => queue!(out, SetForegroundColor(Color::DarkGrey))?,
+        Ink::Status => queue!(out, SetAttribute(Attribute::Reverse))?,
+    }
+    match style.mark {
+        Mark::None => {}
+        Mark::CurrentLine => queue!(out, SetBackgroundColor(CURRENT_LINE))?,
+        Mark::Selected => queue!(out, SetBackgroundColor(Color::DarkGrey))?,
         // Underlined rather than coloured, so that a hit reads the same
         // whatever the terminal's palette looks like.
-        CellStyle::Matched => queue!(out, SetAttribute(Attribute::Underlined))?,
-        CellStyle::Cursor | CellStyle::Status => queue!(out, SetAttribute(Attribute::Reverse))?,
-        CellStyle::Gutter | CellStyle::Rule => queue!(out, SetForegroundColor(Color::DarkGrey))?,
-        CellStyle::GutterCurrent => queue!(
-            out,
-            SetForegroundColor(Color::Grey),
-            SetBackgroundColor(CURRENT_LINE)
-        )?,
+        Mark::Matched => queue!(out, SetAttribute(Attribute::Underlined))?,
+        Mark::Cursor => queue!(out, SetAttribute(Attribute::Reverse))?,
     }
     Ok(())
 }
@@ -245,7 +248,7 @@ mod tests {
     #[test]
     fn a_wide_cluster_takes_two_cells_and_reads_back_once() {
         let mut grid = Grid::new(6, 1);
-        assert_eq!(grid.put_str(0, 0, "a日b", CellStyle::Normal), 4);
+        assert_eq!(grid.put_str(0, 0, "a日b", CellStyle::default()), 4);
         assert_eq!(grid.row_text(0), "a日b  ");
         assert_eq!(grid.cell(2, 0).unwrap().symbol, Symbol::Continuation);
         assert_eq!(grid.cell(3, 0).unwrap().symbol, Symbol::Char('b'));
@@ -254,8 +257,8 @@ mod tests {
     #[test]
     fn what_does_not_fit_is_dropped() {
         let mut grid = Grid::new(3, 2);
-        grid.put_str(1, 0, "abcdef", CellStyle::Normal);
-        grid.put_str(0, 5, "off the grid", CellStyle::Normal);
+        grid.put_str(1, 0, "abcdef", CellStyle::default());
+        grid.put_str(0, 5, "off the grid", CellStyle::default());
         assert_eq!(grid.row_text(0), " ab");
         assert_eq!(grid.row_text(1), "   ");
     }
@@ -263,7 +266,7 @@ mod tests {
     #[test]
     fn combining_marks_stay_in_one_cell() {
         let mut grid = Grid::new(3, 1);
-        grid.put_str(0, 0, "e\u{301}x", CellStyle::Normal);
+        grid.put_str(0, 0, "e\u{301}x", CellStyle::default());
         assert_eq!(grid.row_text(0), "e\u{301}x ");
         assert!(matches!(
             grid.cell(0, 0).unwrap().symbol,
@@ -280,10 +283,10 @@ mod tests {
     #[test]
     fn only_what_changed_is_sent() {
         let mut before = Grid::new(10, 2);
-        before.put_str(0, 0, "hello", CellStyle::Normal);
+        before.put_str(0, 0, "hello", CellStyle::default());
         let mut after = before.clone();
-        after.put_str(0, 0, "hallo", CellStyle::Normal);
-        after.put_str(0, 1, "x", CellStyle::Cursor);
+        after.put_str(0, 0, "hallo", CellStyle::default());
+        after.put_str(0, 1, "x", CellStyle::marked(Mark::Cursor));
 
         let sent = flushed(&after, Some(&before));
         // Two moves, one per changed run: to the `a`, and to the `x`.
@@ -296,7 +299,7 @@ mod tests {
     #[test]
     fn a_first_frame_and_a_resize_send_everything() {
         let mut grid = Grid::new(4, 1);
-        grid.put_str(0, 0, "ab", CellStyle::Normal);
+        grid.put_str(0, 0, "ab", CellStyle::default());
         assert!(flushed(&grid, None).contains("ab  "));
 
         let smaller = Grid::new(3, 1);
@@ -306,8 +309,8 @@ mod tests {
     #[test]
     fn a_style_is_set_once_per_run_of_it() {
         let mut grid = Grid::new(6, 1);
-        grid.put_str(0, 0, "abc", CellStyle::Selected);
-        grid.put_str(3, 0, "def", CellStyle::Normal);
+        grid.put_str(0, 0, "abc", CellStyle::marked(Mark::Selected));
+        grid.put_str(3, 0, "def", CellStyle::default());
         let sent = flushed(&grid, None);
         // Reset, set once for the selection, reset once for the rest, and
         // the trailing reset.

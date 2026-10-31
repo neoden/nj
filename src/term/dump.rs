@@ -5,22 +5,23 @@
 //! the frame before, only the rows that differ from it are printed, so a
 //! scenario reads as what each step changed.
 
-use crate::editor::style::CellStyle;
+use crate::editor::style::{CellStyle, Ink, Mark};
 
 use super::grid::Grid;
 
-/// The letter a style shows in the line under a row. A space is a style
-/// that the row's text already makes visible — a number in the gutter, the
-/// status bar — so it does not earn the row a second line on its own. The
-/// `match` is exhaustive on purpose: a style added later has to choose.
+/// The letter a style shows in the line under a row. Only the mark earns a
+/// letter: what the text is, the row's text already makes visible — a
+/// number in the gutter, the status bar — so an ink does not earn the row
+/// a second line on its own. The `match` is exhaustive on purpose: a mark
+/// added later has to choose.
 fn letter(style: CellStyle) -> char {
-    match style {
-        CellStyle::Normal | CellStyle::Gutter | CellStyle::Rule | CellStyle::Status => ' ',
-        CellStyle::CurrentLine => '-',
-        CellStyle::GutterCurrent => ':',
-        CellStyle::Matched => '=',
-        CellStyle::Selected => '~',
-        CellStyle::Cursor => '^',
+    match (style.ink, style.mark) {
+        (_, Mark::None) => ' ',
+        (Ink::Gutter, Mark::CurrentLine) => ':',
+        (_, Mark::CurrentLine) => '-',
+        (_, Mark::Matched) => '=',
+        (_, Mark::Selected) => '~',
+        (_, Mark::Cursor) => '^',
     }
 }
 
@@ -92,35 +93,39 @@ mod tests {
     #[test]
     fn rows_are_numbered_and_styles_go_under_them() {
         let mut grid = Grid::new(10, 3);
-        grid.put_str(0, 0, "1 ", CellStyle::GutterCurrent);
-        grid.put_str(2, 0, "ab", CellStyle::CurrentLine);
-        grid.put_str(4, 0, "c", CellStyle::Cursor);
+        let gutter = CellStyle {
+            ink: Ink::Gutter,
+            mark: Mark::CurrentLine,
+        };
+        grid.put_str(0, 0, "1 ", gutter);
+        grid.put_str(2, 0, "ab", CellStyle::marked(Mark::CurrentLine));
+        grid.put_str(4, 0, "c", CellStyle::marked(Mark::Cursor));
         // The rest of the current line is painted to the edge, as `compose`
         // does, and shows up as letters where the text shows nothing.
-        grid.put_str(5, 0, "     ", CellStyle::CurrentLine);
-        grid.put_str(0, 2, "status", CellStyle::Status);
+        grid.put_str(5, 0, "     ", CellStyle::marked(Mark::CurrentLine));
+        grid.put_str(0, 2, "status", CellStyle::of(Ink::Status));
         assert_eq!(dump(&grid, None), "0|1 abc\n |::--^-----\n1|\n2|status\n");
     }
 
     #[test]
     fn empty_rows_collapse_into_a_range() {
         let mut grid = Grid::new(4, 12);
-        grid.put_str(0, 0, "a", CellStyle::Normal);
-        grid.put_str(0, 11, "s", CellStyle::Status);
+        grid.put_str(0, 0, "a", CellStyle::default());
+        grid.put_str(0, 11, "s", CellStyle::of(Ink::Status));
         assert_eq!(dump(&grid, None), " 0|a\n 1-10|\n11|s\n");
     }
 
     #[test]
     fn only_the_rows_that_changed_are_printed() {
         let mut before = Grid::new(6, 5);
-        before.put_str(0, 0, "keep", CellStyle::Normal);
-        before.put_str(0, 1, "gone", CellStyle::Normal);
-        before.put_str(0, 2, "gone", CellStyle::Normal);
-        before.put_str(0, 4, "abc", CellStyle::Normal);
+        before.put_str(0, 0, "keep", CellStyle::default());
+        before.put_str(0, 1, "gone", CellStyle::default());
+        before.put_str(0, 2, "gone", CellStyle::default());
+        before.put_str(0, 4, "abc", CellStyle::default());
         let mut after = before.clone();
-        after.put_str(0, 1, "    ", CellStyle::Normal);
-        after.put_str(0, 2, "    ", CellStyle::Normal);
-        after.put_str(0, 4, "a", CellStyle::Cursor);
+        after.put_str(0, 1, "    ", CellStyle::default());
+        after.put_str(0, 2, "    ", CellStyle::default());
+        after.put_str(0, 4, "a", CellStyle::marked(Mark::Cursor));
 
         assert_eq!(dump(&after, Some(&before)), "1-2|\n4|abc\n |^\n");
         assert_eq!(dump(&after, Some(&after)), "");
@@ -131,8 +136,8 @@ mod tests {
     #[test]
     fn a_wide_cluster_gets_a_letter_per_column_and_a_styled_blank_keeps_its_letter() {
         let mut grid = Grid::new(6, 1);
-        grid.put_str(0, 0, "日", CellStyle::Selected);
-        grid.put_str(2, 0, " ", CellStyle::Cursor);
+        grid.put_str(0, 0, "日", CellStyle::marked(Mark::Selected));
+        grid.put_str(2, 0, " ", CellStyle::marked(Mark::Cursor));
         assert_eq!(dump(&grid, None), "0|日\n |~~^\n");
     }
 }

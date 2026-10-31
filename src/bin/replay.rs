@@ -43,7 +43,9 @@ mod live {
         let mut arguments = std::env::args().skip(1);
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
-                "--socket" => socket = PathBuf::from(arguments.next().context("--socket takes a path")?),
+                "--socket" => {
+                    socket = PathBuf::from(arguments.next().context("--socket takes a path")?)
+                }
                 flag if flag.starts_with("--") => bail!("unknown option `{flag}`"),
                 file => match path {
                     None => path = Some(file.to_owned()),

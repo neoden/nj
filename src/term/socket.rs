@@ -231,7 +231,10 @@ mod tests {
         assert!(answer.starts_with("0|1 ab\n |::--^"), "{answer}");
         assert_eq!(server.answer(&mut editor, "---", terminal), "same\n");
         let answer = server.answer(&mut editor, "---", (30, 30));
-        assert!(answer.starts_with("error: the terminal is 30×30"), "{answer}");
+        assert!(
+            answer.starts_with("error: the terminal is 30×30"),
+            "{answer}"
+        );
         // A `%` or `?` line is refused by its prefix, whatever follows it.
         for line in [
             "%file a.txt \"a\"",
@@ -243,7 +246,10 @@ mod tests {
             "?bogus",
         ] {
             let answer = server.answer(&mut editor, line, terminal);
-            assert!(answer.starts_with("error: a `%` or `?` line"), "{line}: {answer}");
+            assert!(
+                answer.starts_with("error: a `%` or `?` line"),
+                "{line}: {answer}"
+            );
         }
         // The text is unsaved, so quitting asks first; the answer that
         // quits is answered with the outcome. Input on the same line after
