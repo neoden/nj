@@ -12,6 +12,7 @@ use std::sync::mpsc::{self, Sender};
 use std::thread;
 
 use anyhow::{Context, Result, bail};
+use crossterm::event::Event;
 
 use super::app;
 use super::launch::Outcome;
@@ -85,14 +86,45 @@ impl Drop for Listener {
     }
 }
 
-/// What the loop does with a line: carries it out on the editor and says
-/// what came of it, each line of the answer ended by a newline. The lines
-/// taken are the ones about the editor itself: input, as the keyboard's
-/// would be; `wait`, for its own jobs; `size`, the frame to draw, which
-/// the server then holds; and, in the debug build, `screen`, answered with
-/// the whole screen as `screen::Screen` writes it, whole every time. The
-/// `%`, `?` and `---` lines are about the run around the editor and are
-/// carried out by whoever drives it.
+/// What the socket takes: the editor's own lines of the scenario language
+/// — input, as the keyboard's would be; `wait`, for its own jobs; `size`,
+/// the frame to draw — and `screen`, a verb of the socket alone, answered
+/// with the whole screen as `screen::Screen` writes it, whole every time.
+/// The `%`, `?` and `---` lines are the run's, carried out by whoever
+/// drives the editor, and are refused here.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Command {
+    Input(Vec<Event>),
+    Wait,
+    Size(usize, usize),
+    Screen,
+}
+
+impl Command {
+    /// The one command that is not a line of the language, as it is sent.
+    pub const SCREEN: &'static str = "screen";
+
+    /// `None` for a blank line or a comment, which say nothing to do.
+    pub fn parse(line: &str) -> Result<Option<Self>> {
+        if line.trim_end() == Self::SCREEN {
+            return Ok(Some(Command::Screen));
+        }
+        // The prefix says so before the verb does.
+        if scenario::belongs_to_run(line) {
+            bail!("a `%`, `?` or `---` line is the run's and is not taken over the socket");
+        }
+        Ok(match scenario::parse(line)? {
+            None => None,
+            Some(Instruction::Input(events)) => Some(Command::Input(events)),
+            Some(Instruction::Wait) => Some(Command::Wait),
+            Some(Instruction::Size(width, height)) => Some(Command::Size(width, height)),
+            Some(other) => unreachable!("the run's lines are refused by their prefix: {other:?}"),
+        })
+    }
+}
+
+/// What the loop does with a command: carries it out on the editor and
+/// says what came of it, each line of the answer ended by a newline.
 #[derive(Default)]
 pub struct Server {
     /// The frame to draw instead of the whole terminal, once `size` said.
@@ -116,32 +148,26 @@ impl Server {
     /// `terminal` is the terminal's size: a frame it cannot show whole is
     /// refused rather than shown in part.
     pub fn answer(&mut self, editor: &mut Editor, line: &str, terminal: (usize, usize)) -> String {
-        // The run around the editor is set up by whoever drives it, never
-        // over the socket; the prefix says so before the verb does.
-        if scenario::belongs_to_run(line) {
-            return "error: a `%`, `?` or `---` line is the run's and is not taken over the socket\n"
-                .to_owned();
-        }
-        // The server's own verb, not a scenario's line: the screen as it
-        // is, whole, with nothing remembered from the time before. Refused
-        // when the terminal has shrunk under `size`: then the screen and
-        // the frame would disagree, and it is not shown in part.
-        if line.trim_end() == "screen" {
+        match Command::parse(line) {
+            Err(error) => format!("error: {error:#}\n"),
+            Ok(None) => "ok\n".to_owned(),
+            // The screen as it is, whole, with nothing remembered from the
+            // time before. Refused when the terminal has shrunk under
+            // `size`: then the screen and the frame would disagree, and it
+            // is not shown in part.
             #[cfg(debug_assertions)]
-            {
+            Ok(Some(Command::Screen)) => {
                 if let Some(error) = self.size.and_then(|wanted| too_small(terminal, wanted)) {
                     return error;
                 }
                 let grid = sandbox::grid(editor, self.frame_size(terminal));
-                return Screen::of(&grid).write();
+                Screen::of(&grid).write()
             }
             #[cfg(not(debug_assertions))]
-            return "error: the screen is read in the debug build only\n".to_owned();
-        }
-        match scenario::parse(line) {
-            Err(error) => format!("error: {error:#}\n"),
-            Ok(None) => "ok\n".to_owned(),
-            Ok(Some(Instruction::Input(events))) => {
+            Ok(Some(Command::Screen)) => {
+                "error: the screen is read in the debug build only\n".to_owned()
+            }
+            Ok(Some(Command::Input(events))) => {
                 if let Err(error) = app::handle_all(events, editor) {
                     return format!("error: {error:#}\n");
                 }
@@ -155,26 +181,17 @@ impl Server {
                 }
                 "ok\n".to_owned()
             }
-            Ok(Some(Instruction::Wait)) => {
+            Ok(Some(Command::Wait)) => {
                 editor.finish_jobs();
                 "ok\n".to_owned()
             }
-            Ok(Some(Instruction::Size(width, height))) => {
+            Ok(Some(Command::Size(width, height))) => {
                 if let Some(error) = too_small(terminal, (width, height)) {
                     return error;
                 }
                 self.size = Some((width, height));
                 "ok\n".to_owned()
             }
-            Ok(Some(
-                Instruction::File(..)
-                | Instruction::Clipboard(_)
-                | Instruction::Stdin(_)
-                | Instruction::Start(_)
-                | Instruction::Reset
-                | Instruction::Snapshot(..)
-                | Instruction::Expect(_),
-            )) => unreachable!("the run's lines are refused by their prefix"),
         }
     }
 }
@@ -243,6 +260,15 @@ mod tests {
             answer.starts_with("error: the terminal is 30×30"),
             "{answer}"
         );
+        // The socket's own vocabulary, read before anything is done.
+        assert_eq!(Command::parse("screen").unwrap(), Some(Command::Screen));
+        assert_eq!(Command::parse("wait").unwrap(), Some(Command::Wait));
+        assert_eq!(
+            Command::parse("size 10 4").unwrap(),
+            Some(Command::Size(10, 4))
+        );
+        assert_eq!(Command::parse("# a comment").unwrap(), None);
+        assert!(Command::parse("bogus").is_err());
         // A `%`, `?` or `---` line is refused by its prefix, whatever
         // follows it.
         for line in [

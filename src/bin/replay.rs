@@ -38,6 +38,7 @@ mod live {
     use ned::term::sandbox::SOCKET;
     use ned::term::scenario::{self, Instruction, Line};
     use ned::term::screen::{Frames, Screen};
+    use ned::term::socket::Command;
 
     pub fn main() -> Result<ExitCode> {
         let mut socket = PathBuf::from(SOCKET);
@@ -110,7 +111,7 @@ mod live {
             // A snapshot is the run's: the sandbox answers with the screen,
             // and what changed since the last snapshot is worked out here.
             let (number, wanted) = expected.next().expect("a frame per snapshot");
-            let answer = sandbox.ask("screen")?;
+            let answer = sandbox.ask(Command::SCREEN)?;
             let screen = Screen::read(&answer)
                 .with_context(|| format!("line {number}: {}", answer.trim_end()))?;
             let frame = frames.take(screen, layer);

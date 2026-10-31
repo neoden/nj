@@ -44,6 +44,7 @@ mod live {
     use ned::term::launch::{Args, Outcome};
     use ned::term::sandbox::{self, SOCKET, Workdir};
     use ned::term::scenario::{self, Instruction};
+    use ned::term::socket;
 
     /// In the run's directory: the editor's socket, its pipe and its output.
     const EDITOR_SOCKET: &str = ".editor.sock";
@@ -242,10 +243,14 @@ mod live {
         /// Carries out one line and says what came of it, each line of the
         /// answer ended by a newline.
         fn carry_out(&mut self, line: &str) -> Result<String> {
-            // The editor's own verb, not a line of the language: handed on
-            // as it is, and answered with the screen as the editor wrote it.
-            if line.trim_end() == "screen" {
-                return self.forward(line);
+            // The editor's own, `screen` included, handed on as it is. Read
+            // here first only so that a line the editor would refuse does
+            // not start an editor to refuse it.
+            if !scenario::belongs_to_run(line) {
+                return match socket::Command::parse(line)? {
+                    None => Ok("ok\n".to_owned()),
+                    Some(_) => self.forward(line),
+                };
             }
             let Some(instruction) = scenario::parse(line)? else {
                 return Ok("ok\n".to_owned());
@@ -271,7 +276,7 @@ mod live {
                     self.start(args)?;
                 }
                 Instruction::Size(..) | Instruction::Input(_) | Instruction::Wait => {
-                    return self.forward(line);
+                    unreachable!("the editor's own lines are handed on above")
                 }
                 // The frame is worked out by whoever reads the scenario,
                 // from the screen the editor answers `screen` with.
