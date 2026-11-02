@@ -35,10 +35,10 @@ mod live {
 
     use anyhow::{Context, Result, bail};
 
-    use ned::term::sandbox::SOCKET;
-    use ned::term::scenario::{self, Instruction, Line};
-    use ned::term::screen::{Frames, Screen};
-    use ned::term::socket::Command;
+    use nj::term::sandbox::SOCKET;
+    use nj::term::scenario::{self, Instruction, Line};
+    use nj::term::screen::{Frames, Screen};
+    use nj::term::socket::Command;
 
     pub fn main() -> Result<ExitCode> {
         let mut socket = PathBuf::from(SOCKET);

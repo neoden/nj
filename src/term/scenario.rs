@@ -17,7 +17,7 @@
 //!   %clipboard "TEXT"   what the desktop clipboard holds, as if copied elsewhere
 //!   %stdin "TEXT"  what is piped into the editor; a terminal otherwise
 //!   %start ARGS    the editor, started with ARGS as its command line;
-//!                  without this line it starts, as `ned` alone
+//!                  without this line it starts, as `nj` alone
 //!                  would, on the first line that is not a `%` line
 //!   %reset         the run as it was before anything: an editor still
 //!                  running is ended, the directory emptied

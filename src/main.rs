@@ -3,11 +3,11 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 
-use ned::editor::Editor;
-use ned::term::socket::{self, Server};
-use ned::term::system_clipboard::SystemClipboard;
-use ned::term::terminal::{self, Terminal};
-use ned::term::{app, launch};
+use nj::editor::Editor;
+use nj::term::socket::{self, Server};
+use nj::term::system_clipboard::SystemClipboard;
+use nj::term::terminal::{self, Terminal};
+use nj::term::{app, launch};
 
 fn main() -> Result<ExitCode> {
     terminal::install_panic_hook();

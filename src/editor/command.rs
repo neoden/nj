@@ -100,7 +100,7 @@ pub enum File {
     /// Under this name from now on. A pipeline buffer writes a copy instead.
     SaveAs(PathBuf),
     /// In place of the buffer in focus, which asks first if it has unsaved
-    /// changes. A path with no file behind it opens empty, like `ned newfile`.
+    /// changes. A path with no file behind it opens empty, like `nj newfile`.
     Open(PathBuf),
     /// By name, since a language is a table entry rather than a value.
     SetLanguage(String),
