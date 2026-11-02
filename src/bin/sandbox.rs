@@ -41,9 +41,9 @@ mod live {
     use rustix::process::{Pid, Signal, kill_process};
     use signal_hook::consts::{SIGINT, SIGTERM};
 
-    use ned::term::launch::{Args, Outcome};
-    use ned::term::sandbox::{self, SOCKET, Workdir};
-    use ned::term::scenario::{self, Instruction};
+    use nj::term::launch::{Args, Outcome};
+    use nj::term::sandbox::{self, SOCKET, Workdir};
+    use nj::term::scenario::{self, Instruction};
 
     /// In the run's directory: the editor's socket, its pipe and its output.
     const EDITOR_SOCKET: &str = ".editor.sock";
@@ -79,7 +79,7 @@ mod live {
         signal_hook::flag::register(SIGINT, stop.clone())?;
         signal_hook::flag::register(SIGTERM, stop.clone())?;
 
-        let run = std::env::temp_dir().join(format!("ned-sandbox.{}", std::process::id()));
+        let run = std::env::temp_dir().join(format!("nj-sandbox.{}", std::process::id()));
         let workdir = Workdir::enter_at(run)?;
         let listener = listen(&socket)?;
         listener.set_nonblocking(true)?;
@@ -283,7 +283,7 @@ mod live {
         }
 
         /// An editor's own line: to the editor, started first if the run
-        /// has none yet, as `ned` alone would be. After the exit nothing
+        /// has none yet, as `nj` alone would be. After the exit nothing
         /// is taken:`?exit` and `?stdout` say what became of it.
         fn forward(&mut self, line: &str) -> Result<String> {
             match &mut self.stage {
@@ -397,7 +397,7 @@ mod live {
         let path = std::env::current_exe()?
             .parent()
             .context("the sandbox has no directory")?
-            .join("ned");
+            .join("nj");
         if !path.exists() {
             bail!("{} is not built: `cargo build`", path.display());
         }

@@ -11,7 +11,7 @@ use anyhow::{Context, Result, bail};
 use crate::buffer::Buffer;
 use crate::editor::{Editor, Exit};
 
-/// `ned [--socket PATH] [FILE]`.
+/// `nj [--socket PATH] [FILE]`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Args {
     pub file: Option<String>,
@@ -39,7 +39,7 @@ pub fn args(arguments: impl IntoIterator<Item = String>) -> Result<Args> {
 }
 
 /// The buffer the editor starts with: the file named, else what is piped
-/// in, else nothing. A path wins over a pipe: `ned file < input` edits the
+/// in, else nothing. A path wins over a pipe: `nj file < input` edits the
 /// file.
 pub fn buffer(file: Option<&str>, pipe: Option<impl Read>) -> Result<Buffer> {
     match (file, pipe) {

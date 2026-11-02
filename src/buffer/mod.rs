@@ -221,7 +221,7 @@ impl Buffer {
     }
 
     /// The file at `path` if there is one, else an empty buffer to be
-    /// written there: `ned newfile` starts a file that is not there yet.
+    /// written there: `nj newfile` starts a file that is not there yet.
     pub fn open_or_new(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         match fs::File::open(path) {
@@ -582,7 +582,7 @@ fn write_atomically(path: &Path, contents: &str) -> Result<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    let staging = directory.join(format!(".{name}.ned-{}", std::process::id()));
+    let staging = directory.join(format!(".{name}.nj-{}", std::process::id()));
 
     let staged = stage(&staging, path, contents);
     if staged.is_err() {
@@ -719,7 +719,7 @@ mod tests {
     }
 
     fn scratch(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("ned-{}-{name}", std::process::id()))
+        std::env::temp_dir().join(format!("nj-{}-{name}", std::process::id()))
     }
 
     /// An edit the way the editor makes them: as a transaction, so that the

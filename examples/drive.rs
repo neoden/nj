@@ -5,7 +5,7 @@ use std::io::{self, Read};
 
 use anyhow::Result;
 
-use ned::term::sandbox;
+use nj::term::sandbox;
 
 fn main() -> Result<()> {
     let mut script = String::new();

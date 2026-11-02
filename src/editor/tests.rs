@@ -59,7 +59,7 @@ fn type_into_field(editor: &mut Editor, typed: &str) {
 /// or our own save is decided on arrival.
 #[test]
 fn a_report_of_a_changed_file_is_checked_before_it_is_believed() {
-    let path = std::env::temp_dir().join(format!("ned-{}-watched", std::process::id()));
+    let path = std::env::temp_dir().join(format!("nj-{}-watched", std::process::id()));
     std::fs::write(&path, "mine\n").unwrap();
     let mut editor = Editor::new(Buffer::open(&path).unwrap());
     let id = editor.workspace.focused_buffer();
@@ -125,7 +125,7 @@ fn a_prompt_replaces_whatever_panel_was_open() {
 }
 
 fn scratch_path(name: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("ned-{}-{name}", std::process::id()))
+    std::env::temp_dir().join(format!("nj-{}-{name}", std::process::id()))
 }
 
 /// What the frame cannot show: the file is watched from the moment it is

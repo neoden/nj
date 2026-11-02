@@ -255,7 +255,7 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
         }
 
         // While there is no editor, `%stdin` waits for one. `%start` starts
-        // it; before the first, any other line starts it as `ned` alone
+        // it; before the first, any other line starts it as `nj` alone
         // would, and is then carried out.
         if !matches!(stage, Stage::Running) {
             let (args, rest) = match instruction {

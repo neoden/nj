@@ -20,7 +20,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 
-use ned::term::{sandbox, scenario};
+use nj::term::{sandbox, scenario};
 
 fn main() -> Result<ExitCode> {
     let mut update = false;
