@@ -57,6 +57,44 @@
 ((identifier) @constant
  (#match? @constant "^[A-Z][A-Z\\d_]*$"))
 
+; Added: a name a path goes through is a module, `std` and `mem` in
+; `std::mem::swap`, and the name a `mod` declares. Before the types, so
+; that a capital still makes a type: `Foo` in `Foo::bar()`. The last name
+; of a path is left alone: `fs` in `use std::fs` is a module, `read` in
+; `use std::fs::read` a function, and nothing tells them apart.
+(mod_item
+  name: (identifier) @module)
+(scoped_identifier
+  path: (identifier) @module)
+(scoped_identifier
+  path: (scoped_identifier
+    name: (identifier) @module))
+(scoped_type_identifier
+  path: (identifier) @module)
+(scoped_type_identifier
+  path: (scoped_identifier
+    name: (identifier) @module))
+(scoped_use_list
+  path: (identifier) @module)
+(scoped_use_list
+  path: (scoped_identifier
+    name: (identifier) @module))
+(use_wildcard
+  (identifier) @module)
+(use_wildcard
+  (scoped_identifier
+    name: (identifier) @module))
+
+; Added: in a path a primitive type is an identifier to the grammar, so
+; it would be a module: `u8` in `u8::MAX`. Known by its text.
+((scoped_identifier
+  path: (identifier) @type.builtin)
+ (#any-of? @type.builtin
+   "bool" "char" "str"
+   "i8" "i16" "i32" "i64" "i128" "isize"
+   "u8" "u16" "u32" "u64" "u128" "usize"
+   "f32" "f64"))
+
 ; Assume that uppercase names in paths are types
 ((scoped_identifier
   path: (identifier) @type)

@@ -71,9 +71,27 @@
   ^^^ type
        ^^^ function
 > std::mem::swap(a, b);
-  ^^^ -
-       ^^^ -
+  ^^^ module
+       ^^^ module
             ^^^^ function
+
+# A name a path goes through is a module, in a `use` too; the last one
+# can be anything, and a capital makes a type
+> use std::collections::{HashMap, HashSet};
+      ^^^ module
+           ^^^^^^^^^^^ module
+> use std::io::*;
+      ^^^ module
+           ^^ module
+> mod config;
+      ^^^^^^ module
+> let c: config::Config = config::load();
+         ^^^^^^ module
+                 ^^^^^^ type
+                          ^^^^^^ module
+                                  ^^^^ function
+> let m = u8::MAX;
+          ^^ type.builtin
 > let x = parse::<u8>(s);
           ^^^^^ function
                   ^^ type.builtin

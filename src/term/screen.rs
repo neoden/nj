@@ -80,6 +80,7 @@ fn ink_letter(ink: Ink) -> char {
         Ink::Constant => 'n',
         Ink::Builtin => 'b',
         Ink::Label => 'l',
+        Ink::Module => 'm',
     }
 }
 

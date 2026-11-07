@@ -218,6 +218,8 @@ fn set_style(out: &mut impl Write, style: CellStyle) -> Result<()> {
         // Next to `break` and `continue`, so of the keyword's family, and
         // told from it.
         Ink::Label => queue!(out, SetForegroundColor(Color::DarkMagenta))?,
+        // Next to the type it holds in `config.Config`, and told from it.
+        Ink::Module => queue!(out, SetForegroundColor(Color::DarkYellow))?,
     }
     match style.mark {
         Mark::None => {}

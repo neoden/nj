@@ -70,6 +70,22 @@
 ((identifier) @constant
  (#match? @constant "^[A-Z][A-Z\\d_]*$"))
 
+; Added: a module where an import names it, after the conventions so that
+; `PIL` is a module, not a constant. What `from` brings in is left alone:
+; `path` in `from os import path` is a module, `join` in `from os.path
+; import join` a function, and nothing tells them apart. Used later, in
+; `os.getcwd()`, a module is a name like any other.
+(import_statement
+  name: (dotted_name (identifier) @module))
+(import_statement
+  name: (aliased_import
+    name: (dotted_name (identifier) @module)
+    alias: (identifier) @module))
+(import_from_statement
+  module_name: (dotted_name (identifier) @module))
+(import_from_statement
+  module_name: (relative_import (dotted_name (identifier) @module)))
+
 ; Literals
 
 [

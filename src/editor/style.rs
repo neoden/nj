@@ -23,6 +23,9 @@ pub enum Ink {
     Builtin,
     /// The name of a loop to break out of: `'outer` in Rust.
     Label,
+    /// A module where the grammar can tell it from a variable: `config` in
+    /// Go's `config.Config`, a name in Python's `import`.
+    Module,
 }
 
 impl Ink {
@@ -50,6 +53,7 @@ impl Ink {
         Some(match name {
             "variable.builtin" | "function.builtin" | "constant.builtin" => Ink::Builtin,
             "label" => Ink::Label,
+            "module" => Ink::Module,
             // Documentation reads as a comment, though Python writes it as
             // a string.
             "string.documentation" => Ink::Comment,
@@ -122,6 +126,7 @@ mod tests {
         assert_eq!(Ink::named("type.builtin"), Ink::Type);
         assert_eq!(Ink::named("type.lifetime"), Ink::Type);
         assert_eq!(Ink::named("label"), Ink::Label);
+        assert_eq!(Ink::named("module"), Ink::Module);
         assert_eq!(Ink::named("string.documentation"), Ink::Comment);
         assert_eq!(Ink::named("string.special.key"), Ink::String);
         assert_eq!(Ink::named("markup.heading.marker"), Ink::Keyword);

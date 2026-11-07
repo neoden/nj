@@ -1,0 +1,68 @@
+%language Go
+
+# A function is a function where it is declared and where it is called,
+# though its name is also an identifier
+> func greet(name string) string {
+  ^^^^ keyword
+       ^^^^^ function
+             ^^^^ variable
+                  ^^^^^^ type
+>     return format(name)
+      ^^^^^^ keyword
+             ^^^^^^ function
+                    ^^^^ variable
+
+# A method too, declared on a receiver and called through a dot, though
+# its name is also a field
+> func (g *Greeter) Greet() {}
+        ^ variable
+           ^^^^^^^ type
+                    ^^^^^ function.method
+> g.Greet()
+  ^ variable
+    ^^^^^ function.method
+
+# A field read is a property, not a call
+> n := g.count
+  ^ variable
+         ^^^^^ property
+
+# The functions the language provides are builtins; any other is not
+> n := len(xs) + lenient(xs)
+       ^^^ function.builtin
+                 ^^^^^^^ function
+
+# A package is a module in a type, its clause and an import's alias; in
+# an expression it is a name like any other
+> package main
+  ^^^^^^^ keyword
+          ^^^^ module
+> import cfg "app/config"
+         ^^^ module
+             ^^^^^^^^^^^^ string
+> var c *config.Config = config.Load()
+         ^^^^^^ module
+                ^^^^^^ type
+                         ^^^^^^ variable
+                                ^^^^ function.method
+
+# Literals of every kind, and the constants of the language
+> var s, r, c = "a\tb", `raw\n`, 'x'
+                ^^ string
+                  ^^ escape
+                    ^^ string
+                        ^^^^^^^ string
+                                 ^^^ string
+> x := []any{1, 2.5, 3i, true, nil, iota}
+             ^ number
+                ^^^ number
+                     ^^ number
+                         ^^^^ constant.builtin
+                               ^^^ constant.builtin
+                                    ^^^^ constant.builtin
+
+# Comments of both kinds
+> x := 1 // why
+         ^^^^^^ comment
+> /* block */
+  ^^^^^^^^^^^ comment

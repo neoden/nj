@@ -135,6 +135,24 @@
                          ^^^^^^ keyword
                                    ^^^^^ keyword
 
+# A module is a module where an import names it, every part of a dotted
+# name, an alias and a relative path too, whatever its case
+> import os.path, PIL
+         ^^ module
+            ^^^^ module
+                  ^^^ module
+> import numpy as np
+         ^^^^^ module
+                  ^^ module
+> from ..config import Config
+         ^^^^^^ module
+                       ^^^^^^ type
+
+# Used later, it is a name like any other
+> os.getcwd()
+  ^^ variable
+     ^^^^^^ function.method
+
 # Operators spelt as signs
 > y = a @ b; y @= c; z := 1
         ^ operator
@@ -143,8 +161,9 @@
 # Imports and exceptions
 > from os import path as p
   ^^^^ keyword
-       ^^ variable
+       ^^ module
           ^^^^^^ keyword
+                 ^^^^ variable
                       ^^ keyword
 > try:
   ^^^ keyword
