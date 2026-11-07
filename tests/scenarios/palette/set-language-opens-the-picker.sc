@@ -30,20 +30,20 @@ wait
 
 --- the language list in its place, the palette gone
  2|────────────────────────────────────────
- 3|   SCSS
- 4|   HTML
- 5|   Python
- 6|   Rust
- 7|   C++
- 8|   C
- 9|   Go
+ 3|   HTML
+ 4|   Python
+ 5|   Rust
+ 6|   C++
+ 7|   C
+ 8|   Go
+ 9|   SQL
 10|   INI
 11|   CSS
 12|   TSX
   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 13| >
   |   ^
-15| 23/23 …ratch]* · Text · 1 lines · 1:13
+15| 24/24 …ratch]* · Text · 1 lines · 1:13
 
 type "ru"
 
@@ -54,7 +54,7 @@ type "ru"
   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 13| > ru
   |     ^
-15| 1/23 …cratch]* · Text · 1 lines · 1:13
+15| 1/24 …cratch]* · Text · 1 lines · 1:13
 
 key Enter
 

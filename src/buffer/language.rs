@@ -136,6 +136,14 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: Some("#"),
     },
     Language {
+        name: "SQL",
+        extensions: &["sql"],
+        filenames: &[],
+        indent: Indent::Spaces(4),
+        tab_width: 4,
+        line_comment: Some("--"),
+    },
+    Language {
         name: "TOML",
         extensions: &["toml"],
         filenames: &["Cargo.lock"],

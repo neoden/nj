@@ -1,0 +1,88 @@
+%language SQL
+
+# Comments of both kinds
+> -- a line comment
+  ^^^^^^^^^^^^^^^^^ comment
+> /* a block */ SELECT 1;
+  ^^^^^^^^^^^^^ comment
+
+# Keywords in either case; a table is a type, a function a function, a
+# column plain, and so is an alias and what stands before a column
+> SELECT u.id, SUM(o.total) AS spent FROM users u JOIN orders o ON o.user_id = u.id;
+  ^^^^^^ keyword
+         ^ variable
+               ^^^ function.call
+                            ^^ keyword
+                                     ^^^^ keyword
+                                          ^^^^^ type
+                                                  ^^^^ keyword
+                                                       ^^^^^^ type
+                                                                ^^ keyword.operator
+> select count(*) from users where id = 1;
+  ^^^^^^ keyword
+         ^^^^^ function.call
+                  ^^^^ keyword
+                             ^^^^^ keyword
+
+# Numbers, whole and not; strings; the language's own values
+> SELECT 42, 100.5, 'gold', NULL, TRUE, FALSE;
+         ^^ number
+             ^^^^^ number
+                    ^^^^^^ string
+                            ^^^^ constant.builtin
+                                  ^^^^ constant.builtin
+                                        ^^^^^ constant.builtin
+
+# A condition: CASE and its words, IS NULL, LIKE, IN, BETWEEN
+> SELECT CASE WHEN x > 1 THEN 'a' ELSE 'b' END FROM t WHERE y IS NULL AND z LIKE 'a%' AND n IN (1, 2) AND m BETWEEN 1 AND 9;
+         ^^^^ keyword
+              ^^^^ keyword
+                         ^^^^ keyword
+                                  ^^^^ keyword
+                                           ^^^ keyword
+                                                              ^^ keyword
+                                                                            ^^^^ keyword
+                                                                                            ^^ keyword.operator
+                                                                                                            ^^^^^^^ keyword
+
+# A table created: its columns' types builtins, its constraints keywords
+> CREATE TABLE IF NOT EXISTS users (
+  ^^^^^^ keyword
+         ^^^^^ keyword
+                             ^^^^^ type
+>   id BIGSERIAL PRIMARY KEY,
+       ^^^^^^^^^ type.builtin
+                 ^^^^^^^ keyword
+>   name VARCHAR(100) NOT NULL,
+         ^^^^^^^ type.builtin
+                 ^^^ number
+                          ^^^^ constant.builtin
+>   email TEXT UNIQUE,
+          ^^^^ type.builtin
+               ^^^^^^ keyword
+>   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+               ^^^^^^^^^^^ type.builtin
+                           ^^^^^^^ attribute
+                                   ^^^^^^^^^^^^^^^^^ attribute
+> );
+
+# Changing rows; a cast both ways
+> INSERT INTO users (name) VALUES ('Ann') RETURNING id;
+  ^^^^^^ keyword
+         ^^^^ keyword
+                           ^^^^^^ keyword
+                                          ^^^^^^^^^ keyword
+> UPDATE users SET active = FALSE WHERE id = 1;
+  ^^^^^^ keyword
+               ^^^ keyword
+> SELECT count(*)::int, cast(age as integer) FROM users;
+                   ^^^ type.builtin
+                        ^^^^ function.call
+                                    ^^^^^^^ type.builtin
+
+# A window
+> SELECT ROW_NUMBER() OVER (PARTITION BY c ORDER BY s DESC) FROM t;
+         ^^^^^^^^^^ function.call
+                      ^^^^ keyword
+                            ^^^^^^^^^ keyword
+                                                      ^^^^ attribute

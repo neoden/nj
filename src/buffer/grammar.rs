@@ -174,6 +174,13 @@ const LINKED: &[Linked] = &[
         ],
         injections: None,
     },
+    #[cfg(feature = "sql")]
+    Linked {
+        name: "SQL",
+        language: || tree_sitter_sequel::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/sql/highlights.scm")],
+        injections: None,
+    },
     #[cfg(feature = "shell")]
     Linked {
         name: "Shell",
