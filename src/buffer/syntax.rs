@@ -237,7 +237,7 @@ fn pieces(query: &Query, tree: &Tree, text: &Text, range: Range<usize>) -> Vec<P
 /// files' extension, `py`; or one of those no file is written in,
 /// `markdown_inline`.
 fn grammar_named(name: &str) -> Option<&'static Grammar> {
-    let language = language::by_name(name).or_else(|| language::by_extension(name));
+    let language = language::named(name);
     grammar::by_name(language.map_or(name, |language| language.name))
 }
 

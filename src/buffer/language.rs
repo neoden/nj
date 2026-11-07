@@ -361,6 +361,14 @@ pub fn by_extension(extension: &str) -> Option<&'static Language> {
         .find(|language| language.extensions.contains(&extension))
 }
 
+/// A language as a person names it, typed on a command line or after a
+/// code block's ```` ``` ````: by its name or by its files' extension,
+/// whatever the case. `cs` is C#, which is easier to type than `c#` in a
+/// shell where `#` means something.
+pub fn named(word: &str) -> Option<&'static Language> {
+    by_name(word).or_else(|| by_extension(&word.to_ascii_lowercase()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,5 +459,17 @@ mod tests {
         assert_eq!(by_name("rust").unwrap().name, "Rust");
         assert_eq!(by_name("c++").unwrap().name, "C++");
         assert!(by_name("rst").is_none());
+    }
+
+    #[test]
+    fn a_person_names_a_language_by_its_name_or_its_extension() {
+        assert_eq!(named("C#").unwrap().name, "C#");
+        assert_eq!(named("cs").unwrap().name, "C#");
+        assert_eq!(named("CS").unwrap().name, "C#");
+        assert_eq!(named("py").unwrap().name, "Python");
+        assert_eq!(named("rust").unwrap().name, "Rust");
+        // A name wins over an extension: `c` is the language C.
+        assert_eq!(named("c").unwrap().name, "C");
+        assert!(named("rst").is_none());
     }
 }

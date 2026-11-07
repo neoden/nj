@@ -313,7 +313,7 @@ impl Editor {
             Command::File(File::Save) => self.save(After::Stay),
             Command::File(File::SaveAs(path)) => self.save_as(path, After::Stay),
             Command::File(File::Open(path)) => self.open(path),
-            Command::File(File::SetLanguage(name)) => match language::by_name(&name) {
+            Command::File(File::SetLanguage(name)) => match language::named(&name) {
                 Some(language) => self.set_language(language),
                 None => self.message = Some(format!("No language called {name}")),
             },

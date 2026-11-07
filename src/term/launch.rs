@@ -34,7 +34,7 @@ pub fn args(arguments: impl IntoIterator<Item = String>) -> Result<Args> {
             }
             "--language" => {
                 let name = rest.next().context("--language takes a language's name")?;
-                let language = language::by_name(&name)
+                let language = language::named(&name)
                     .with_context(|| format!("no language is called `{name}`"))?;
                 args.language = Some(language);
             }
