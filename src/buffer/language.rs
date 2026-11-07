@@ -243,6 +243,14 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: Some("//"),
     },
     Language {
+        name: "C#",
+        extensions: &["cs", "csx"],
+        filenames: &[],
+        indent: Indent::Spaces(4),
+        tab_width: 4,
+        line_comment: Some("//"),
+    },
+    Language {
         name: "C++",
         extensions: &["cc", "cpp", "cxx", "hpp", "hh"],
         filenames: &[],

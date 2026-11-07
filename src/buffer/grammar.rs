@@ -39,6 +39,13 @@ const LINKED: &[Linked] = &[
     },
     // C's patterns hold in C++ too, which has every node they name. The
     // injections are its own: a macro's body here is C++.
+    #[cfg(feature = "c-sharp")]
+    Linked {
+        name: "C#",
+        language: || tree_sitter_c_sharp::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/c-sharp/highlights.scm")],
+        injections: None,
+    },
     #[cfg(feature = "cpp")]
     Linked {
         name: "C++",

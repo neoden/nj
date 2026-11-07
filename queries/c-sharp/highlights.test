@@ -1,0 +1,172 @@
+%language C#
+
+# Namespaces a `using` brings in, and a file's own, every name a module
+> global using System;
+  ^^^^^^ keyword
+               ^^^^^^ module
+> using static System.Math;
+        ^^^^^^ keyword
+                      ^^^^ module
+> using Text = System.Text;
+        ^^^^ module
+> namespace Acme.App.Core;
+  ^^^^^^^^^ keyword
+            ^^^^ module
+                     ^^^^ module
+
+# A type's declaration: modifiers, a primary constructor, the bases, a
+# type parameter where it is declared and where it is bound
+> [Serializable, Obsolete("old")]
+   ^^^^^^^^^^^^ attribute
+                 ^^^^^^^^ attribute
+                          ^^^^^ string
+> public sealed partial class Counter<T>(int start) : Base, IDisposable where T : class, new()
+  ^^^^^^ keyword
+                ^^^^^^^ keyword
+                              ^^^^^^^ type
+                                      ^ type
+                                         ^^^ type.builtin
+                                                      ^^^^ type
+                                                                        ^^^^^ keyword
+                                                                              ^ type
+> {
+>     public required string Name { get; init; }
+             ^^^^^^^^ keyword
+                      ^^^^^^ type.builtin
+                                    ^^^ keyword
+                                         ^^^^ keyword
+>     public T this[int i] => items[i];
+               ^^^^ keyword
+>     public event EventHandler? Changed;
+             ^^^^^ keyword
+                   ^^^^^^^^^^^^ type
+> }
+
+# Methods: async, a local function, named arguments, calls of every kind
+> async Task<int> RunAsync(params int[] xs) {
+  ^^^^^ keyword
+        ^^^^ type
+                  ^^^^^^^^ function
+                           ^^^^^^ keyword
+                                        ^^ variable.parameter
+>     await foreach (var x in Stream()) { }
+      ^^^^^ keyword
+            ^^^^^^^ keyword
+                     ^^^ keyword
+                              ^^^^^^ function
+>     using var file = Open(path: "a.txt");
+      ^^^^^ keyword
+                       ^^^^ function
+>     int Local(int y) => y + 1;
+          ^^^^^ function
+>     return await Task.FromResult(total);
+                        ^^^^^^^^^^ function
+> }
+
+# A switch expression and the patterns in it
+> static string Describe(object o) => o switch {
+                                        ^^^^^^ keyword
+>     int i when i > 0 => "positive",
+            ^^^^ keyword
+>     [1, .., 3] => "list",
+       ^ number
+>     > 5 and < 10 => "range",
+          ^^^ keyword
+>     null or not string => "other",
+      ^^^^ constant.builtin
+           ^^ keyword
+              ^^^ keyword
+                  ^^^^^^ type.builtin
+>     _ => "default",
+> };
+
+# Strings of every kind; numbers with every suffix
+> var a = "tab\there"; var b = @"C:\path"; var c = $"x={total}";
+              ^^ escape
+                               ^^^^^^^^^^ string
+                                                   ^^ string
+> var e = """raw "text" """; var g = "bytes"u8; char h = 'c';
+          ^^^^^^^^^^^^^^^^^ string
+                                     ^^^^^^^^^ string
+                                                         ^^^ string
+> var n = 1_000 + 0x1F + 0b1010 + 1.5f + 2.0m + 10L + 1e3;
+          ^^^^^ number
+                  ^^^^ number
+                         ^^^^^^ number
+                                  ^^^^ number
+                                         ^^^^ number
+                                                ^^^ number
+                                                      ^^^ number
+
+# nameof, typeof, default; a query's words
+> var name = nameof(Counter); var ty = typeof(int); var def = default(int);
+             ^^^^^^ function.builtin
+                                       ^^^^^^ keyword
+                                                              ^^^^^^^ keyword
+> var r = from u in users where u.Age > 18 orderby u.Name descending join o in orders on u.Id equals o.UserId select u;
+          ^^^^ keyword
+                                           ^^^^^^^ keyword
+                                                          ^^^^^^^^^^ keyword
+                                                                     ^^^^ keyword
+                                                                                      ^^ keyword
+                                                                                              ^^^^^^ keyword
+                                                                                                              ^^^^^^ keyword
+> var s = from u in users group u by u.City into gr let k = gr.Key select k;
+                          ^^^^^ keyword
+                                  ^^ keyword
+                                            ^^^^ keyword
+                                                    ^^^ keyword
+
+# Operators declared, an extension method, unsafe code, a label
+> class Counter {
+>     public static Counter operator +(Counter a, Counter b) => a;
+                            ^^^^^^^^ keyword
+>     public static implicit operator int(Counter c) => c.Count;
+                    ^^^^^^^^ keyword
+                             ^^^^^^^^ keyword
+>     public static string Shout(this string s) => s.ToUpper();
+                                 ^^^^ keyword
+                                                     ^^^^^^^ function
+>     unsafe void Raw() { int* ptr = stackalloc int[4]; fixed (char* cp = "x") { } }
+      ^^^^^^ keyword
+                                     ^^^^^^^^^^ keyword
+                                                        ^^^^^ keyword
+>     IEnumerable<int> Gen() { yield return 1; goto done; done: yield break; }
+                               ^^^^^ keyword
+                                                    ^^^^ label
+                                                          ^^^^ label
+> }
+
+# The preprocessor's directives and words
+> #nullable enable
+  ^^^^^^^^^ keyword
+            ^^^^^^ keyword
+> #pragma warning disable CS0168
+  ^^^^^^^ keyword
+          ^^^^^^^ keyword
+                  ^^^^^^^ keyword
+> #region Helpers
+  ^^^^^^^ keyword
+
+# Records, an enum's members constants, variance, attribute targets
+> public readonly record struct Size(int W, int H);
+         ^^^^^^^^ keyword
+                  ^^^^^^ keyword
+                         ^^^^^^ keyword
+                                ^^^^ type
+> enum Color { Red, Green = 2 }
+       ^^^^^ type
+               ^^^ constant
+                    ^^^^^ constant
+> interface IShape<in T, out U> { double Area(); }
+  ^^ keyword
+                         ^^^ keyword
+                                         ^^^^ function
+> [assembly: InternalsVisibleTo("Tests")]
+   ^^^^^^^^ keyword
+> class A { [return: NotNull] string F() => ""; }
+             ^^^^^^ keyword
+
+# A doc comment
+> /// <summary>A counter.</summary>
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment

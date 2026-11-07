@@ -30,10 +30,10 @@ wait
 
 --- the language list in its place, the palette gone
  2|────────────────────────────────────────
- 3|   Java
- 4|   Python
- 5|   Rust
- 6|   C++
+ 3|   Python
+ 4|   Rust
+ 5|   C++
+ 6|   C#
  7|   C
  8|   Go
  9|   SQL
@@ -43,7 +43,7 @@ wait
   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 13| >
   |   ^
-15| 25/25 …ratch]* · Text · 1 lines · 1:13
+15| 26/26 …ratch]* · Text · 1 lines · 1:13
 
 type "ru"
 
@@ -54,7 +54,7 @@ type "ru"
   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 13| > ru
   |     ^
-15| 1/25 …cratch]* · Text · 1 lines · 1:13
+15| 1/26 …cratch]* · Text · 1 lines · 1:13
 
 key Enter
 
