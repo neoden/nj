@@ -20,7 +20,9 @@ impl Indent {
 pub struct Language {
     pub name: &'static str,
     pub extensions: &'static [&'static str],
-    /// For the few languages known by name rather than by suffix.
+    /// For the few languages known by name rather than by suffix. A `*`
+    /// stands for any run of characters, `Dockerfile.*`; a name without
+    /// one is that name alone.
     pub filenames: &'static [&'static str],
     /// What one level of indentation is made of in a fresh file.
     pub indent: Indent,
@@ -149,6 +151,21 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: None,
     },
     Language {
+        // Podman calls the same file a Containerfile.
+        name: "Dockerfile",
+        extensions: &["dockerfile", "containerfile"],
+        filenames: &[
+            "Dockerfile",
+            "Containerfile",
+            "Dockerfile.*",
+            "*.Dockerfile",
+            "Containerfile.*",
+        ],
+        indent: Indent::Spaces(4),
+        tab_width: 4,
+        line_comment: Some("#"),
+    },
+    Language {
         // The messages git asks for in the editor, by the files it writes
         // them to under `.git`.
         name: "Git commit",
@@ -248,10 +265,44 @@ pub fn by_name(name: &str) -> Option<&'static Language> {
         .find(|language| language.name.eq_ignore_ascii_case(name))
 }
 
+/// A name spelt out wins over a pattern, whichever language has it: a
+/// `Dockerfile.*` does not take a name another language lists whole.
 fn by_filename(name: &str) -> Option<&'static Language> {
-    LANGUAGES
+    let exact = LANGUAGES
         .iter()
-        .find(|language| language.filenames.contains(&name))
+        .find(|language| language.filenames.contains(&name));
+    exact.or_else(|| {
+        LANGUAGES.iter().find(|language| {
+            language
+                .filenames
+                .iter()
+                .any(|pattern| pattern.contains('*') && matches(pattern, name))
+        })
+    })
+}
+
+/// Whether `name` fits `pattern`, whose `*`s each stand for any run of
+/// characters, none too.
+fn matches(pattern: &str, name: &str) -> bool {
+    let mut parts = pattern.split('*');
+    // The first part starts the name and the last ends it; those between
+    // come in order, each as early as it can.
+    let first = parts.next().unwrap_or_default();
+    let Some(mut rest) = name.strip_prefix(first) else {
+        return false;
+    };
+    let mut parts = parts.peekable();
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            return rest.ends_with(part);
+        }
+        match rest.find(part) {
+            Some(at) => rest = &rest[at + part.len()..],
+            None => return false,
+        }
+    }
+    // No `*` at all: the name is the pattern.
+    rest.is_empty()
 }
 
 /// The language whose files end in `.extension`, which is also how a
@@ -289,6 +340,33 @@ mod tests {
         assert_eq!(detect_name(".bash_aliases"), "Shell");
         assert_eq!(detect_name("repo/.git/COMMIT_EDITMSG"), "Git commit");
         assert_eq!(detect_name("repo/.git/rebase-merge/git-rebase-todo"), "Git rebase");
+        assert_eq!(detect_name("app/Dockerfile"), "Dockerfile");
+        assert_eq!(detect_name("app/Containerfile"), "Dockerfile");
+    }
+
+    #[test]
+    fn a_name_can_be_a_pattern() {
+        assert_eq!(detect_name("Dockerfile.dev"), "Dockerfile");
+        assert_eq!(detect_name("deploy/prod.Dockerfile"), "Dockerfile");
+        // A `*` stands for no characters too.
+        assert_eq!(detect_name("Dockerfile."), "Dockerfile");
+        assert_eq!(detect_name("NotADockerfile"), "Text");
+    }
+
+    #[test]
+    fn a_star_stands_for_any_run_of_characters() {
+        assert!(matches("Dockerfile.*", "Dockerfile.dev"));
+        assert!(matches("Dockerfile.*", "Dockerfile."));
+        assert!(!matches("Dockerfile.*", "Dockerfile"));
+        assert!(matches("*.Dockerfile", "prod.Dockerfile"));
+        assert!(!matches("*.Dockerfile", "prod.dockerfile"));
+        assert!(matches("a*b*c", "a-b-c"));
+        assert!(matches("a*b*c", "abc"));
+        assert!(!matches("a*b*c", "acb"));
+        // The start and the end may not share a character.
+        assert!(!matches("a*a", "a"));
+        assert!(matches("Makefile", "Makefile"));
+        assert!(!matches("Makefile", "Makefile.am"));
     }
 
     #[test]

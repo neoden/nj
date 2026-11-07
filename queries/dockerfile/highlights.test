@@ -1,0 +1,65 @@
+%language Dockerfile
+
+# A parser directive is a comment; instructions are keywords, in either
+# case; a variable the build reads is a constant with its `$` and braces
+> # syntax=docker/dockerfile:1
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
+> ARG VERSION=3.12
+  ^^^ keyword
+> FROM python:${VERSION}-slim AS build
+  ^^^^ keyword
+              ^^^^^^^^^^ constant
+                              ^^ keyword
+> from alpine as small
+  ^^^^ keyword
+              ^^ keyword
+> WORKDIR $APP_HOME
+  ^^^^^^^ keyword
+          ^^^^^^^^^ constant
+
+# A string, with a variable in it
+> ENV PATH="/app/bin:$PATH"
+  ^^^ keyword
+           ^^^^^^^^^^ string
+                     ^^^^^ constant
+
+# A RUN is Shell, over lines joined by `\` too
+> RUN apt-get update && apt-get install -y curl \
+  ^^^ keyword
+      ^^^^^^^ function
+                                        ^^ constant
+>     && rm -rf /var/lib/apt/lists/*
+         ^^ function
+            ^^^ constant
+> RUN --mount=type=cache,target=/root/.cache pip install -r requirements.txt
+                                             ^^^ function
+
+# A RUN's heredoc is Shell, its markers labels
+> RUN <<EOF
+      ^^^^^ label
+> echo "hello"
+  ^^^^ function.builtin
+       ^^^^^^^ string
+> EOF
+  ^^^ label
+
+# A COPY's heredoc is the language of the file it writes
+> COPY <<EOF /etc/app/config.json
+  ^^^^ keyword
+> {"debug": true, "port": 8080}
+   ^^^^^^^ string.special.key
+            ^^^^ constant.builtin
+                          ^^^^ number
+> EOF
+
+# A port is a number; the JSON form of a command is strings
+> EXPOSE 8080/tcp
+         ^^^^^^^^ number
+> ENTRYPOINT ["python", "-m", "app"]
+  ^^^^^^^^^^ keyword
+              ^^^^^^^^ string
+> HEALTHCHECK --interval=30s CMD curl -f http://localhost/ || exit 1
+  ^^^^^^^^^^^ keyword
+                             ^^^ keyword
+                                 ^^^^ function
+                                                              ^^^^ keyword

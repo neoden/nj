@@ -66,6 +66,13 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/diff/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "dockerfile")]
+    Linked {
+        name: "Dockerfile",
+        language: || tree_sitter_containerfile::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/dockerfile/highlights.scm")],
+        injections: Some(include_str!("../../queries/dockerfile/injections.scm")),
+    },
     #[cfg(feature = "git")]
     Linked {
         name: "Git commit",

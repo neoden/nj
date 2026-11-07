@@ -15,6 +15,7 @@ signal-hook = "0.3.18"
 tree-sitter = "0.27"
 tree-sitter-bash = { version = "0.25", optional = true }
 tree-sitter-c = { version = "0.24", optional = true }
+tree-sitter-containerfile = { version = "0.9", optional = true }
 tree-sitter-cpp = { version = "0.23", optional = true }
 tree-sitter-css = { version = "0.25", optional = true }
 # From its repository: crates.io has only 0.1.0, which reads a line taken
@@ -41,11 +42,14 @@ unicode-width = "0.2.2"
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["c", "cpp", "css", "diff", "git", "go", "html", "javascript", "json", "makefile", "markdown", "python", "rust", "scss", "shell", "toml", "typescript", "yaml"]
+default = ["c", "cpp", "css", "diff", "dockerfile", "git", "go", "html", "javascript", "json", "makefile", "markdown", "python", "rust", "scss", "shell", "toml", "typescript", "yaml"]
 c = ["dep:tree-sitter-c"]
 cpp = ["dep:tree-sitter-cpp"]
 css = ["dep:tree-sitter-css"]
 diff = ["dep:tree-sitter-diff"]
+# The maintained fork of tree-sitter-dockerfile, whose crate is built for
+# an older tree-sitter.
+dockerfile = ["dep:tree-sitter-containerfile"]
 # A commit's message and a rebase's list, the two files git hands over.
 git = ["dep:tree-sitter-gitcommit", "dep:tree-sitter-git-rebase"]
 go =["dep:tree-sitter-go"]
