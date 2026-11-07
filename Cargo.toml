@@ -26,6 +26,7 @@ tree-sitter-git-rebase = { git = "https://github.com/the-mikedavis/tree-sitter-g
 tree-sitter-gitcommit = { version = "0.5", optional = true }
 tree-sitter-go ={ version = "0.25", optional = true }
 tree-sitter-html = { version = "0.23", optional = true }
+tree-sitter-ini = { version = "1.4", optional = true }
 tree-sitter-javascript ={ version = "0.25", optional = true }
 tree-sitter-json ={ version = "0.24", optional = true }
 tree-sitter-make = { version = "1.1", optional = true }
@@ -42,7 +43,7 @@ unicode-width = "0.2.2"
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["c", "cpp", "css", "diff", "dockerfile", "git", "go", "html", "javascript", "json", "makefile", "markdown", "python", "rust", "scss", "shell", "toml", "typescript", "yaml"]
+default = ["c", "cpp", "css", "diff", "dockerfile", "git", "go", "html", "ini", "javascript", "json", "makefile", "markdown", "python", "rust", "scss", "shell", "toml", "typescript", "yaml"]
 c = ["dep:tree-sitter-c"]
 cpp = ["dep:tree-sitter-cpp"]
 css = ["dep:tree-sitter-css"]
@@ -54,6 +55,7 @@ dockerfile = ["dep:tree-sitter-containerfile"]
 git = ["dep:tree-sitter-gitcommit", "dep:tree-sitter-git-rebase"]
 go =["dep:tree-sitter-go"]
 html = ["dep:tree-sitter-html"]
+ini = ["dep:tree-sitter-ini"]
 javascript = ["dep:tree-sitter-javascript"]
 json = ["dep:tree-sitter-json"]
 makefile = ["dep:tree-sitter-make"]

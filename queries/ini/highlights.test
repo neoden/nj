@@ -1,0 +1,40 @@
+%language INI
+
+# A section is a type, a key a property, its value a string
+> [user]
+  ^ punctuation.bracket
+   ^^^^ type
+> name = A Dev
+  ^^^^ property
+       ^ operator
+         ^^^^^ string
+> [remote "origin"]
+   ^^^^^^^^^^^^^^^ type
+
+# Keys before the first section, as an .editorconfig has them; a section
+# named by a pattern
+> root = true
+  ^^^^ property
+         ^^^^ string
+>
+> [*.{js,py}]
+   ^^^^^^^^^ type
+> indent_size = 4
+                ^ string
+
+# A systemd unit, a value with `=` in it whole
+> [Service]
+   ^^^^^^^ type
+> ExecStart=/usr/bin/app --port=8080
+  ^^^^^^^^^ property
+            ^^^^^^^^^^^^^^^^^^^^^^^^ string
+
+# Comments of both kinds on lines of their own; after a value a `#` is the
+# value's
+> ; old style comment
+  ^^^^^^^^^^^^^^^^^^^ comment
+> # new style comment
+  ^^^^^^^^^^^^^^^^^^^ comment
+> [alias]
+> lg = log --graph # pretty
+       ^^^^^^^^^^^^^^^^^^^^ string

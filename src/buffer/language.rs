@@ -116,6 +116,26 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: None,
     },
     Language {
+        // Sections of `key = value`: config files of many tools, systemd's
+        // units, desktop entries, git's own config.
+        name: "INI",
+        extensions: &[
+            "ini", "cfg", "desktop", "service", "socket", "timer", "mount", "target",
+        ],
+        filenames: &[
+            ".gitconfig",
+            ".gitmodules",
+            ".editorconfig",
+            ".npmrc",
+            ".flake8",
+            ".pylintrc",
+            ".coveragerc",
+        ],
+        indent: Indent::Spaces(4),
+        tab_width: 4,
+        line_comment: Some("#"),
+    },
+    Language {
         name: "TOML",
         extensions: &["toml"],
         filenames: &["Cargo.lock"],
@@ -216,8 +236,12 @@ pub const LANGUAGES: &[Language] = &[
     },
     Language {
         name: "Shell",
-        extensions: &["sh", "bash", "zsh"],
+        // An environment file, `.env`, is Shell too: `KEY=value` lines a
+        // shell sources, with `export`, quotes and `${OTHER}` in them.
+        extensions: &["sh", "bash", "zsh", "env"],
         filenames: &[
+            ".env",
+            ".env.*",
             ".profile",
             ".bashrc",
             ".bash_profile",
@@ -351,6 +375,11 @@ mod tests {
         // A `*` stands for no characters too.
         assert_eq!(detect_name("Dockerfile."), "Dockerfile");
         assert_eq!(detect_name("NotADockerfile"), "Text");
+        assert_eq!(detect_name("app/.env"), "Shell");
+        assert_eq!(detect_name("app/.env.production"), "Shell");
+        assert_eq!(detect_name("deploy/prod.env"), "Shell");
+        assert_eq!(detect_name("/home/u/.gitconfig"), "INI");
+        assert_eq!(detect_name("app.service"), "INI");
     }
 
     #[test]

@@ -101,6 +101,13 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/html/highlights.scm")],
         injections: Some(include_str!("../../queries/html/injections.scm")),
     },
+    #[cfg(feature = "ini")]
+    Linked {
+        name: "INI",
+        language: || tree_sitter_ini::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/ini/highlights.scm")],
+        injections: None,
+    },
     #[cfg(feature = "javascript")]
     Linked {
         name: "JavaScript",
