@@ -149,6 +149,31 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: None,
     },
     Language {
+        // The messages git asks for in the editor, by the files it writes
+        // them to under `.git`.
+        name: "Git commit",
+        extensions: &[],
+        filenames: &[
+            "COMMIT_EDITMSG",
+            "MERGE_MSG",
+            "SQUASH_MSG",
+            "TAG_EDITMSG",
+            "NOTES_EDITMSG",
+        ],
+        indent: Indent::Spaces(4),
+        tab_width: 4,
+        line_comment: Some("#"),
+    },
+    Language {
+        // The list `git rebase -i` hands over to edit.
+        name: "Git rebase",
+        extensions: &[],
+        filenames: &["git-rebase-todo"],
+        indent: Indent::Spaces(4),
+        tab_width: 4,
+        line_comment: Some("#"),
+    },
+    Language {
         name: "Go",
         extensions: &["go"],
         filenames: &[],
@@ -262,6 +287,8 @@ mod tests {
         assert_eq!(detect_name("project/GNUmakefile"), "Makefile");
         assert_eq!(detect_name("/home/u/.zshenv"), "Shell");
         assert_eq!(detect_name(".bash_aliases"), "Shell");
+        assert_eq!(detect_name("repo/.git/COMMIT_EDITMSG"), "Git commit");
+        assert_eq!(detect_name("repo/.git/rebase-merge/git-rebase-todo"), "Git rebase");
     }
 
     #[test]

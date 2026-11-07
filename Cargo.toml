@@ -20,6 +20,9 @@ tree-sitter-css = { version = "0.25", optional = true }
 # From its repository: crates.io has only 0.1.0, which reads a line taken
 # away that starts with `--` as a file's name and an error.
 tree-sitter-diff = { git = "https://github.com/the-mikedavis/tree-sitter-diff", rev = "ada384ac7bfc1307f32de474620120add29998fb", optional = true }
+# From its repository: it is not on crates.io.
+tree-sitter-git-rebase = { git = "https://github.com/the-mikedavis/tree-sitter-git-rebase", rev = "32686d6b72980b36f876ae2d07719c9c3ed154e2", optional = true }
+tree-sitter-gitcommit = { version = "0.5", optional = true }
 tree-sitter-go ={ version = "0.25", optional = true }
 tree-sitter-html = { version = "0.23", optional = true }
 tree-sitter-javascript ={ version = "0.25", optional = true }
@@ -38,11 +41,13 @@ unicode-width = "0.2.2"
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["c", "cpp", "css", "diff", "go", "html", "javascript", "json", "makefile", "markdown", "python", "rust", "scss", "shell", "toml", "typescript", "yaml"]
+default = ["c", "cpp", "css", "diff", "git", "go", "html", "javascript", "json", "makefile", "markdown", "python", "rust", "scss", "shell", "toml", "typescript", "yaml"]
 c = ["dep:tree-sitter-c"]
 cpp = ["dep:tree-sitter-cpp"]
 css = ["dep:tree-sitter-css"]
 diff = ["dep:tree-sitter-diff"]
+# A commit's message and a rebase's list, the two files git hands over.
+git = ["dep:tree-sitter-gitcommit", "dep:tree-sitter-git-rebase"]
 go =["dep:tree-sitter-go"]
 html = ["dep:tree-sitter-html"]
 javascript = ["dep:tree-sitter-javascript"]

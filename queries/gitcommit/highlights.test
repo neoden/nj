@@ -1,0 +1,53 @@
+%language Git commit
+
+# The subject is a heading; a Conventional Commits prefix, its type a
+# keyword; the body plain
+> Fix the parse of a deleted SQL comment
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ markup.heading
+>
+> The grammar read `--- x` as a file's name.
+  ^^^ -
+
+# The prefix's type, its scope a parameter
+> fix(diff)!: read a deleted line
+  ^^^ keyword
+      ^^^^ variable.parameter
+              ^^^^^^^^^^^^^^^^^^^ markup.heading
+
+# A trailer's token is a label, `BREAKING CHANGE:` a keyword
+> Subject
+>
+> BREAKING CHANGE: the diff grammar comes from git now
+  ^^^^^^^^^^^^^^^^ keyword
+> Signed-off-by: A Dev <dev@example.com>
+  ^^^^^^^^^^^^^^ label
+
+# git's comments are comments, with the branch named in them; they are
+# known by the whole of what git writes, its first lines too
+> Subject
+> # Please enter the commit message for your changes. Lines starting
+> # with '#' will be ignored, and an empty message aborts the commit.
+> #
+> # On branch master
+  ^^^^^^^^^^^^ comment
+              ^^^^^^ constant
+> # Changes to be committed:
+    ^^^^^^^^^^^^^^^^^^^^^^^^ markup.heading
+
+# Below the scissors `git commit -v` writes the diff, which is a diff's
+> Subject
+> # ------------------------ >8 ------------------------
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
+> # Do not modify or remove the line above.
+> # Everything below it will be ignored.
+> diff --git a/Cargo.toml b/Cargo.toml
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ keyword
+> --- a/Cargo.toml
+  ^^^^^^^^^^^^^^^^ diff.minus
+> +++ b/Cargo.toml
+  ^^^^^^^^^^^^^^^^ diff.plus
+> @@ -1 +1 @@
+> -old = 1
+  ^^^^^^^^ diff.minus
+> +new = 2
+  ^^^^^^^^ diff.plus

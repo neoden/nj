@@ -1,0 +1,47 @@
+%language Git rebase
+
+# A command on a commit is a keyword, the commit a builtin, its subject a
+# comment, which has no effect on the rebase
+> pick a1b2c3d Fix the parser
+  ^^^^ keyword
+       ^^^^^^^ constant.builtin
+               ^^^^^^^^^^^^^^ comment
+> s 8b9c0d1 fixup! Add tests
+  ^ keyword
+    ^^^^^^^ constant.builtin
+            ^^^^^^^^^^^^^^^^ comment
+
+# A fixup is an attribute, with `-C` too, and its subject a comment
+> fixup 2e3f4a5 Tidy up
+  ^^^^^ attribute
+                ^^^^^^^ comment
+> fixup -C 2e3f4a5 Tidy up
+  ^^^^^ attribute
+           ^^^^^^^ constant.builtin
+                   ^^^^ comment
+                        ^^ comment
+
+# A label is made and used; a merge names a commit, a label and its
+# message
+> label onto
+  ^^^^^ function
+        ^^^^ constant
+> merge -C 1a2b3c4 onto # Merge branch
+  ^^^^^ keyword
+           ^^^^^^^ constant.builtin
+                   ^^^^ constant
+                        ^^^^^^^^^^^^^^ string
+
+# What `exec` runs is Shell
+> exec cargo test --all
+  ^^^^ keyword
+       ^^^^^ function
+                  ^^^^^ constant
+> x echo "done"
+  ^ keyword
+    ^^^^ function.builtin
+         ^^^^^^ string
+
+# git's comments
+> # Rebase 1a2b3c4..6b7c8d9 onto 1a2b3c4 (8 commands)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment

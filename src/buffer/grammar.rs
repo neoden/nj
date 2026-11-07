@@ -66,6 +66,20 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/diff/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "git")]
+    Linked {
+        name: "Git commit",
+        language: || tree_sitter_gitcommit::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/gitcommit/highlights.scm")],
+        injections: Some(include_str!("../../queries/gitcommit/injections.scm")),
+    },
+    #[cfg(feature = "git")]
+    Linked {
+        name: "Git rebase",
+        language: || tree_sitter_git_rebase::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/gitrebase/highlights.scm")],
+        injections: Some(include_str!("../../queries/gitrebase/injections.scm")),
+    },
     #[cfg(feature = "go")]
     Linked {
         name: "Go",

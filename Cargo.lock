@@ -230,6 +230,8 @@ dependencies = [
  "tree-sitter-cpp",
  "tree-sitter-css",
  "tree-sitter-diff",
+ "tree-sitter-git-rebase",
+ "tree-sitter-gitcommit",
  "tree-sitter-go",
  "tree-sitter-html",
  "tree-sitter-javascript",
@@ -546,6 +548,25 @@ dependencies = [
 name = "tree-sitter-diff"
 version = "0.2.0"
 source = "git+https://github.com/the-mikedavis/tree-sitter-diff?rev=ada384ac7bfc1307f32de474620120add29998fb#ada384ac7bfc1307f32de474620120add29998fb"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-git-rebase"
+version = "0.1.0"
+source = "git+https://github.com/the-mikedavis/tree-sitter-git-rebase?rev=32686d6b72980b36f876ae2d07719c9c3ed154e2#32686d6b72980b36f876ae2d07719c9c3ed154e2"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-gitcommit"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38b051221607cfde94e2d0132ad99ef50a9f78a990c068380717ea0a4ce61899"
 dependencies = [
  "cc",
  "tree-sitter-language",
