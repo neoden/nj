@@ -441,11 +441,10 @@ mod tests {
 
     #[test]
     fn a_grammar_is_asked_for_by_the_languages_name() {
-        assert_eq!(
-            parse("%grammar Rust").unwrap(),
-            Some(Instruction::Grammar(language::by_name("Rust").unwrap()))
-        );
-        for bad in ["%grammar", "%grammar rust", "%grammar Rsut"] {
+        let rust = Some(Instruction::Grammar(language::by_name("Rust").unwrap()));
+        assert_eq!(parse("%grammar Rust").unwrap(), rust);
+        assert_eq!(parse("%grammar rust").unwrap(), rust);
+        for bad in ["%grammar", "%grammar Rsut"] {
             assert!(parse(bad).is_err(), "{bad}");
         }
     }

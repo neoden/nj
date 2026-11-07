@@ -1,23 +1,41 @@
 %language JSON
 
-# A key is told from a string that is a value
+# A key is told from a string that is a value; the punctuation is plain
 > {"name": "nj", "size": 12.5}
    ^^^^^^ string.special.key
+         ^ -
            ^^^^ string
                  ^^^^^^ string.special.key
                          ^^^^ number
 
-# The three words are constants; the brackets and commas are plain
-> [true, false, null, -1]
+# A key is a key at any depth, and a string in an array is a value
+> {"outer": {"inner": ["a", "b"]}}
+   ^^^^^^^ string.special.key
+            ^ -
+             ^^^^^^^ string.special.key
+                       ^^^ string
+
+# The three words are constants; numbers of every form
+> [true, false, null, -1, 2e10, 0.5E-3]
   ^ -
    ^^^^ constant.builtin
        ^ -
          ^^^^^ constant.builtin
                 ^^^^ constant.builtin
                       ^^ number
+                          ^^^^ number
+                                ^^^^^^ number
 
-# An escape inside a string is a token of its own, inside the string's
-> {"path": "a\nb"}
-            ^ string
+# An escape is a token of its own, inside a value or a key
+> {"path": "a\nb", "a\tb": 1}
+           ^^ string
              ^^ escape
-               ^ string
+               ^^ string
+                   ^^ string.special.key
+                     ^^ escape
+
+# Comments, which JSON has not and the files people write often have
+> {"a": 1 // why
+          ^^^^^^ comment
+>  /* block */ }
+   ^^^^^^^^^^^ comment

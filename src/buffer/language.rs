@@ -175,11 +175,12 @@ pub fn detect(path: &Path) -> &'static Language {
         .unwrap_or(&PLAIN)
 }
 
+/// Whatever the case: `json` on a command line is JSON.
 pub fn by_name(name: &str) -> Option<&'static Language> {
     LANGUAGES
         .iter()
         .chain([&PLAIN])
-        .find(|language| language.name == name)
+        .find(|language| language.name.eq_ignore_ascii_case(name))
 }
 
 fn by_filename(name: &str) -> Option<&'static Language> {
@@ -188,7 +189,9 @@ fn by_filename(name: &str) -> Option<&'static Language> {
         .find(|language| language.filenames.contains(&name))
 }
 
-fn by_extension(extension: &str) -> Option<&'static Language> {
+/// The language whose files end in `.extension`, which is also how a
+/// writer often names one: `py` after the ```` ``` ```` of a code block.
+pub fn by_extension(extension: &str) -> Option<&'static Language> {
     LANGUAGES
         .iter()
         .find(|language| language.extensions.contains(&extension))
@@ -230,9 +233,19 @@ mod tests {
 
     #[test]
     fn every_language_is_reachable_by_name() {
+        // Found whatever the case, so two names that differ only in case
+        // would find the first of them for both, and fail here.
         for language in LANGUAGES {
             assert_eq!(by_name(language.name), Some(language));
         }
         assert!(by_name("Text").is_some());
+    }
+
+    #[test]
+    fn a_name_is_found_whatever_its_case() {
+        assert_eq!(by_name("json").unwrap().name, "JSON");
+        assert_eq!(by_name("rust").unwrap().name, "Rust");
+        assert_eq!(by_name("c++").unwrap().name, "C++");
+        assert!(by_name("rst").is_none());
     }
 }

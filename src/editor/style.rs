@@ -53,6 +53,9 @@ impl Ink {
             // Documentation reads as a comment, though Python writes it as
             // a string.
             "string.documentation" => Ink::Comment,
+            // The structure of a document, as a keyword is of a program.
+            "markup.heading" | "markup.list" | "markup.quote" => Ink::Keyword,
+            "markup.raw" | "markup.link.url" => Ink::String,
             "keyword" | "attribute" => Ink::Keyword,
             "string" | "escape" => Ink::String,
             "comment" => Ink::Comment,
@@ -121,6 +124,9 @@ mod tests {
         assert_eq!(Ink::named("label"), Ink::Label);
         assert_eq!(Ink::named("string.documentation"), Ink::Comment);
         assert_eq!(Ink::named("string.special.key"), Ink::String);
+        assert_eq!(Ink::named("markup.heading.marker"), Ink::Keyword);
+        assert_eq!(Ink::named("markup.raw.block"), Ink::String);
+        assert_eq!(Ink::named("markup.link.label"), Ink::Text);
         // Parts are whole: a name is never cut inside a part.
         assert_eq!(Ink::named("functional"), Ink::Text);
     }

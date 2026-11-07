@@ -1,0 +1,139 @@
+%language Markdown
+
+# A heading, its marker and its text; emphasis in it stays the heading's,
+# its asterisks apart
+> # Title
+  ^ markup.heading.marker
+    ^^^^^ markup.heading
+> ### Third *level*
+  ^^^ markup.heading.marker
+      ^^^^^ markup.heading
+            ^ punctuation.delimiter
+             ^^^^^ markup.heading
+
+# A heading underlined
+> Title
+  ^^^^^ markup.heading
+> =====
+  ^^^^^ markup.heading.marker
+
+# A list's marker, not its text
+> - one
+  ^ markup.list.marker
+    ^^^ -
+> 2. two
+  ^^ markup.list.marker
+
+# A quote's marker, not its text, on every line of the quote
+> > quoted
+  ^ markup.quote.marker
+    ^^^^^^ -
+> > on
+  ^ markup.quote.marker
+
+# A list item's indent on a line of its own is not a quote's marker
+> - one
+>   two
+  ^^ -
+
+# A quote inside a list: its marker is a quote's on every line
+> - a
+>   > q
+    ^ markup.quote.marker
+>   > r
+    ^ markup.quote.marker
+
+# A code block naming its language: the fences and the name are the
+# block's, the code is the language's, plain where it names nothing
+> ```rust
+  ^^^ markup.raw.block
+     ^^^^ markup.raw.block
+> let x = 1;
+  ^^^ keyword
+      ^ none
+          ^ number
+> ```
+  ^^^ markup.raw.block
+
+# The language named by its files' extension
+> ```py
+> def f(): pass
+  ^^^ keyword
+      ^ function
+> ```
+
+# A language this build has no grammar for: the code is plain
+> ```sh
+> echo hi
+  ^^^^ none
+> ```
+
+# A block naming no language is the block's, all of it
+> ```
+> plain code
+  ^^^^^ markup.raw.block
+> ```
+
+# A code block in a list: the item's indent is the list's, not Rust's
+> - item
+>   ```rust
+>   let a = 1;
+    ^^^ keyword
+>   ```
+
+# An indented code block
+>     indented code
+      ^^^^^^^^ markup.raw.block
+
+# The line between sections
+> ---
+  ^^^ punctuation.special
+
+# A link defined for reference elsewhere
+> [home]: https://example.com "Home"
+  ^^^^^^ markup.link.label
+          ^^^^^^^^^^^^^^^^^^^ markup.link.url
+                              ^^^^^^ string
+
+# An escaped character, where the block grammar reads it and in the text
+# the inline grammar reads
+> [a\]b]: /url
+    ^^ escape
+> a \* star
+  ^ -
+    ^^ escape
+
+# Emphasis is not named, its asterisks say it
+> a *b* and **c**
+  ^ -
+    ^ punctuation.delimiter
+     ^ -
+            ^^ punctuation.delimiter
+              ^ -
+
+# Code over two lines of a quote: the quote's marker on the second line
+# is the block grammar's, and not the inline grammar's to read
+> > `one
+     ^^^ markup.raw.inline
+> > two`
+  ^ markup.quote.marker
+    ^^^ markup.raw.inline
+
+# Code in the text
+> run `cargo test` now
+      ^ punctuation.delimiter
+       ^^^^^^^^^^ markup.raw.inline
+
+# Links and images in the text
+> see [the docs](https://x.org "Docs")
+      ^ punctuation.delimiter
+       ^^^^^^^^ markup.link.label
+                 ^^^^^^^^^^^^^ markup.link.url
+                               ^^^^^^ string
+> ![a cat](cat.png)
+  ^ punctuation.delimiter
+    ^^^^^ markup.link.label
+           ^^^^^^^ markup.link.url
+> at <https://x.org> or [home]
+     ^^^^^^^^^^^^^^^ markup.link.url
+                         ^^^^ markup.link.label

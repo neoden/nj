@@ -3,45 +3,27 @@
 //! the language is set and then edited along with the text: tree-sitter is
 //! told what was replaced by how much, in the same terms as the journal,
 //! and reparses only what that touched.
+//!
+//! Some pieces of the text are another grammar's: the text inside a
+//! Markdown block. Each is parsed whole, on its own, the first time it is
+//! drawn, and kept until the next edit.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
 
 use tree_sitter::{InputEdit, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
-use super::language::Language;
+use super::grammar::{self, Grammar};
+use super::language::{self, Language};
 use crate::text::Text;
 use crate::text::transaction::Change;
-
-/// The grammar for a language, from its crate, and the highlight query
-/// for it, from `queries`: the crates' own queries do not agree on which
-/// of two patterns naming a node wins. Linked in for now; loaded from
-/// files, they would be found the same way.
-fn grammar(language: &Language) -> Option<(tree_sitter::Language, &'static str)> {
-    match language.name {
-        #[cfg(feature = "rust")]
-        "Rust" => Some((
-            tree_sitter_rust::LANGUAGE.into(),
-            include_str!("../../queries/rust/highlights.scm"),
-        )),
-        #[cfg(feature = "json")]
-        "JSON" => Some((
-            tree_sitter_json::LANGUAGE.into(),
-            include_str!("../../queries/json/highlights.scm"),
-        )),
-        #[cfg(feature = "python")]
-        "Python" => Some((
-            tree_sitter_python::LANGUAGE.into(),
-            include_str!("../../queries/python/highlights.scm"),
-        )),
-        _ => None,
-    }
-}
 
 /// Whether this build has the grammar for `language`: each is linked in
 /// by a feature of its own.
 pub fn has_grammar(language: &Language) -> bool {
-    grammar(language).is_some()
+    grammar::is_linked(language.name)
 }
 
 /// A stretch of text and what the query calls it: `keyword`, `string`,
@@ -54,32 +36,46 @@ pub struct Token<'a> {
 }
 
 pub struct Syntax {
+    grammar: &'static Grammar,
     parser: Parser,
     tree: Tree,
-    query: Query,
+    /// The pieces another grammar reads, by where they lie, parsed when
+    /// first drawn. An edit drops them all: those it did not touch would
+    /// still do, but telling them from the rest is following the edit
+    /// through every piece, which this is spared. Within one version of
+    /// the text a place holds one piece, read by one grammar.
+    injected: RefCell<HashMap<(usize, usize), Parsed>>,
+}
+
+/// A piece as its grammar read it.
+struct Parsed {
+    grammar: &'static Grammar,
+    tree: Tree,
+}
+
+/// A piece of the text for another grammar: where it lies, and the spans
+/// of it the grammar reads, which leave out what belongs to the outer one,
+/// the `> ` starting each line of a quote.
+struct Piece {
+    grammar: &'static Grammar,
+    range: Range<usize>,
+    spans: Vec<tree_sitter::Range>,
 }
 
 impl Syntax {
     /// `None` for a language without a grammar.
     pub fn new(language: &Language, text: &Text) -> Option<Self> {
-        let (grammar, highlights) = grammar(language)?;
+        let grammar = grammar::by_name(language.name)?;
         let mut parser = Parser::new();
         parser
-            .set_language(&grammar)
+            .set_language(&grammar.language)
             .expect("a grammar linked in matches the runtime it is linked with");
-        // Both are linked in, and tests/highlights loads every query of the
-        // build: one that does not fit is a bug of the build.
-        let query = Query::new(&grammar, highlights).unwrap_or_else(|error| {
-            panic!(
-                "the {} query does not fit its grammar: {error}",
-                language.name
-            )
-        });
         let tree = parse(&mut parser, text, None);
         Some(Self {
+            grammar,
             parser,
             tree,
-            query,
+            injected: RefCell::default(),
         })
     }
 
@@ -96,35 +92,27 @@ impl Syntax {
     /// first, the specific ones after it (tree-sitter-highlight 0.25,
     /// "keep iterating over any later highlighting patterns"). A node and
     /// its only child may cover the same bytes and are still two tokens,
-    /// the child's after the parent's.
+    /// the child's after the parent's. The tokens of a piece another
+    /// grammar reads lie inside the piece, and so come after the outer
+    /// grammar's that start where they do: they are the inner ones.
     pub fn tokens(&self, text: &Text, range: Range<usize>) -> Vec<Token<'_>> {
-        let names = self.query.capture_names();
-        let mut cursor = QueryCursor::new();
-        cursor.set_byte_range(range);
-        // Predicates such as `#match?` want the text of a node, which is
-        // read where it lies.
-        let mut captures = cursor.captures(&self.query, self.tree.root_node(), |node: Node| {
-            text.chunks_in(node.byte_range())
-        });
-
-        let mut tokens: Vec<Token> = Vec::new();
-        // The captures of one node come out together, in the order of the
-        // patterns, so the last node named is the only one to check against
-        // and the last capture of it is the one that stands.
-        let mut named: Option<Node> = None;
-        while let Some((found, index)) = captures.next() {
-            let capture = found.captures()[*index];
-            let name = names[capture.index as usize];
-            if named == Some(capture.node) {
-                tokens.last_mut().expect("the node has a token").name = name;
-                continue;
-            }
-            named = Some(capture.node);
-            tokens.push(Token {
-                range: capture.node.byte_range(),
-                name,
-            });
+        let mut tokens = highlight(self.grammar, &self.tree, text, range.clone());
+        let Some(injections) = &self.grammar.injections else {
+            return tokens;
+        };
+        let mut injected = self.injected.borrow_mut();
+        for piece in pieces(injections, &self.tree, text, range.clone()) {
+            let parsed = injected
+                .entry((piece.range.start, piece.range.end))
+                .or_insert_with(|| Parsed {
+                    grammar: piece.grammar,
+                    tree: parse_piece(&piece, text),
+                });
+            tokens.extend(highlight(parsed.grammar, &parsed.tree, text, range.clone()));
         }
+        // Stable, so that the outer tokens stay before the inner ones that
+        // start where they do, and those of one grammar in its order.
+        tokens.sort_by_key(|token| token.range.start);
         tokens
     }
 
@@ -147,7 +135,157 @@ impl Syntax {
             });
         }
         self.tree = parse(&mut self.parser, text, Some(&self.tree));
+        self.injected.get_mut().clear();
     }
+}
+
+/// The tokens `grammar`'s highlight query names in `tree` that touch
+/// `range`, as `Syntax::tokens` describes them.
+fn highlight(
+    grammar: &'static Grammar,
+    tree: &Tree,
+    text: &Text,
+    range: Range<usize>,
+) -> Vec<Token<'static>> {
+    let query = &grammar.highlights;
+    let names = query.capture_names();
+    let mut cursor = QueryCursor::new();
+    cursor.set_byte_range(range);
+    // Predicates such as `#match?` want the text of a node, which is read
+    // where it lies.
+    let mut captures = cursor.captures(query, tree.root_node(), |node: Node| {
+        text.chunks_in(node.byte_range())
+    });
+
+    let mut tokens: Vec<Token> = Vec::new();
+    // The captures of one node come out together, in the order of the
+    // patterns, so the last node named is the only one to check against and
+    // the last capture of it is the one that stands.
+    let mut named: Option<Node> = None;
+    while let Some((found, index)) = captures.next() {
+        let capture = found.captures()[*index];
+        let name = names[capture.index as usize];
+        if named == Some(capture.node) {
+            tokens.last_mut().expect("the node has a token").name = name;
+            continue;
+        }
+        named = Some(capture.node);
+        tokens.push(Token {
+            range: capture.node.byte_range(),
+            name,
+        });
+    }
+    tokens
+}
+
+/// The pieces touching `range` that the injection query gives to another
+/// grammar, read as tree-sitter's own highlighter reads one: the piece is
+/// `@injection.content`, its grammar named by the text of
+/// `@injection.language` or else by `#set! injection.language`, and its
+/// children left out unless `#set! injection.include-children`. A grammar
+/// this build does not have leaves its piece to the outer one.
+fn pieces(query: &Query, tree: &Tree, text: &Text, range: Range<usize>) -> Vec<Piece> {
+    let content = query.capture_index_for_name("injection.content");
+    let named = query.capture_index_for_name("injection.language");
+    let mut cursor = QueryCursor::new();
+    cursor.set_byte_range(range);
+    let mut matches = cursor.matches(query, tree.root_node(), |node: Node| {
+        text.chunks_in(node.byte_range())
+    });
+
+    let mut pieces = Vec::new();
+    while let Some(found) = matches.next() {
+        let mut name = None;
+        let mut node = None;
+        for capture in found.captures() {
+            if Some(capture.index) == named {
+                name = Some(text.substring(capture.node.byte_range()));
+            } else if Some(capture.index) == content {
+                node = Some(capture.node);
+            }
+        }
+        let mut children = false;
+        for property in query.property_settings(found.pattern_index) {
+            match &*property.key {
+                "injection.language" if name.is_none() => {
+                    name = property.value.as_deref().map(str::to_owned);
+                }
+                "injection.include-children" => children = true,
+                _ => {}
+            }
+        }
+        let (Some(name), Some(node)) = (name, node) else {
+            continue;
+        };
+        let Some(grammar) = grammar_named(&name) else {
+            continue;
+        };
+        let spans = spans(node, children);
+        if !spans.is_empty() {
+            pieces.push(Piece {
+                grammar,
+                range: node.byte_range(),
+                spans,
+            });
+        }
+    }
+    pieces
+}
+
+/// The grammar for a piece by the name the query gives it: a language's,
+/// as a writer names it after ```` ``` ````, whatever its case, or by its
+/// files' extension, `py`; or one of those no file is written in,
+/// `markdown_inline`.
+fn grammar_named(name: &str) -> Option<&'static Grammar> {
+    let language = language::by_name(name).or_else(|| language::by_extension(name));
+    grammar::by_name(language.map_or(name, |language| language.name))
+}
+
+/// What of `node` its grammar reads: all of it, or all but its named
+/// children. Named only, as tree-sitter-md's own parser has it, where
+/// tree-sitter's highlighter leaves out every child: the block grammar
+/// marks each `*` and `` ` `` inside a block's text with a nameless
+/// child, and the text without them has no emphasis and no code left.
+fn spans(node: Node, children: bool) -> Vec<tree_sitter::Range> {
+    if children {
+        return vec![node.range()];
+    }
+    let mut spans = Vec::new();
+    let mut from = (node.start_byte(), node.start_position());
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.start_byte() > from.0 {
+            spans.push(tree_sitter::Range {
+                start_byte: from.0,
+                start_point: from.1,
+                end_byte: child.start_byte(),
+                end_point: child.start_position(),
+            });
+        }
+        from = (child.end_byte(), child.end_position());
+    }
+    if node.end_byte() > from.0 {
+        spans.push(tree_sitter::Range {
+            start_byte: from.0,
+            start_point: from.1,
+            end_byte: node.end_byte(),
+            end_point: node.end_position(),
+        });
+    }
+    spans
+}
+
+/// A piece parsed on its own, in the coordinates of the whole text, so
+/// that its tokens need no shifting.
+fn parse_piece(piece: &Piece, text: &Text) -> Tree {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&piece.grammar.language)
+        .expect("a grammar linked in matches the runtime it is linked with");
+    parser
+        .set_included_ranges(&piece.spans)
+        .expect("the spans of a node are in order and apart");
+    parse(&mut parser, text, None)
 }
 
 /// Reading the text chunk by chunk, where it lies, rather than copying it.
@@ -364,5 +502,47 @@ mod rust_tests {
             .map(|token| token.name)
             .collect();
         assert_eq!(named, ["type"]);
+    }
+}
+
+/// What the pieces another grammar reads come to: the tokens inside a
+/// Markdown block.
+#[cfg(all(test, feature = "markdown"))]
+mod markdown_tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::buffer::{Buffer, EditKind};
+    use crate::text::selection::SelectionSet;
+    use crate::text::transaction::{CursorAfter, Transaction};
+
+    /// The names of the tokens covering `byte`, outer first.
+    fn names_at(buffer: &Buffer, byte: usize) -> Vec<String> {
+        let text = buffer.text();
+        let syntax = buffer.syntax().unwrap();
+        syntax
+            .tokens(text, 0..text.len())
+            .iter()
+            .filter(|token| token.range.contains(&byte))
+            .map(|token| token.name.to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn an_edit_drops_the_pieces_read_before_it() {
+        let mut buffer = Buffer::from_text(Text::from_str("a `b` c\n"));
+        buffer.set_language(language::detect(Path::new("x.md")));
+        assert_eq!(names_at(&buffer, 3), ["markup.raw.inline"]);
+
+        // The closing backtick becomes an `x`: the text is as long as it
+        // was, so the piece lies where it lay, and only dropping what was
+        // read before the edit keeps the code from staying.
+        let transaction =
+            Transaction::edit(&SelectionSet::single(4), CursorAfter::EndOfChange, |_| {
+                (4..5, "x".to_owned())
+            });
+        buffer.apply(transaction, EditKind::Other);
+        assert_eq!(buffer.text().to_string(), "a `bx c\n");
+        assert!(names_at(&buffer, 3).is_empty());
     }
 }

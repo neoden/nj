@@ -2,6 +2,7 @@
 //! it back, its history, its language, and the journal that lets a position
 //! taken earlier be found again.
 
+pub mod grammar;
 pub mod indent;
 pub mod language;
 pub mod syntax;
