@@ -220,6 +220,9 @@ fn set_style(out: &mut impl Write, style: CellStyle) -> Result<()> {
         Ink::Label => queue!(out, SetForegroundColor(Color::DarkMagenta))?,
         // Next to the type it holds in `config.Config`, and told from it.
         Ink::Module => queue!(out, SetForegroundColor(Color::DarkYellow))?,
+        // As `git diff` colours them.
+        Ink::Added => queue!(out, SetForegroundColor(Color::Green))?,
+        Ink::Deleted => queue!(out, SetForegroundColor(Color::Red))?,
     }
     match style.mark {
         Mark::None => {}

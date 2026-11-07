@@ -139,6 +139,16 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: None,
     },
     Language {
+        // What `git diff` and `git format-patch` write, and the hunk `git
+        // add -p` hands over to edit, `addp-hunk-edit.diff`.
+        name: "Diff",
+        extensions: &["diff", "patch"],
+        filenames: &[],
+        indent: Indent::Spaces(4),
+        tab_width: 4,
+        line_comment: None,
+    },
+    Language {
         name: "Go",
         extensions: &["go"],
         filenames: &[],

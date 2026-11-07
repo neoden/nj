@@ -26,6 +26,10 @@ pub enum Ink {
     /// A module where the grammar can tell it from a variable: `config` in
     /// Go's `config.Config`, a name in Python's `import`.
     Module,
+    /// A line a diff adds, and one it takes away: the whole line, as
+    /// `git diff` colours it, not the code in it.
+    Added,
+    Deleted,
 }
 
 impl Ink {
@@ -54,6 +58,8 @@ impl Ink {
             "variable.builtin" | "function.builtin" | "constant.builtin" => Ink::Builtin,
             "label" => Ink::Label,
             "module" => Ink::Module,
+            "diff.plus" => Ink::Added,
+            "diff.minus" => Ink::Deleted,
             // Documentation reads as a comment, though Python writes it as
             // a string.
             "string.documentation" => Ink::Comment,
@@ -130,6 +136,10 @@ mod tests {
         assert_eq!(Ink::named("label"), Ink::Label);
         assert_eq!(Ink::named("module"), Ink::Module);
         assert_eq!(Ink::named("tag"), Ink::Keyword);
+        assert_eq!(Ink::named("diff.plus"), Ink::Added);
+        assert_eq!(Ink::named("diff.minus"), Ink::Deleted);
+        // A diff's other parts are not lines it changes.
+        assert_eq!(Ink::named("diff"), Ink::Text);
         assert_eq!(Ink::named("string.documentation"), Ink::Comment);
         assert_eq!(Ink::named("string.special.key"), Ink::String);
         assert_eq!(Ink::named("markup.heading.marker"), Ink::Keyword);

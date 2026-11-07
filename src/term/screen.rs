@@ -81,6 +81,8 @@ fn ink_letter(ink: Ink) -> char {
         Ink::Builtin => 'b',
         Ink::Label => 'l',
         Ink::Module => 'm',
+        Ink::Added => '+',
+        Ink::Deleted => '-',
     }
 }
 

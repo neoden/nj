@@ -59,6 +59,13 @@ const LINKED: &[Linked] = &[
         ],
         injections: None,
     },
+    #[cfg(feature = "diff")]
+    Linked {
+        name: "Diff",
+        language: || tree_sitter_diff::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/diff/highlights.scm")],
+        injections: None,
+    },
     #[cfg(feature = "go")]
     Linked {
         name: "Go",
