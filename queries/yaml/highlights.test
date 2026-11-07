@@ -1,0 +1,100 @@
+%language YAML
+
+# A key is a property whatever it looks like: quoted, a number, a word
+# that would be a constant as a value; a plain value is a string
+> name: nj
+  ^^^^ property
+      ^ punctuation.delimiter
+        ^^ string
+> "quoted": 1
+  ^^^^^^^^ property
+            ^ number
+> 'single': x
+  ^^^^^^^^ property
+> 1: one
+  ^ property
+> true: false
+  ^^^^ property
+        ^^^^^ constant.builtin
+
+# YAML 1.2 has no `yes`, `on` or dates; they are strings
+> on: push
+  ^^ property
+      ^^^^ string
+> ok: yes
+      ^^^ string
+> d: 2001-12-14T21:59:43Z
+     ^^^^^^^^^^^^^^^^^^^^ string
+
+# The language's constants and numbers of every form
+> a: [true, null, ~, 0x1F, 0o17, 1e3, .inf, -.inf, .nan]
+      ^^^^ constant.builtin
+            ^^^^ constant.builtin
+                  ^ constant.builtin
+                     ^^^^ number
+                           ^^^^ number
+                                 ^^^ number
+                                      ^^^^ number
+                                            ^^^^^ number
+                                                   ^^^^ number
+
+# Escapes: a backslash in a double-quoted string, a doubled quote in a
+# single-quoted one
+> s: "a\tb"
+     ^^ string
+       ^^ escape
+         ^^ string
+> t: 'it''s'
+     ^^^ string
+        ^^ escape
+          ^^ string
+
+# A `#` inside a value is the value's; after a space it begins a comment
+> u: http://example.com/a#b # where
+     ^^^^^^^^^^^^^^^^^^^^^^ string
+                            ^^^^^^^ comment
+
+# An anchor and an alias with their `&` and `*`; tags are types
+> base: &base
+        ^^^^^ label
+>   x: 1
+> other:
+>   <<: *base
+    ^^ property
+        ^^^^^ label
+> v: !!str 123
+     ^^^^^ type
+> r: !Ref Name
+     ^^^^ type
+
+# A block scalar is a string, literal or folded
+> run: |
+       ^ punctuation.delimiter
+>   echo hi
+    ^^^^^^^ string
+> fold: >-
+>   long text
+    ^^^^^^^^^ string
+
+# Mappings in a sequence and in braces
+> steps:
+>   - name: Checkout
+    ^ punctuation.delimiter
+      ^^^^ property
+            ^^^^^^^^ string
+>     uses: actions/checkout@v4
+      ^^^^ property
+            ^^^^^^^^^^^^^^^^^^^ string
+> m: {a: 1, "b": two}
+      ^ property
+            ^^^ property
+                 ^^^ string
+
+# A directive, and the lines that start and end a document
+> %YAML 1.2
+  ^^^^^^^^^ attribute
+> ---
+  ^^^ punctuation.special
+> key: v
+> ...
+  ^^^ punctuation.special

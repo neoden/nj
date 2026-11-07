@@ -98,6 +98,37 @@
 > ---
   ^^^ punctuation.special
 
+# Front matter at the top is YAML, its fences YAML's own
+> ---
+  ^^^ punctuation.special
+> title: Hello
+  ^^^^^ property
+         ^^^^^ string
+> draft: false
+         ^^^^^ constant.builtin
+> ---
+  ^^^ punctuation.special
+>
+> # Heading
+    ^^^^^^^ markup.heading
+
+# Between `+++` it is TOML
+> +++
+> title = "Hello"
+  ^^^^^ property
+          ^^^^^^^ string
+> draft = false
+          ^^^^^ constant.builtin
+> +++
+
+# Further down the same lines are a break and text, not front matter
+> Text
+>
+> ---
+  ^^^ punctuation.special
+> key: v
+  ^^^^^^ -
+
 # A link defined for reference elsewhere
 > [home]: https://example.com "Home"
   ^^^^^^ markup.link.label

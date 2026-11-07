@@ -106,6 +106,13 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/toml/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "yaml")]
+    Linked {
+        name: "YAML",
+        language: || tree_sitter_yaml::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/yaml/highlights.scm")],
+        injections: None,
+    },
 ];
 
 /// A grammar linked in, made when first asked for.
