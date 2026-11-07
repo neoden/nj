@@ -17,18 +17,156 @@
                   ^^ type.builtin
 > const N: usize = 2;
         ^ constant
+> static mut COUNT: u32 = 0;
+  ^^^^^^ keyword
+             ^^^^^ constant
 
-# A capital first is a constructor, in the path of a call too
-# The pattern for a type in a path comes later, so it loses.
+# Numbers are numbers, `true` and `false` the language's own constants
+> let x = (42, 1.5, true);
+           ^^ number
+               ^^^ number
+                    ^^^^ constant.builtin
+
+# A type is a type where it stands, in a path too
+> let v: Vec<String> = Vec::new();
+  ^^^ keyword
+         ^^^ type
+            ^ punctuation.bracket
+             ^^^^^^ type
+                       ^^^ type
+                          ^^ punctuation.delimiter
+                            ^^^ function
+> impl Point { fn new() -> Self { Self { x: 1 } } }
+  ^^^^ keyword
+       ^^^^^ type
+                           ^^^^ type
+                                  ^^^^ type
+                                         ^ property
+> unsafe impl<T> Send for W<T> where T: Copy {}
+  ^^^^^^ keyword
+             ^ punctuation.bracket
+              ^ type
+                               ^^^^^ keyword
+
+# A capital first is a constructor: an enum's variant, in a pattern too
 > let x = Some(Foo);
           ^^^^ constructor
                ^^^ constructor
+> match o { Some(v) => v, None => 0 }
+  ^^^^^ keyword
+            ^^^^ constructor
+                          ^^^^ constructor
+> if let Shape::Circle { r } = s {}
+         ^^^^^ type
+                ^^^^^^ constructor
+
+# A field is a property, a method called on it a method
+> let n = p.x + p.len();
+            ^ property
+           ^ punctuation.delimiter
+                  ^^^ function.method
+
+# Calls by name, by path and with generics
 > Foo::bar();
-  ^^^ constructor
+  ^^^ type
        ^^^ function
+> std::mem::swap(a, b);
+  ^^^ -
+       ^^^ -
+            ^^^^ function
+> let x = parse::<u8>(s);
+          ^^^^^ function
+                  ^^ type.builtin
+> let y = s.parse::<u8>();
+            ^^^^^ function.method
+> let f = move |r: &dyn Any| ref_it(r);
+          ^^^^ keyword
+                    ^^^ keyword
+                        ^^^ type
+                             ^^^^^^ function
+
+# A parameter where it is declared; where it is used it is a plain name
+> fn move_by(&mut self, dx: i32) { self.x += dx; }
+             ^ operator
+              ^^^ keyword
+                  ^^^^ variable.builtin
+                        ^^ variable.parameter
+                            ^^^ type.builtin
+                                   ^^^^ variable.builtin
+                                             ^^ -
+
+# A path through `self`, `super` or `crate` is keywords
+> use crate::a::{self, b};
+  ^^^ keyword
+      ^^^^^ keyword
+                 ^^^^ keyword
+                       ^ -
+> use super::c;
+      ^^^^^ keyword
 
 # A macro is named with its `!`, the string inside it as a string
 # The string is a token inside the macro's, and the inner one wins.
 > println!("x");
   ^^^^^^^^ function.macro
            ^^^ string
+> let v = vec![1, 2];
+          ^^^^ function.macro
+               ^ number
+> macro_rules! twice { () => {} }
+  ^^^^^^^^^^^^ keyword
+               ^^^^^ -
+
+# Comments, a doc comment told from a plain one
+> // plain
+  ^^ comment
+> /// documented
+  ^^^ comment.documentation
+> /* block */
+  ^^ comment
+
+# An attribute's insides are code: brackets, a trait's name a type
+> #[derive(Debug)]
+  ^ attribute
+   ^ punctuation.bracket
+    ^^^^^^ attribute
+          ^ punctuation.bracket
+           ^^^^^ type
+> #[cfg_attr(test, derive(Clone))]
+                          ^^^^^ type
+
+# A lifetime is a parameter, next to the types, its quote and all
+> fn f<'a>(x: &'a str) {}
+       ^^ type.lifetime
+               ^^ type.lifetime
+                  ^^^ type.builtin
+
+# A label names a loop to break out of, its quote and all
+> 'outer: loop { break 'outer; }
+  ^^^^^^ label
+          ^^^^ keyword
+                 ^^^^^ keyword
+                       ^^^^^^ label
+
+# Strings of every kind, an escape inside one
+> let s = ("a\n", 'c', r"raw");
+           ^^ string
+             ^^ escape
+                  ^^^ string
+                       ^^^^^^ string
+
+# The rest of the keywords
+> pub struct S; pub enum E {} pub trait T {} type A = B;
+  ^^^ keyword
+      ^^^^^^ keyword
+                    ^^^^ keyword
+                                  ^^^^^ keyword
+                                             ^^^^ keyword
+> async fn g() -> u8 { h().await as u8 }
+  ^^^^^ keyword
+                           ^^^^^ keyword
+                                 ^^ keyword
+> for x in xs { while ok { continue } }
+  ^^^ keyword
+        ^^ keyword
+                ^^^^^ keyword
+                           ^^^^^^^^ keyword

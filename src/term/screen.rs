@@ -22,9 +22,10 @@
 //!
 //! Mark letters: `-` current line, `~` selected, `=` a search hit, `^` a
 //! caret. Ink letters: `k` keyword, `s` string, `c` comment, `t` type,
-//! `f` function, `n` constant. A letter is for what the text alone does
-//! not tell: the editor's own furniture — the line numbers, the rules, the
-//! status bar — is told by where it is and what it says, and gets none.
+//! `f` function, `n` constant, `b` builtin, `l` label. A letter is for
+//! what the text alone does not tell: the editor's own furniture — the
+//! line numbers, the rules, the status bar — is told by where it is and
+//! what it says, and gets none.
 //!
 //! A frame, as a scenario's `---` writes it: the rows that differ, in
 //! their text or in one layer, from the last frame taken in that layer,
@@ -77,6 +78,8 @@ fn ink_letter(ink: Ink) -> char {
         Ink::Type => 't',
         Ink::Function => 'f',
         Ink::Constant => 'n',
+        Ink::Builtin => 'b',
+        Ink::Label => 'l',
     }
 }
 

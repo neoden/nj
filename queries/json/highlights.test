@@ -1,0 +1,23 @@
+%language JSON
+
+# A key is told from a string that is a value
+> {"name": "nj", "size": 12.5}
+   ^^^^^^ string.special.key
+           ^^^^ string
+                 ^^^^^^ string.special.key
+                         ^^^^ number
+
+# The three words are constants; the brackets and commas are plain
+> [true, false, null, -1]
+  ^ -
+   ^^^^ constant.builtin
+       ^ -
+         ^^^^^ constant.builtin
+                ^^^^ constant.builtin
+                      ^^ number
+
+# An escape inside a string is a token of its own, inside the string's
+> {"path": "a\nb"}
+            ^ string
+             ^^ escape
+               ^ string

@@ -19,25 +19,48 @@ pub enum Ink {
     Type,
     Function,
     Constant,
+    /// What the language provides by name: `self`, `len`, `None`.
+    Builtin,
+    /// The name of a loop to break out of: `'outer` in Rust.
+    Label,
 }
 
 impl Ink {
-    /// The ink for a token as a highlight query names it. The names are a
-    /// convention shared by the grammars' own queries, dotted from general
-    /// to specific — `function.method`, `comment.documentation` — and the
-    /// general part decides. A name not known here is plain text, so a
-    /// query is never wrong, only less colourful.
+    /// The ink for a token as a highlight query names it. The names are
+    /// the queries' in `queries`, dotted from general to specific —
+    /// `function.method`, `comment.documentation` — and the longest start
+    /// of the name known here decides, counted in whole parts:
+    /// `function.method` is a function, `function.builtin` a builtin. A
+    /// name not known here is plain text, so a query is never wrong, only
+    /// less colourful.
     pub fn named(name: &str) -> Self {
-        let general = name.split('.').next().unwrap_or(name);
-        match general {
+        let mut name = name;
+        loop {
+            if let Some(ink) = Self::known(name) {
+                return ink;
+            }
+            match name.rsplit_once('.') {
+                Some((general, _)) => name = general,
+                None => return Ink::Text,
+            }
+        }
+    }
+
+    fn known(name: &str) -> Option<Self> {
+        Some(match name {
+            "variable.builtin" | "function.builtin" | "constant.builtin" => Ink::Builtin,
+            "label" => Ink::Label,
+            // Documentation reads as a comment, though Python writes it as
+            // a string.
+            "string.documentation" => Ink::Comment,
             "keyword" | "attribute" => Ink::Keyword,
             "string" | "escape" => Ink::String,
             "comment" => Ink::Comment,
             "type" | "constructor" => Ink::Type,
             "function" => Ink::Function,
             "constant" | "number" | "boolean" => Ink::Constant,
-            _ => Ink::Text,
-        }
+            _ => return None,
+        })
     }
 }
 
@@ -82,11 +105,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_token_is_known_by_the_general_part_of_its_name() {
+    fn a_token_is_known_by_the_longest_start_of_its_name() {
         assert_eq!(Ink::named("keyword"), Ink::Keyword);
         assert_eq!(Ink::named("function.method"), Ink::Function);
         assert_eq!(Ink::named("comment.documentation"), Ink::Comment);
         assert_eq!(Ink::named("punctuation.bracket"), Ink::Text);
         assert_eq!(Ink::named("variable"), Ink::Text);
+        // The whole name is known, so it wins over its general part.
+        assert_eq!(Ink::named("function.builtin"), Ink::Builtin);
+        assert_eq!(Ink::named("variable.builtin"), Ink::Builtin);
+        // Not known whole, so the part before the last dot decides.
+        assert_eq!(Ink::named("function.builtin.extra"), Ink::Builtin);
+        assert_eq!(Ink::named("type.builtin"), Ink::Type);
+        assert_eq!(Ink::named("type.lifetime"), Ink::Type);
+        assert_eq!(Ink::named("label"), Ink::Label);
+        assert_eq!(Ink::named("string.documentation"), Ink::Comment);
+        assert_eq!(Ink::named("string.special.key"), Ink::String);
+        // Parts are whole: a name is never cut inside a part.
+        assert_eq!(Ink::named("functional"), Ink::Text);
     }
 }

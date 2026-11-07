@@ -208,11 +208,16 @@ fn set_style(out: &mut impl Write, style: CellStyle) -> Result<()> {
         Ink::Status => queue!(out, SetAttribute(Attribute::Reverse))?,
         // The terminal's own palette, so that the text looks at home in
         // whatever scheme the terminal has.
-        Ink::Keyword => queue!(out, SetForegroundColor(Color::Magenta))?,
+        // A builtin is told from a keyword in the frames, not yet on the
+        // screen: one colour fewer for the default scheme to carry.
+        Ink::Keyword | Ink::Builtin => queue!(out, SetForegroundColor(Color::Magenta))?,
         Ink::String => queue!(out, SetForegroundColor(Color::Green))?,
         Ink::Type => queue!(out, SetForegroundColor(Color::Yellow))?,
         Ink::Function => queue!(out, SetForegroundColor(Color::Blue))?,
         Ink::Constant => queue!(out, SetForegroundColor(Color::Cyan))?,
+        // Next to `break` and `continue`, so of the keyword's family, and
+        // told from it.
+        Ink::Label => queue!(out, SetForegroundColor(Color::DarkMagenta))?,
     }
     match style.mark {
         Mark::None => {}

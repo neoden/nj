@@ -24,6 +24,11 @@ fn grammar(language: &Language) -> Option<(tree_sitter::Language, &'static str)>
             tree_sitter_rust::LANGUAGE.into(),
             include_str!("../../queries/rust/highlights.scm"),
         )),
+        #[cfg(feature = "json")]
+        "JSON" => Some((
+            tree_sitter_json::LANGUAGE.into(),
+            include_str!("../../queries/json/highlights.scm"),
+        )),
         #[cfg(feature = "python")]
         "Python" => Some((
             tree_sitter_python::LANGUAGE.into(),
@@ -86,10 +91,12 @@ impl Syntax {
     /// together in the order of the query. A token may lie partly outside
     /// `range`, and one may lie inside another: a `!` inside a macro call.
     /// Several patterns naming the same node yield one token, from the
-    /// first of them, which is how tree-sitter's own highlighter reads a
-    /// query and so how the queries are written. A node and its only child
-    /// may cover the same bytes and are still two tokens, the child's
-    /// after the parent's.
+    /// last of them, which is how tree-sitter's own highlighter reads a
+    /// query and so how the queries are written: the general pattern
+    /// first, the specific ones after it (tree-sitter-highlight 0.25,
+    /// "keep iterating over any later highlighting patterns"). A node and
+    /// its only child may cover the same bytes and are still two tokens,
+    /// the child's after the parent's.
     pub fn tokens(&self, text: &Text, range: Range<usize>) -> Vec<Token<'_>> {
         let names = self.query.capture_names();
         let mut cursor = QueryCursor::new();
@@ -100,19 +107,22 @@ impl Syntax {
             text.chunks_in(node.byte_range())
         });
 
-        let mut tokens = Vec::new();
-        // The captures of one node come out together, so the last node
-        // named is the only one to check against.
+        let mut tokens: Vec<Token> = Vec::new();
+        // The captures of one node come out together, in the order of the
+        // patterns, so the last node named is the only one to check against
+        // and the last capture of it is the one that stands.
         let mut named: Option<Node> = None;
         while let Some((found, index)) = captures.next() {
             let capture = found.captures()[*index];
+            let name = names[capture.index as usize];
             if named == Some(capture.node) {
+                tokens.last_mut().expect("the node has a token").name = name;
                 continue;
             }
             named = Some(capture.node);
             tokens.push(Token {
                 range: capture.node.byte_range(),
-                name: names[capture.index as usize],
+                name,
             });
         }
         tokens
@@ -340,7 +350,7 @@ mod rust_tests {
     }
 
     #[test]
-    fn a_node_named_by_several_patterns_takes_the_first() {
+    fn a_node_named_by_several_patterns_takes_the_last() {
         // `Foo` is a constructor by one pattern and, as the path of a
         // scoped identifier, a type by a later one; both are decided by a
         // `#match?` on its text, which is read from the rope.
@@ -353,6 +363,6 @@ mod rust_tests {
             .filter(|token| token.range == (0..3))
             .map(|token| token.name)
             .collect();
-        assert_eq!(named, ["constructor"]);
+        assert_eq!(named, ["type"]);
     }
 }

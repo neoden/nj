@@ -1,50 +1,13 @@
 ; Rust's highlights, after the query of tree-sitter-rust 0.24.2 (MIT),
-; with the fix marked below. The first pattern that names a node wins, so
-; for any node the specific patterns come before the general ones.
+; with the changes marked below. The last pattern that names a node wins,
+; as in tree-sitter's own highlighter, so for any node the general
+; patterns come first and the specific ones after them.
 
 ; Identifiers
 
 (type_identifier) @type
 (primitive_type) @type.builtin
 (field_identifier) @property
-
-; Identifier conventions
-
-; Assume all-caps names are constants
-; Fixed: upstream ends this pattern in `$'`, a quote after the end of the
-; name, so it never matches and no constant is coloured. Keep the fix
-; when taking a newer upstream query; `MAX_SIZE` in highlights.test fails
-; without it. Changed: upstream wants two letters at least, which makes
-; `const N` a constructor; one is enough here, as in Python's query.
-((identifier) @constant
- (#match? @constant "^[A-Z][A-Z\\d_]*$"))
-
-; Assume uppercase names are enum constructors
-((identifier) @constructor
- (#match? @constructor "^[A-Z]"))
-
-; Assume that uppercase names in paths are types
-((scoped_identifier
-  path: (identifier) @type)
- (#match? @type "^[A-Z]"))
-((scoped_identifier
-  path: (scoped_identifier
-    name: (identifier) @type))
- (#match? @type "^[A-Z]"))
-((scoped_type_identifier
-  path: (identifier) @type)
- (#match? @type "^[A-Z]"))
-((scoped_type_identifier
-  path: (scoped_identifier
-    name: (identifier) @type))
- (#match? @type "^[A-Z]"))
-
-; Assume all qualified names in struct patterns are enum constructors. (They're
-; either that, or struct names; highlighting both as constructors seems to be
-; the less glaring choice of error, visually.)
-(struct_pattern
-  type: (scoped_type_identifier
-    name: (type_identifier) @constructor))
 
 ; Function calls
 
@@ -76,6 +39,57 @@
 (function_item (identifier) @function)
 (function_signature_item (identifier) @function)
 
+; Identifier conventions
+; Changed: upstream has these before the calls, so that `Some(x)` is a
+; function, and the constructor after the constant, so that `MAX` is a
+; constructor. Here a name's look has the last word over where it stands.
+
+; Assume uppercase names are enum constructors
+((identifier) @constructor
+ (#match? @constructor "^[A-Z]"))
+
+; Assume all-caps names are constants
+; Fixed: upstream ends this pattern in `$'`, a quote after the end of the
+; name, so it never matches and no constant is coloured. Keep the fix
+; when taking a newer upstream query; `MAX_SIZE` in highlights.test fails
+; without it. Changed: upstream wants two letters at least, which makes
+; `const N` a constructor; one is enough here, as in Python's query.
+((identifier) @constant
+ (#match? @constant "^[A-Z][A-Z\\d_]*$"))
+
+; Assume that uppercase names in paths are types
+((scoped_identifier
+  path: (identifier) @type)
+ (#match? @type "^[A-Z]"))
+((scoped_identifier
+  path: (scoped_identifier
+    name: (identifier) @type))
+ (#match? @type "^[A-Z]"))
+((scoped_type_identifier
+  path: (identifier) @type)
+ (#match? @type "^[A-Z]"))
+((scoped_type_identifier
+  path: (scoped_identifier
+    name: (identifier) @type))
+ (#match? @type "^[A-Z]"))
+
+; Assume all qualified names in struct patterns are enum constructors. (They're
+; either that, or struct names; highlighting both as constructors seems to be
+; the less glaring choice of error, visually.)
+(struct_pattern
+  type: (scoped_type_identifier
+    name: (type_identifier) @constructor))
+
+; Added: in an attribute's arguments a name with a capital is a trait to
+; derive, not a constructor: `Debug` in `#[derive(Debug)]`, and one level
+; down in `#[cfg_attr(test, derive(Debug))]`.
+((attribute
+  arguments: (token_tree (identifier) @type))
+ (#match? @type "^[A-Z]"))
+((attribute
+  arguments: (token_tree (token_tree (identifier) @type)))
+ (#match? @type "^[A-Z]"))
+
 (line_comment) @comment
 (block_comment) @comment
 
@@ -104,7 +118,12 @@
 
 (parameter (identifier) @variable.parameter)
 
-(lifetime (identifier) @label)
+; Changed: upstream names only the identifier, and the quote an operator,
+; so that `'a` is two tokens; the quote is in no other place. And upstream
+; calls a lifetime a label too, though it is a parameter, next to the
+; types: `fn f<'a, T>(x: &'a T)`. A label names a loop to break out of.
+(lifetime) @type.lifetime
+(label) @label
 
 "as" @keyword
 "async" @keyword
@@ -145,20 +164,25 @@
 "yield" @keyword
 (crate) @keyword
 (mutable_specifier) @keyword
+(super) @keyword
+
+; Changed: upstream has the general `self` after the ones in paths, so
+; that `self` in `use a::{self}` is a variable.
+(self) @variable.builtin
 (use_list (self) @keyword)
 (scoped_use_list (self) @keyword)
 (scoped_identifier (self) @keyword)
-(super) @keyword
-
-(self) @variable.builtin
 
 (char_literal) @string
 (string_literal) @string
 (raw_string_literal) @string
 
 (boolean_literal) @constant.builtin
-(integer_literal) @constant.builtin
-(float_literal) @constant.builtin
+; Changed: upstream calls numbers `constant.builtin` too. Here they are
+; numbers, as in the other languages, and `constant.builtin` is only what
+; the language names itself: `true` here, `None` in Python.
+(integer_literal) @number
+(float_literal) @number
 
 (escape_sequence) @escape
 
@@ -167,4 +191,3 @@
 
 "*" @operator
 "&" @operator
-"'" @operator

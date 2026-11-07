@@ -13,6 +13,7 @@ rustix = { version = "1.1.4", features = ["stdio", "process"] }
 # cleanly on Ctrl+C.
 signal-hook = "0.3.18"
 tree-sitter = "0.27"
+tree-sitter-json = { version = "0.24", optional = true }
 tree-sitter-python = { version = "0.25", optional = true }
 tree-sitter-rust = { version = "0.24", optional = true }
 unicode-segmentation = "1.13.3"
@@ -21,7 +22,8 @@ unicode-width = "0.2.2"
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["python", "rust"]
+default = ["json", "python", "rust"]
+json = ["dep:tree-sitter-json"]
 python = ["dep:tree-sitter-python"]
 rust = ["dep:tree-sitter-rust"]
 

@@ -9,7 +9,118 @@
 >     def greet(self, name):
       ^^^ keyword
           ^^^^^ function
-                ^^^^ variable
+                ^^^^ variable.builtin
+                      ^^^^ variable.parameter
+
+# All capitals is a constant, digits and one letter too
+> count = MAX_SIZE + HTTP2 + X
+  ^^^^^ variable
+          ^^^^^^^^ constant
+                     ^^^^^ constant
+                             ^ constant
+
+# A capital first is a class, named or called: a call to it makes one
+> MAX = Greeter
+  ^^^ constant
+        ^^^^^^^ type
+> isinstance(x, Greeter)
+  ^^^^^^^^^^ function.builtin
+             ^ variable
+                ^^^^^^^ type
+> class Greeter(Base):
+                ^^^^ type
+> Greeter()
+  ^^^^^^^ type
+
+# The look of a name holds after a dot too: a field can be a class or a
+# constant
+> d = collections.OrderedDict(); n = self.MAX
+      ^^^^^^^^^^^ variable
+                  ^^^^^^^^^^^ type
+                                          ^^^ constant
+
+# Any other call is a function
+> greet(x)
+  ^^^^^ function
+
+# Parameters where they are declared, their types, the return type
+>     def __init__(self, name: str, n: int = 0) -> None:
+      ^^^ keyword
+          ^^^^^^^^ function
+                   ^^^^ variable.builtin
+                         ^^^^ variable.parameter
+                               ^^^ type
+                                    ^ variable.parameter
+                                       ^^^ type
+                                             ^ number
+                                                ^^ operator
+                                                   ^^^^ constant.builtin
+> def f(xs: list[int]) -> dict[str, int]:
+            ^^^^ type
+                 ^^^ type
+                          ^^^^ type
+> def g(*args, **kwargs): return lambda y: y
+         ^^^^ variable.parameter
+                 ^^^^^^ variable.parameter
+                                        ^ variable.parameter
+                                           ^ variable
+
+# `self` and `cls` are known by their text, wherever they stand; a field
+# is a property, a method called on it a method
+> self.name = cls.make()
+  ^^^^ variable.builtin
+       ^^^^ property
+              ^^^ variable.builtin
+                  ^^^^ function.method
+>         super().__init__()
+          ^^^^^ function.builtin
+                  ^^^^^^^^ function.method
+
+# A decorator is a function, its `@` too
+> @property
+  ^ function
+   ^^^^^^^^ function
+> @app.route("/")
+   ^^^ variable
+       ^^^^^ function.method
+
+# A builtin is told from any other call
+> return len("hi")  # polite
+         ^^^ function.builtin
+             ^^^^ string
+                    ^^^^^^^^ comment
+> with open(p) as fh: pass
+  ^^^^ keyword
+       ^^^^ function.builtin
+                      ^^^^ keyword
+
+# Strings of every kind; in an f-string the code is code
+> print(f"hi {name}!\n")
+  ^^^^^ function.builtin
+        ^^^^^ string
+             ^ punctuation.special
+              ^^^^ variable
+                  ^ punctuation.special
+                    ^^ escape
+> data = b"raw" + r"\d"
+         ^^^^^^ string
+                  ^^^^^ string
+
+# A docstring is documentation, not just a string
+> def h():
+  ^^^ keyword
+>     """Says what h does."""
+      ^^^ string.documentation
+
+# Numbers, and the language's own constants
+> x = (1, 2.5, 0x1F, True, False, None, ...)
+       ^ number
+          ^^^ number
+               ^^^^ number
+                     ^^^^ constant.builtin
+                           ^^^^^ constant.builtin
+                                  ^^^^ constant.builtin
+                                        ^^^ constant.builtin
 
 # Operators spelt as words are keywords, like `if`
 > if not name:
@@ -17,20 +128,47 @@
      ^^^ keyword
 > for x in xs:
         ^^ keyword
+> while a is not b and c not in d: break
+  ^^^^^ keyword
+          ^^^^^^ keyword
+                   ^^^ keyword
+                         ^^^^^^ keyword
+                                   ^^^^^ keyword
 
-# A builtin is told from any other call; a string, a comment
-> return len("hi")  # polite
-         ^^^ function.builtin
-             ^^^^ string
-                    ^^^^^^^^ comment
-> greet(x)
-  ^^^^^ function
+# Operators spelt as signs
+> y = a @ b; y @= c; z := 1
+        ^ operator
+               ^^ operator
 
-# All capitals is a constant, a capital first a constructor
-> MAX = Greeter
-  ^^^ constant
-        ^^^^^^^ constructor
+# Imports and exceptions
+> from os import path as p
+  ^^^^ keyword
+       ^^ variable
+          ^^^^^^ keyword
+                      ^^ keyword
+> try:
+  ^^^ keyword
+>     raise ValueError("no")
+      ^^^^^ keyword
+            ^^^^^^^^^^ type
+> except (KeyError, OSError) as e:
+  ^^^^^^ keyword
+          ^^^^^^^^ type
+                    ^^^^^^^ type
 
-# A call is a function first, whatever its name looks like
-> Greeter()
-  ^^^^^^^ function
+# The rest of the keywords
+> async def g():
+  ^^^^^ keyword
+>     await h(); yield x; return lambda y: y
+      ^^^^^ keyword
+                 ^^^^^ keyword
+                          ^^^^^^ keyword
+                                 ^^^^^^ keyword
+> global g; nonlocal n; del x; assert y
+  ^^^^^^ keyword
+            ^^^^^^^^ keyword
+                        ^^^ keyword
+                               ^^^^^^ keyword
+> type Point = tuple[int, int]
+  ^^^^ keyword
+       ^^^^^ type
