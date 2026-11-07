@@ -21,12 +21,16 @@
 ((identifier) @variable.builtin
  (#any-of? @variable.builtin "self" "cls"))
 
-; Changed: upstream has these two after the calls, so that a method
-; called would be a property.
+; Added: the names Python gives every module, `__name__` in `if __name__
+; == "__main__"`. Known by their text, as `self` is.
+((identifier) @variable.builtin
+ (#any-of? @variable.builtin
+   "__name__" "__file__" "__doc__" "__package__" "__spec__" "__loader__"
+   "__path__" "__builtins__" "__debug__" "__dict__" "__all__"))
+
+; Changed: upstream has this after the calls, so that a method called
+; would be a property.
 (attribute attribute: (identifier) @property)
-(type (identifier) @type)
-; Added: the generic in an annotation, `list` in `list[int]`.
-(generic_type (identifier) @type)
 
 ; Function calls
 
@@ -69,6 +73,16 @@
 ; Changed: upstream leaves digits out, so that `HTTP2` is a class.
 ((identifier) @constant
  (#match? @constant "^[A-Z][A-Z\\d_]*$"))
+
+; Changed: upstream has the type in an annotation before the conventions,
+; so that `T` in `def first[T](xs: list[T]) -> T` looks like a constant
+; and is one. Where a type stands, a name is a type, whatever its look.
+(type (identifier) @type)
+; Added: the generic in an annotation, `list` in `list[int]`.
+(generic_type (identifier) @type)
+; Added: the types listed in an annotation, `int` in `Callable[[int],
+; str]`.
+(type (list (identifier) @type))
 
 ; Added: a module where an import names it, after the conventions so that
 ; `PIL` is a module, not a constant. What `from` brings in is left alone:

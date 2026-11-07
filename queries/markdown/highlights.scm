@@ -52,6 +52,11 @@
   (list_marker_parenthesis)
 ] @markup.list.marker
 
+; Added: a task's box, `[ ]` and `[x]` in `- [ ] todo`, of the list's
+; marker as upstream leaves it plain.
+(task_list_marker_unchecked) @markup.list.unchecked
+(task_list_marker_checked) @markup.list.checked
+
 (block_quote_marker) @markup.quote.marker
 
 ; Changed: upstream names every continuation a quote's marker, but a

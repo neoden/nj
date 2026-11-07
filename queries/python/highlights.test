@@ -153,6 +153,36 @@
   ^^ variable
      ^^^^^^ function.method
 
+# Where a type stands a name is a type, whatever its look: a type
+# parameter is not a constant
+> def first[T](xs: list[T]) -> T:
+      ^^^^^ function
+            ^ type
+                   ^^^^ type
+                        ^ type
+                               ^ type
+>     return xs[0]
+
+# The types listed in an annotation are types too
+> cb: Callable[[int, str], None]
+      ^^^^^^^^ type
+                ^^^ type
+                     ^^^ type
+                           ^^^^ constant.builtin
+
+# Outside an annotation only its look tells
+> T = TypeVar("T")
+  ^ constant
+      ^^^^^^^ type
+
+# The names every module has are the language's
+> if __name__ == "__main__":
+     ^^^^^^^^ variable.builtin
+                 ^^^^^^^^^^ string
+>     print(__file__)
+      ^^^^^ function.builtin
+            ^^^^^^^^ variable.builtin
+
 # Operators spelt as signs
 > y = a @ b; y @= c; z := 1
         ^ operator

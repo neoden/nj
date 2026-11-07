@@ -24,6 +24,15 @@
 > 2. two
   ^^ markup.list.marker
 
+# A task's box is the list's, ticked or not; the task is text
+> - [ ] todo
+  ^ markup.list.marker
+    ^^^ markup.list.unchecked
+        ^^^^ -
+> - [x] done
+    ^^^ markup.list.checked
+        ^^^^ -
+
 # A quote's marker, not its text, on every line of the quote
 > > quoted
   ^ markup.quote.marker
@@ -137,3 +146,5 @@
 > at <https://x.org> or [home]
      ^^^^^^^^^^^^^^^ markup.link.url
                          ^^^^ markup.link.label
+> mail <me@example.com>
+       ^^^^^^^^^^^^^^^^ markup.link.url

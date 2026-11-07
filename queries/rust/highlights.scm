@@ -7,6 +7,8 @@
 
 (type_identifier) @type
 (primitive_type) @type.builtin
+; Added: `!`, the type of what never returns, in `fn exit() -> !`.
+(never_type) @type.builtin
 (field_identifier) @property
 
 ; Function calls
@@ -33,6 +35,25 @@
 (macro_invocation
   macro: (identifier) @function.macro
   "!" @function.macro)
+
+; Added: a macro called inside another's arguments, `matches!` in
+; `assert!(matches!(x, Some(_)))`. The arguments are loose tokens to the
+; grammar, and a name, a `!` and a bracketed group right after it are a
+; call; `a != b` has `!=`, a token of its own.
+(token_tree
+  (identifier) @function.macro
+  .
+  "!" @function.macro
+  .
+  (token_tree))
+
+; Added: a macro where `macro_rules!` defines it, as it is where it is
+; called; its metavariables are its parameters, `$x` in `($x:expr)`, and
+; their fragments are what kind of thing each takes.
+(macro_definition
+  name: (identifier) @function.macro)
+(metavariable) @variable.parameter
+(fragment_specifier) @type
 
 ; Function definitions
 

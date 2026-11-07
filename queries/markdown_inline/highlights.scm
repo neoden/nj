@@ -20,9 +20,12 @@
   (code_span_delimiter)
 ] @punctuation.delimiter
 
+; Changed: upstream leaves an address out, so that `<me@example.com>` is
+; plain beside `<https://example.com>`.
 [
   (link_destination)
   (uri_autolink)
+  (email_autolink)
 ] @markup.link.url
 
 [

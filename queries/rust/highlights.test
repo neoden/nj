@@ -122,6 +122,29 @@
 > use super::c;
       ^^^^^ keyword
 
+# A macro defined: its name a macro, its metavariables parameters, their
+# fragments the kind of thing each takes
+> macro_rules! square { ($x:expr) => { $x * $x }; }
+  ^^^^^^^^^^^^ keyword
+               ^^^^^^ function.macro
+                         ^^ variable.parameter
+                            ^^^^ type
+                                       ^^ variable.parameter
+                                            ^^ variable.parameter
+
+# A macro called in another's arguments is a macro too; a `!=` there and
+# a `!` before a name are not calls
+> assert!(matches!(x, Some(_)) && a != b && !done);
+  ^^^^^^^ function.macro
+          ^^^^^^^^ function.macro
+                                  ^ -
+                                    ^^ -
+                                            ^^^^^ -
+
+# `!` is a type where a function never returns
+> fn exit() -> ! { loop {} }
+               ^ type.builtin
+
 # A macro is named with its `!`, the string inside it as a string
 # The string is a token inside the macro's, and the inner one wins.
 > println!("x");
@@ -132,7 +155,7 @@
                ^ number
 > macro_rules! twice { () => {} }
   ^^^^^^^^^^^^ keyword
-               ^^^^^ -
+               ^^^^^ function.macro
 
 # Comments, a doc comment told from a plain one
 > // plain
