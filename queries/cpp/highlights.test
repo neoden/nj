@@ -1,0 +1,140 @@
+%language C++
+
+# C's patterns hold: a directive, a header, a constant by its look
+> #include <vector>
+  ^^^^^^^^ keyword
+           ^^^^^^^^ string
+> int n = MAX_SIZE;
+  ^^^ type.builtin
+          ^^^^^^^^ constant
+
+# A namespace is a module, unless a capital makes it a class
+> namespace app {}
+  ^^^^^^^^^ keyword
+            ^^^ module
+> std::vector<int> xs;
+  ^^^ module
+       ^^^^^^ type
+              ^^^ type.builtin
+> auto n = std::max(a, b);
+  ^^^^ type
+           ^^^ module
+                ^^^ function
+> Config::load();
+  ^^^^^^ type
+          ^^^^ function
+
+# The namespace `using namespace` brings in is a module, every name of
+# its path; what a plain `using` brings in is not; an alias is a module
+> using namespace std;
+  ^^^^^ keyword
+        ^^^^^^^^^ keyword
+                  ^^^ module
+> using namespace std::chrono::literals;
+                  ^^^ module
+                       ^^^^^^ module
+                               ^^^^^^^^ module
+> using std::cout;
+        ^^^ module
+             ^^^^ variable
+> namespace fs = std::filesystem;
+            ^^ module
+                 ^^^ module
+                      ^^^^^^^^^^ module
+
+# A function at the end of a longer path is a function, called or
+# defined, up to four nestings deep; a name at its end not called is not
+> auto t = std::chrono::steady_clock::now();
+           ^^^ module
+                ^^^^^^ module
+                        ^^^^^^^^^^^^ module
+                                      ^^^ function
+> a::b::c::d::f();
+              ^ function
+> a::b::c::d::e::f();
+                 ^ variable
+> void app::Greeter::greet() {}
+       ^^^ module
+            ^^^^^^^ type
+                     ^^^^^ function
+> std::cout << x;
+       ^^^^ variable
+
+# A class, its methods declared and defined, `this` and `nullptr`
+> class Greeter : public Base {
+  ^^^^^ keyword
+        ^^^^^^^ type
+                  ^^^^^^ keyword
+                         ^^^^ type
+> public:
+  ^^^^^^ keyword
+>     virtual void greet() const override;
+      ^^^^^^^ keyword
+              ^^^^ type.builtin
+                   ^^^^^ function
+                                 ^^^^^^^^ keyword
+> };
+> void Greeter::greet() const { this->n = nullptr; }
+       ^^^^^^^ type
+                ^^^^^ function
+                                ^^^^ variable.builtin
+                                      ^ property
+                                          ^^^^^^^ constant.builtin
+
+# A destructor is a function with its `~`, declared, defined and called
+> struct Greeter {
+>     ~Greeter();
+      ^^^^^^^^ function
+> };
+> Greeter::~Greeter() {}
+  ^^^^^^^ type
+           ^^^^^^^^ function
+> void f(Greeter* g) { g->~Greeter(); }
+                          ^^^^^^^^ function
+
+# The operators spelt as words are keywords
+> bool f() { return not a and b; }
+                    ^^^ keyword
+                          ^^^ keyword
+
+# A template and a call of one
+> template <typename T> T id(T x) { return x; }
+  ^^^^^^^^ keyword
+            ^^^^^^^^ keyword
+                     ^ type
+> auto p = std::make_unique<Greeter>();
+           ^^^ module
+                ^^^^^^^^^^^ function
+                            ^^^^^^^ type
+
+# A cast is a keyword, though spelt as a call of a template; a function
+# called the same way is not
+> int i = static_cast<int>(x) + std::bit_cast<int>(f);
+          ^^^^^^^^^^^ keyword
+                      ^^^ type.builtin
+                                     ^^^^^^^^ function
+> auto p = dynamic_cast<Base*>(q);
+           ^^^^^^^^^^^^ keyword
+                        ^^^^ type
+
+# A concept is a type where it is defined and where it constrains one
+> template <typename T> concept Small = sizeof(T) < 4;
+                        ^^^^^^^ keyword
+                                ^^^^^ type
+> template <Small T> void f(T x);
+            ^^^^^ type
+> void g(Small auto x) requires Small<int>;
+         ^^^^^ type
+                       ^^^^^^^^ keyword
+                                ^^^^^ type
+
+# A macro's body is read as C++
+> #define MAKE(T) new T()
+                  ^^^ keyword
+
+# A raw string has no escapes; its delimiter can name the language inside
+> auto s = R"(a\n)";
+           ^^^^^^^^ string
+> auto j = R"json({"a": 1})json";
+                   ^^^ string.special.key
+                        ^ number

@@ -22,7 +22,9 @@ pub struct Grammar {
 struct Linked {
     name: &'static str,
     language: fn() -> Language,
-    highlights: &'static str,
+    /// One query, or the query of the language this one grows from and
+    /// then its own: C's and then C++'s, whose patterns win.
+    highlights: &'static [&'static str],
     injections: Option<&'static str>,
 }
 
@@ -32,21 +34,33 @@ const LINKED: &[Linked] = &[
     Linked {
         name: "C",
         language: || tree_sitter_c::LANGUAGE.into(),
-        highlights: include_str!("../../queries/c/highlights.scm"),
+        highlights: &[include_str!("../../queries/c/highlights.scm")],
         injections: Some(include_str!("../../queries/c/injections.scm")),
+    },
+    // C's patterns hold in C++ too, which has every node they name. The
+    // injections are its own: a macro's body here is C++.
+    #[cfg(feature = "cpp")]
+    Linked {
+        name: "C++",
+        language: || tree_sitter_cpp::LANGUAGE.into(),
+        highlights: &[
+            include_str!("../../queries/c/highlights.scm"),
+            include_str!("../../queries/cpp/highlights.scm"),
+        ],
+        injections: Some(include_str!("../../queries/cpp/injections.scm")),
     },
     #[cfg(feature = "go")]
     Linked {
         name: "Go",
         language: || tree_sitter_go::LANGUAGE.into(),
-        highlights: include_str!("../../queries/go/highlights.scm"),
+        highlights: &[include_str!("../../queries/go/highlights.scm")],
         injections: None,
     },
     #[cfg(feature = "json")]
     Linked {
         name: "JSON",
         language: || tree_sitter_json::LANGUAGE.into(),
-        highlights: include_str!("../../queries/json/highlights.scm"),
+        highlights: &[include_str!("../../queries/json/highlights.scm")],
         injections: None,
     },
     // The blocks, with what is inside them left to the next one.
@@ -54,28 +68,28 @@ const LINKED: &[Linked] = &[
     Linked {
         name: "Markdown",
         language: || tree_sitter_md::LANGUAGE.into(),
-        highlights: include_str!("../../queries/markdown/highlights.scm"),
+        highlights: &[include_str!("../../queries/markdown/highlights.scm")],
         injections: Some(include_str!("../../queries/markdown/injections.scm")),
     },
     #[cfg(feature = "markdown")]
     Linked {
         name: "markdown_inline",
         language: || tree_sitter_md::INLINE_LANGUAGE.into(),
-        highlights: include_str!("../../queries/markdown_inline/highlights.scm"),
+        highlights: &[include_str!("../../queries/markdown_inline/highlights.scm")],
         injections: None,
     },
     #[cfg(feature = "python")]
     Linked {
         name: "Python",
         language: || tree_sitter_python::LANGUAGE.into(),
-        highlights: include_str!("../../queries/python/highlights.scm"),
+        highlights: &[include_str!("../../queries/python/highlights.scm")],
         injections: None,
     },
     #[cfg(feature = "rust")]
     Linked {
         name: "Rust",
         language: || tree_sitter_rust::LANGUAGE.into(),
-        highlights: include_str!("../../queries/rust/highlights.scm"),
+        highlights: &[include_str!("../../queries/rust/highlights.scm")],
         injections: None,
     },
 ];
@@ -93,13 +107,13 @@ impl Entry {
             let language = (linked.language)();
             // Both are linked in, and tests/highlights loads every query of
             // the build: one that does not fit is a bug of the build.
-            let compile = |source| {
+            let compile = |source: &str| {
                 Query::new(&language, source).unwrap_or_else(|error| {
                     panic!("a {} query does not fit its grammar: {error}", linked.name)
                 })
             };
             Grammar {
-                highlights: compile(linked.highlights),
+                highlights: compile(&linked.highlights.concat()),
                 injections: linked.injections.map(compile),
                 language,
             }

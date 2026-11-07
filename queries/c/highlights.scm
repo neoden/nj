@@ -8,6 +8,11 @@
 ((identifier) @constant
  (#match? @constant "^[A-Z][A-Z\\d_]*$"))
 
+; Added: an enum's member where it is declared, whatever its case: `Green`
+; in `enum color { RED, Green }`. Used later it is a name like any other.
+(enumerator
+  name: (identifier) @constant)
+
 "break" @keyword
 "case" @keyword
 "const" @keyword
@@ -30,7 +35,8 @@
 "volatile" @keyword
 "while" @keyword
 ; Added: the rest of the standard's keywords the grammar has; upstream
-; leaves `goto` and `restrict` plain.
+; leaves `goto` and `restrict` plain. Not `auto`: C++ reads this query
+; too, and its grammar has `auto` as a node of its own, not this token.
 "_Alignas" @keyword
 "_Alignof" @keyword
 "_Atomic" @keyword
@@ -39,7 +45,6 @@
 "alignas" @keyword
 "alignof" @keyword
 "asm" @keyword
-"auto" @keyword
 "constexpr" @keyword
 "goto" @keyword
 "noreturn" @keyword
@@ -119,5 +124,25 @@
 ; query.
 (preproc_function_def
   name: (identifier) @function.macro)
+
+; Added: attributes, which upstream leaves plain, read as Rust's are: the
+; word that opens one a keyword, the names in it attributes. After the
+; calls, so that `aligned` in `__attribute__((aligned(8)))` is not a
+; function. Their arguments keep their own colours.
+"__attribute__" @keyword
+"__attribute" @keyword
+"__declspec" @keyword
+(attribute_specifier
+  (argument_list (identifier) @attribute))
+(attribute_specifier
+  (argument_list
+    (call_expression
+      function: (identifier) @attribute)))
+(attribute
+  prefix: (identifier) @attribute)
+(attribute
+  name: (identifier) @attribute)
+(ms_declspec_modifier
+  (identifier) @attribute)
 
 (comment) @comment

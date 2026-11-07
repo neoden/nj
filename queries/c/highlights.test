@@ -42,6 +42,33 @@
                                 ^^^^^^^^ constant
 > }
 
+# An enum's member is a constant where it is declared, whatever its case;
+# used later, only its look tells
+> enum color { RED, Green = 2 };
+  ^^^^ keyword
+       ^^^^^ type
+               ^^^ constant
+                    ^^^^^ constant
+                            ^ number
+> int c = Green;
+          ^^^^^ variable
+
+# An attribute of each of its three forms: the word that opens it is a
+# keyword, the names in it attributes, called or not
+> static int g(int unused __attribute__((unused, aligned(8))));
+                   ^^^^^^ variable
+                          ^^^^^^^^^^^^^ keyword
+                                         ^^^^^^ attribute
+                                                 ^^^^^^^ attribute
+                                                         ^ number
+> [[nodiscard, gnu::unused]] int f(void);
+    ^^^^^^^^^ attribute
+               ^^^ attribute
+                    ^^^^^^ attribute
+> __declspec(dllexport) void h(void);
+  ^^^^^^^^^^ keyword
+             ^^^^^^^^^ attribute
+
 # A field is a property, a call through one a function; `NULL`, `true`
 # and `false` are the language's
 > void f(struct node *p) {
