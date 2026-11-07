@@ -58,6 +58,14 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: Some("#"),
     },
     Language {
+        name: "Java",
+        extensions: &["java"],
+        filenames: &[],
+        indent: Indent::Spaces(4),
+        tab_width: 4,
+        line_comment: Some("//"),
+    },
+    Language {
         name: "JavaScript",
         extensions: &["js", "mjs", "cjs", "jsx"],
         filenames: &[],

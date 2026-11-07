@@ -6,11 +6,33 @@
 ; `@storageclass`, `@type.qualifier`, `@boolean`, `@float`, `@field`,
 ; `@parameter`, which are plain text here; each is renamed to what it
 ; stands for. The lists of keywords are upstream's, renamed alone.
+;
+; What the grammar does not parse, and no pattern here can colour right:
+; `GRANT` and `REVOKE`, `SAVEPOINT`, `SHOW`, `FETCH FIRST`, `NATURAL JOIN`,
+; SQLite's `PRAGMA` and `INSERT OR REPLACE`, MySQL's `LIMIT 10, 20`,
+; Postgres's `DO $$ ... $$` and `:name` parameters. It reads `DISTINCT ON
+; (a)` as a call of `ON`, a double-quoted name as a string, and `2.5E3`,
+; a capital `E` after a fraction, as a name.
 
 (object_reference
   name: (identifier) @type)
 
 (invocation
+  (object_reference
+    name: (identifier) @function.call))
+
+; Added: a function's name where it is created, `add` in `CREATE FUNCTION
+; add(...)`, and the function a trigger runs, `f` in `EXECUTE FUNCTION
+; f()`; each right after its keyword. The pattern for any object above
+; names them tables.
+(create_function
+  (keyword_function)
+  .
+  (object_reference
+    name: (identifier) @function))
+(create_trigger
+  [(keyword_function) (keyword_procedure)]
+  .
   (object_reference
     name: (identifier) @function.call))
 
@@ -56,12 +78,10 @@
 
 ; Changed: upstream writes these patterns in Lua's, `%d` for a digit,
 ; which a regex reads as a `%` and a `d`, so that no number matches and
-; every number is a string.
+; every number is a string; and it leaves out an exponent, `1e10`. One
+; pattern takes them all: `42`, `100.5`, `.5`, `1e10`, `2.5E-3`.
 ((literal) @number
-   (#match? @number "^[-+]?\\d+$"))
-
-((literal) @number
-  (#match? @number "^[-+]?\\d*\\.\\d*$"))
+  (#match? @number "^[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?$"))
 
 (parameter) @variable.parameter
 

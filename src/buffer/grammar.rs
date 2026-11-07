@@ -108,6 +108,13 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/ini/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "java")]
+    Linked {
+        name: "Java",
+        language: || tree_sitter_java::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/java/highlights.scm")],
+        injections: None,
+    },
     #[cfg(feature = "javascript")]
     Linked {
         name: "JavaScript",

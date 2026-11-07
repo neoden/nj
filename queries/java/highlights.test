@@ -1,0 +1,181 @@
+%language Java
+
+# A package and the names an import goes through are modules; the class
+# it names a type, a class in the middle of it too
+> package com.acme.app;
+  ^^^^^^^ keyword
+          ^^^ module
+              ^^^^ module
+                   ^^^ module
+> import java.util.List;
+         ^^^^ module
+              ^^^^ module
+                   ^^^^ type
+> import static java.lang.Math.max;
+         ^^^^^^ keyword
+                     ^^^^ module
+                          ^^^^ type
+                               ^^^ variable
+
+# An annotation is one token with its `@`, its argument its own
+> @SuppressWarnings("unchecked")
+  ^^^^^^^^^^^^^^^^^ attribute
+                    ^^^^^^^^^^^ string
+> @Override void run() {}
+  ^^^^^^^^^ attribute
+            ^^^^ type.builtin
+                 ^^^ function.method
+
+# A class with its generics; capitals make a constant, one letter enough
+> public final class Counter<T extends Comparable<T>> implements Runnable {
+  ^^^^^^ keyword
+               ^^^^^ keyword
+                     ^^^^^^^ type
+                             ^ type
+                                       ^^^^^^^^^^ type
+                                                      ^^^^^^^^^^ keyword
+                                                                 ^^^^^^^^ type
+>     private static final int MAX = 10, N = 2;
+                           ^^^ type.builtin
+                               ^^^ constant
+                                     ^^ number
+                                         ^ constant
+>     public Counter(int start) { this.count = start; }
+             ^^^^^^^ type
+                                  ^^^^ variable.builtin
+> }
+
+# `var` is a word of the language; a label where it stands and is named
+> void f() {
+>     var total = 0;
+      ^^^ keyword
+>     outer:
+      ^^^^^ label
+>     for (int i = 0; i < 10; i++) { continue outer; }
+                                     ^^^^^^^^ keyword
+                                              ^^^^^ label
+> }
+
+# Numbers of every form, strings, characters, the language's values
+> long n = 0b1010 + 0x1F + 1_000 + 3.14f + 0L;
+           ^^^^^^ number
+                    ^^^^ number
+                           ^^^^^ number
+                                   ^^^^^ number
+                                           ^^ number
+> String s = "tab\there" + 'c' + null + true;
+             ^^^^ string
+                 ^^ escape
+                           ^^^ string
+                                 ^^^^ constant.builtin
+                                        ^^^^ constant.builtin
+> String block = """
+                 ^^^ string
+>     text block
+      ^^^^^^^^^^ string
+>     """;
+
+# Calls through a class, a method reference, `super`
+> System.out.println(Math.max(1, 2));
+  ^^^^^^ type
+             ^^^^^^^ function.method
+                     ^^^^ type
+                          ^^^ function.method
+> items.forEach(System.out::println);
+        ^^^^^^^ function.method
+                ^^^^^^ type
+> Runnable r = () -> super.toString();
+                     ^^^^^ function.builtin
+
+# A record, an enum and its constants, a sealed interface
+> record Point(int x, int y) {}
+  ^^^^^^ keyword
+         ^^^^^ type
+> enum Color { RED, GREEN }
+  ^^^^ keyword
+               ^^^ constant
+> sealed interface Shape permits Circle {}
+  ^^^^^^ keyword
+                         ^^^^^^^ keyword
+
+# Generics: a wildcard's bound, its `super` a keyword as `extends` is; a
+# generic method, varargs
+> class Outer<K, V extends Comparable<? super V>> {
+              ^ type
+                   ^^^^^^^ keyword
+                                        ^^^^^ keyword
+>     static <T extends Number> T first(List<? extends T> xs, T... rest) { return null; }
+              ^ type
+                                  ^^^^^ function.method
+> }
+
+# Pattern matching: `instanceof` binding a name, a switch of arrows, a
+# guard, a record taken apart, `yield`
+> String describe(Object o) {
+>     if (o instanceof String s) return s;
+            ^^^^^^^^^^ keyword
+                       ^^^^^^ type
+>     return switch (o) {
+             ^^^^^^ keyword
+>         case Integer i when i > 0 -> "positive";
+               ^^^^^^^ type
+                         ^^^^ keyword
+>         case Point(int x, int y) -> "point";
+               ^^^^^ type
+                     ^^^ type.builtin
+>         case null, default -> { yield "other"; }
+               ^^^^ constant.builtin
+                     ^^^^^^^ keyword
+                                  ^^^^^ keyword
+>     };
+> }
+
+# Nested, anonymous and qualified: `Outer.this`, `outer.new Inner()`,
+# `Outer.class`, constructor references
+> Object x = outer.new Inner(); Object y = Outer.this; Class<?> k = Outer.class;
+                   ^^^ keyword
+                       ^^^^^ type
+                                                 ^^^^ variable.builtin
+                                                                          ^^^^^ keyword
+> Supplier<List<String>> a = ArrayList::new; IntFunction<String[]> b = String[]::new;
+                             ^^^^^^^^^ type
+                                        ^^^ keyword
+
+# Resources, several exceptions caught at once
+> void io() throws IOException {
+            ^^^^^^ keyword
+                   ^^^^^^^^^^^ type
+>     try (var in = open()) { } catch (IOException | RuntimeException e) { }
+      ^^^ keyword
+           ^^^ keyword
+                                ^^^^^ keyword
+                                                     ^^^^^^^^^^^^^^^^ type
+> }
+
+# An annotation declared; an enum with a constructor and a body
+> @interface Tag { String value() default ""; }
+  ^^^^^^^^^^ keyword
+             ^^^ type
+                                  ^^^^^^^ keyword
+> enum Planet { EARTH(5.97e24) { double g() { return 9.8; } }; Planet(double m) {} }
+                ^^^^^ constant
+                      ^^^^^^^ number
+                                                               ^^^^^^ type
+
+# A module's declaration: every name of its modules and packages
+> module com.acme.app { requires transitive java.sql; exports com.acme.api to com.acme.web; }
+  ^^^^^^ keyword
+                  ^^^ module
+                        ^^^^^^^^ keyword
+                                 ^^^^^^^^^^ keyword
+                                                 ^^^ module
+                                                      ^^^^^^^ keyword
+                                                                       ^^^ module
+                                                                           ^^ keyword
+                                                                                       ^^^ module
+
+# Comments
+> /** Javadoc. */
+  ^^^^^^^^^^^^^^^ comment
+> // line
+  ^^^^^^^ comment
