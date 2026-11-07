@@ -66,6 +66,17 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/go/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "javascript")]
+    Linked {
+        name: "JavaScript",
+        language: || tree_sitter_javascript::LANGUAGE.into(),
+        highlights: &[
+            include_str!("../../queries/javascript/highlights.scm"),
+            include_str!("../../queries/javascript/jsx-highlights.scm"),
+            include_str!("../../queries/javascript/params-highlights.scm"),
+        ],
+        injections: Some(include_str!("../../queries/javascript/injections.scm")),
+    },
     #[cfg(feature = "json")]
     Linked {
         name: "JSON",

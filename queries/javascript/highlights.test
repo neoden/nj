@@ -1,0 +1,146 @@
+%language JavaScript
+
+# The `#!` line is a comment
+> #!/usr/bin/env node
+  ^^^^^^^^^^^^^^^^^^^ comment
+
+# Imports and exports: a capital makes a class, all capitals a constant
+> import React, { useState as useS } from "react";
+  ^^^^^^ keyword
+         ^^^^^ constructor
+                  ^^^^^^^^ variable
+                           ^^ keyword
+                                     ^^^^ keyword
+                                          ^^^^^^^ string
+> export const MAX = 10, N = 1;
+  ^^^^^^ keyword
+               ^^^ constant
+                     ^^ number
+                         ^ constant
+
+# A function declared is a function whatever its name, a React component
+# among them; called, its look decides
+> export default function App() {}
+         ^^^^^^^ keyword
+                          ^^^ function
+> const Header = () => null;
+        ^^^^^^ function
+> Counter(); new Counter(); render();
+  ^^^^^^^ constructor
+             ^^^ keyword
+                 ^^^^^^^ constructor
+                            ^^^^^^ function
+
+# Parameters where they are declared, of every form; used, plain names
+> function greet(name, { greeting = "hi" }, [first], ...rest) {
+           ^^^^^ function
+                 ^^^^ variable.parameter
+                         ^^^^^^^^ variable.parameter
+                                             ^^^^^ variable.parameter
+                                                        ^^^^ variable.parameter
+>   return `${greeting}, ${name}`;
+    ^^^^^^ keyword
+           ^ string
+              ^^^^^^^^ variable
+> }
+> function f(a = 1) {}
+             ^ variable.parameter
+
+# Methods and properties of an object
+> const obj = { run() {}, go: () => 1, size: 2 };
+                ^^^ function.method
+                          ^^ function.method
+                                       ^^^^ property
+
+# A class: its name a type whatever its case, private fields properties,
+# `this` and `super` the language's
+> class Counter extends Base {
+  ^^^^^ keyword
+        ^^^^^^^ type
+                ^^^^^^^ keyword
+                        ^^^^ constructor
+>   #count = 0;
+    ^^^^^^ property
+>   static of(n) { return new Counter(n); }
+    ^^^^^^ keyword
+           ^^ function.method
+>   get value() { return this.#count; }
+    ^^^ keyword
+        ^^^^^ function.method
+                         ^^^^ variable.builtin
+                              ^^^^^^ property
+>   bump() { super.bump(); this.#tick(); }
+             ^^^^^ variable.builtin
+                                ^^^^^ function.method
+> }
+> class lower {}
+        ^^^^^ type
+
+# Calls through members, optional chains, the builtins
+> console.log(obj?.a, JSON.parse(s), require("fs"));
+  ^^^^^^^ variable.builtin
+          ^^^ function.method
+                 ^^ punctuation.delimiter
+                      ^^^^ constant
+                           ^^^^^ function.method
+                                     ^^^^^^^ function.builtin
+
+# Strings with escapes, a regex with its slashes, numbers of every form
+> const s = 'it\'s', re = /ab+c/gi, n = 0x1F + 1_000n + .5e3 / 2;
+               ^^ escape
+                          ^^^^^^^^ string.special
+                                        ^^^^ number
+                                               ^^^^^^ number
+                                                        ^^^^ number
+                                                             ^ operator
+
+# The values the language names
+> let u = undefined ?? null ?? NaN ?? Infinity ?? true;
+          ^^^^^^^^^ constant.builtin
+                       ^^^^ constant.builtin
+                               ^^^ constant.builtin
+                                      ^^^^^^^^ constant.builtin
+                                                  ^^^^ constant.builtin
+
+# async, generators, `using`, `typeof`
+> async function* gen() { yield await fetch(url); }
+  ^^^^^ keyword
+                          ^^^^^ keyword
+                                ^^^^^ keyword
+                                      ^^^^^ function
+> using res = open(); if (typeof x === "string") {}
+  ^^^^^ keyword
+                          ^^^^^^ keyword
+
+# A label where it stands and where `break` names it
+> outer: for (const x of xs) { if (x) break outer; }
+  ^^^^^ label
+                      ^^ keyword
+                                            ^^^^^ label
+
+# A decorator is a function
+> @observable class Store {}
+   ^^^^^^^^^^ function
+
+# JSX: a tag in small letters is HTML's, one with a capital a component;
+# attributes are attributes, what is in braces JavaScript
+> const el = <div className="a" onClick={() => go(1)}><Button big /></div>;
+              ^^^ tag
+                  ^^^^^^^^^ attribute
+                            ^^^ string
+                                ^^^^^^^ attribute
+                                               ^^ function
+                                                       ^^^^^^ constructor
+                                                              ^^^ attribute
+                                                                      ^^^ tag
+
+# A template's tag names the language inside it
+> const style = css`color: red;`;
+                ^^^ function
+                    ^^^^^ property
+
+# Comments
+> // line
+  ^^^^^^^ comment
+> /** doc */
+  ^^^^^^^^^^ comment
