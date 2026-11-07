@@ -1,0 +1,86 @@
+%language Makefile
+
+# A variable assigned is a constant, the ones make reads itself builtins;
+# its value is a string, a command's output Shell
+> CC = gcc
+  ^^ constant.builtin
+       ^^^ string
+> objs := main.o util.o
+  ^^^^ constant
+          ^^^^^^^^^^^^^ string
+> FLAGS += -O2 $(EXTRA)
+  ^^^^^ constant
+               ^^^^^^^^ constant
+> NOW != date +%F
+  ^^^ constant
+         ^^^^ function
+
+# A target is a function, make's own targets keywords, a pattern a
+# special string; a reference is one token with its `$(` and `)`
+> .PHONY: all clean
+  ^^^^^^ keyword
+> all: build test
+  ^^^ function
+> build: $(objs)
+  ^^^^^ function
+         ^^^^^^^ constant
+> %.o: %.c
+  ^^^ string.special
+       ^^^ string.special
+
+# A recipe is Shell, but for what make expands in it: `$(CC)`, the
+# variables make sets for a rule, `$@` and `$^`, and `$$`, make's way to
+# write a `$`. Recipes on lines of their own start with a tab, which an
+# example cannot point past; after `;` it is the same recipe
+> link: ; $(CC) -o $@ $^ && echo "done $$USER"
+  ^^^^ function
+          ^^^^^ constant.builtin
+                ^^ constant
+                   ^^ variable.builtin
+                      ^^ variable.builtin
+                            ^^^^ function.builtin
+                                 ^^^^^^ string
+                                       ^^ escape
+                                         ^^^^^ string
+
+# A call of one of make's functions, its arguments their own; `$(shell)`
+# runs Shell
+> SRCS := $(wildcard src/*.c)
+          ^^^^^^^^^^ function.builtin
+                     ^^^^^^^ string
+> OBJS := $(patsubst %.c,%.o,$(SRCS))
+          ^^^^^^^^^^ function.builtin
+                             ^^^^^^^ constant
+> DATE := $(shell date +%Y)
+          ^^^^^^^ function.builtin
+                  ^^^^ function
+
+# Conditionals
+> ifeq ($(OS),Windows_NT)
+  ^^^^ keyword
+        ^^^^^ constant
+> else ifdef DEBUG
+  ^^^^ keyword
+       ^^^^^ keyword
+> endif
+  ^^^^^ keyword
+
+# Including, defining, exporting
+> -include deps.mk
+  ^^^^^^^^ keyword
+> define HELP
+  ^^^^^^ keyword
+         ^^^^ constant
+> usage text
+  ^^^^^^^^^^ string
+> endef
+  ^^^^^ keyword
+> export PATH
+  ^^^^^^ keyword
+
+# A comment on a line of its own. After a value make ends the value at
+# `#`, but the grammar reads it on as the value
+> # comment
+  ^^^^^^^^^ comment
+> x = 1 # trailing
+        ^^^^^^^^^^ string

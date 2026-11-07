@@ -73,6 +73,13 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/json/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "makefile")]
+    Linked {
+        name: "Makefile",
+        language: || tree_sitter_make::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/makefile/highlights.scm")],
+        injections: Some(include_str!("../../queries/makefile/injections.scm")),
+    },
     // The blocks, with what is inside them left to the next one.
     #[cfg(feature = "markdown")]
     Linked {
