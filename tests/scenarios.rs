@@ -13,6 +13,7 @@
 //! generated. Checking a scenario is rendering it afresh and comparing with
 //! the file; updating it is writing that rendering back. A snapshot with no
 //! frame under it fails, so a new scenario does not pass on nothing.
+//! One whose `%grammar` this build left out is skipped, its file untouched.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 
+use nj::buffer::syntax;
 use nj::term::{sandbox, scenario};
 
 fn main() -> Result<ExitCode> {
@@ -83,17 +85,38 @@ fn collect(directory: &Path, into: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn check(script: &Path, update: bool) -> Result<&'static str> {
+fn check(script: &Path, update: bool) -> Result<String> {
     let written = fs::read_to_string(script)?;
+    // The frames were taken with the grammar in: without it there is
+    // nothing to compare them with, and nothing to write over them.
+    if let Some(name) = missing_grammar(&written) {
+        return Ok(format!("skipped (no {name} grammar)"));
+    }
     let fresh = rendered(&written)?;
     if update {
         fs::write(script, &fresh)?;
-        return Ok("written");
+        return Ok("written".to_owned());
     }
     if fresh == written {
-        return Ok("ok");
+        return Ok("ok".to_owned());
     }
     anyhow::bail!("{}", differences(&written, &fresh));
+}
+
+/// The first grammar a `%grammar` line asks for that this build left out.
+/// A line that does not read is left to the run, which names it.
+fn missing_grammar(script: &str) -> Option<&'static str> {
+    scenario::lines(script).find_map(|line| match line {
+        scenario::Line::Text(text) => match scenario::parse(text) {
+            Ok(Some(scenario::Instruction::Grammar(language)))
+                if !syntax::has_grammar(language) =>
+            {
+                Some(language.name)
+            }
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 /// The scenario with its frames as the screen shows them now: the author's

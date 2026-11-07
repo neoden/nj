@@ -17,12 +17,19 @@ use crate::text::transaction::Change;
 /// for now; loaded from files, they would be found the same way.
 fn grammar(language: &Language) -> Option<(tree_sitter::Language, &'static str)> {
     match language.name {
+        #[cfg(feature = "rust")]
         "Rust" => Some((
             tree_sitter_rust::LANGUAGE.into(),
             tree_sitter_rust::HIGHLIGHTS_QUERY,
         )),
         _ => None,
     }
+}
+
+/// Whether this build has the grammar for `language`: each is linked in
+/// by a feature of its own.
+pub fn has_grammar(language: &Language) -> bool {
+    grammar(language).is_some()
 }
 
 /// A stretch of text and what the query calls it: `keyword`, `string`,
@@ -159,6 +166,27 @@ impl fmt::Debug for Syntax {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::buffer::Buffer;
+
+    #[test]
+    fn a_language_without_a_grammar_has_no_tree() {
+        let buffer = Buffer::from_text(Text::from_str("plain\n"));
+        assert!(buffer.syntax().is_none());
+    }
+
+    #[test]
+    fn an_insertion_advances_the_point_by_its_shape() {
+        let start = Point { row: 3, column: 5 };
+        assert_eq!(advance(start, "ab"), Point { row: 3, column: 7 });
+        assert_eq!(advance(start, "ab\n"), Point { row: 4, column: 0 });
+        assert_eq!(advance(start, "a\nbc\nd"), Point { row: 5, column: 1 });
+    }
+}
+
+/// The parts that need a real grammar to read, on Rust's.
+#[cfg(all(test, feature = "rust"))]
+mod rust_tests {
     use std::path::Path;
 
     use super::*;
@@ -209,12 +237,6 @@ mod tests {
             "{:?}",
             buffer.text().to_string()
         );
-    }
-
-    #[test]
-    fn a_language_without_a_grammar_has_no_tree() {
-        let buffer = Buffer::from_text(Text::from_str("plain\n"));
-        assert!(buffer.syntax().is_none());
     }
 
     #[test]
@@ -333,13 +355,5 @@ mod tests {
             .map(|token| token.name)
             .collect();
         assert_eq!(named, ["constructor"]);
-    }
-
-    #[test]
-    fn an_insertion_advances_the_point_by_its_shape() {
-        let start = Point { row: 3, column: 5 };
-        assert_eq!(advance(start, "ab"), Point { row: 3, column: 7 });
-        assert_eq!(advance(start, "ab\n"), Point { row: 4, column: 0 });
-        assert_eq!(advance(start, "a\nbc\nd"), Point { row: 5, column: 1 });
     }
 }

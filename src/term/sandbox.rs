@@ -21,6 +21,7 @@ use super::launch::{self, Args, Outcome};
 use super::scenario::{self, Expect, Instruction, Line};
 use super::screen::{Frames, Layer, Screen};
 use super::{app, render};
+use crate::buffer::syntax;
 use crate::editor::Editor;
 use crate::editor::clipboard::Desktop;
 
@@ -232,6 +233,12 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
                 stdin = None;
                 continue;
             }
+            Instruction::Grammar(language) => {
+                if !syntax::has_grammar(language) {
+                    bail!("{}: this build has no {} grammar", at(), language.name);
+                }
+                continue;
+            }
             other => other,
         };
 
@@ -282,7 +289,8 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
             Instruction::File(..)
             | Instruction::Clipboard(..)
             | Instruction::Expect(..)
-            | Instruction::Reset => unreachable!("the run's own lines are done above"),
+            | Instruction::Reset
+            | Instruction::Grammar(_) => unreachable!("the run's own lines are done above"),
         }
     }
     Ok(snapshots)

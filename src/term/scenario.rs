@@ -21,6 +21,8 @@
 //!                  would, on the first line that is not a `%` line
 //!   %reset         the run as it was before anything: an editor still
 //!                  running is ended, the directory emptied
+//!   %grammar NAME  the scenario needs the grammar of the language NAME,
+//!                  which a build may leave out; without it the run stops
 //!   ?exit N        the editor has exited, with code N
 //!   ?stdout "TEXT" and, a pipeline, handed TEXT downstream
 //!   ?file NAME "TEXT"   the file in the scenario's directory holds TEXT
@@ -73,6 +75,7 @@ use crossterm::event::{
 use super::input;
 use super::launch::{self, Args, Outcome};
 use super::screen::Layer;
+use crate::buffer::language::{self, Language};
 use crate::editor::key::Key;
 
 /// A line of a scenario, as the file is read.
@@ -154,6 +157,8 @@ pub enum Instruction {
     /// The run taken back to before anything: the editor gone, the
     /// directory empty.
     Reset,
+    /// The grammar of this language, which the scenario's frames assume.
+    Grammar(&'static Language),
     Wait,
     /// A frame of this layer to take, under this caption.
     Snapshot(Layer, String),
@@ -243,6 +248,10 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
         "%stdin" => Instruction::Stdin(quoted(rest)?),
         "%start" => Instruction::Start(launch::args(rest.split_whitespace().map(str::to_owned))?),
         "%reset" => Instruction::Reset,
+        // A misspelt name is an error, or it would quietly stop the run.
+        "%grammar" => Instruction::Grammar(
+            language::by_name(rest).with_context(|| format!("no language is called `{rest}`"))?,
+        ),
         "?exit" => Instruction::Expect(Expect::Exit(
             rest.parse().context("?exit takes a code, 0 to 255")?,
         )),
@@ -427,6 +436,17 @@ mod tests {
         assert!(belongs_to_run("?exit 0"));
         assert!(belongs_to_run("%reset"));
         assert!(!belongs_to_run("key Esc"));
+    }
+
+    #[test]
+    fn a_grammar_is_asked_for_by_the_languages_name() {
+        assert_eq!(
+            parse("%grammar Rust").unwrap(),
+            Some(Instruction::Grammar(language::by_name("Rust").unwrap()))
+        );
+        for bad in ["%grammar", "%grammar rust", "%grammar Rsut"] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

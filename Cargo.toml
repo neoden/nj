@@ -13,9 +13,15 @@ rustix = { version = "1.1.4", features = ["stdio", "process"] }
 # cleanly on Ctrl+C.
 signal-hook = "0.3.18"
 tree-sitter = "0.27"
-tree-sitter-rust = "0.24"
+tree-sitter-rust = { version = "0.24", optional = true }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
+
+# One feature per grammar linked into the binary. A language left out is
+# still detected and indented, just not highlighted.
+[features]
+default = ["rust"]
+rust = ["dep:tree-sitter-rust"]
 
 # Scenarios run one after another with their own `main` (ADR 25): a run owns
 # the process's working directory, and the filter after `--` is a file name.

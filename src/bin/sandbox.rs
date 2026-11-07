@@ -41,6 +41,7 @@ mod live {
     use rustix::process::{Pid, Signal, kill_process};
     use signal_hook::consts::{SIGINT, SIGTERM};
 
+    use nj::buffer::syntax;
     use nj::term::launch::{Args, Outcome};
     use nj::term::sandbox::{self, SOCKET, Workdir};
     use nj::term::scenario::{self, Instruction};
@@ -257,6 +258,11 @@ mod live {
             };
             match instruction {
                 Instruction::Reset => self.reset()?,
+                Instruction::Grammar(language) => {
+                    if !syntax::has_grammar(language) {
+                        bail!("this build has no {} grammar", language.name);
+                    }
+                }
                 Instruction::File(name, text) => {
                     fs::write(&name, text).with_context(|| format!("cannot write {name}"))?;
                 }

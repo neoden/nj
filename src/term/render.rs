@@ -437,6 +437,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rust")]
     fn tokens_colour_the_text_under_the_marks() {
         let mut buffer = Buffer::from_text(Text::from_str("fn main() {}\n"));
         buffer.set_language(crate::buffer::language::detect(std::path::Path::new(

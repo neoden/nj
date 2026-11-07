@@ -6,6 +6,7 @@
 # is the chosen language's. The colours are a layer of their own, asked
 # for with `---ink`.
 
+%grammar Rust
 size 40 16
 paste "fn main() {}"
 key Ctrl+Shift+P
