@@ -21,13 +21,14 @@ tree-sitter-json = { version = "0.24", optional = true }
 tree-sitter-md = { version = "0.5", optional = true }
 tree-sitter-python = { version = "0.25", optional = true }
 tree-sitter-rust = { version = "0.24", optional = true }
+tree-sitter-toml-ng = { version = "0.7", optional = true }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
 
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["c", "cpp", "go", "json", "markdown", "python", "rust", "shell"]
+default = ["c", "cpp", "go", "json", "markdown", "python", "rust", "shell", "toml"]
 c = ["dep:tree-sitter-c"]
 cpp = ["dep:tree-sitter-cpp"]
 go =["dep:tree-sitter-go"]
@@ -36,6 +37,7 @@ markdown = ["dep:tree-sitter-md"]
 python = ["dep:tree-sitter-python"]
 rust = ["dep:tree-sitter-rust"]
 shell = ["dep:tree-sitter-bash"]
+toml = ["dep:tree-sitter-toml-ng"]
 
 # Scenarios run one after another with their own `main` (ADR 25): a run owns
 # the process's working directory, and the filter after `--` is a file name.

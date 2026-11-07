@@ -99,6 +99,13 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/shell/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "toml")]
+    Linked {
+        name: "TOML",
+        language: || tree_sitter_toml_ng::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/toml/highlights.scm")],
+        injections: None,
+    },
 ];
 
 /// A grammar linked in, made when first asked for.

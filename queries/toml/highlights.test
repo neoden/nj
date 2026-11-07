@@ -1,0 +1,106 @@
+%language TOML
+
+# A table's name is a type, every part of a dotted one, quoted or not;
+# the brackets and dots keep their own tokens
+> [package]
+  ^ punctuation.bracket
+   ^^^^^^^ type
+> [dependencies.serde]
+   ^^^^^^^^^^^^ type
+               ^ punctuation.delimiter
+                ^^^^^ type
+> [[bin]]
+    ^^^ type
+> [a."b c".d]
+   ^ type
+     ^^^^^ type
+           ^ type
+
+# A key in a pair is a property, quoted, dotted or looking like a value
+> name = "nj"
+  ^^^^ property
+       ^ operator
+         ^^^^ string
+> "quoted key" = 1
+  ^^^^^^^^^^^^ property
+> a.b.c = true
+  ^ property
+    ^ property
+      ^ property
+          ^^^^ constant.builtin
+> true = false
+  ^^^^ property
+         ^^^^^ constant.builtin
+> 1234 = "x"
+  ^^^^ property
+
+# Escapes in a basic string, single or multi-line, the backslash that
+# ends a line among them; none in a literal one
+> s = "a\tb\u00e9"
+        ^^ escape
+           ^^^^^^ escape
+> l = 'C:\path'
+      ^^^^^^^^^ string
+> m = """
+      ^^^ string
+> line one \
+           ^ escape
+> two\n"""
+     ^^ escape
+> r = '''raw\n'''
+      ^^^^^^^^^^^ string
+
+# Numbers of every form
+> n = [1_000, 0xFF, 0o7, 0b1, +1, -1]
+       ^^^^^ number
+              ^^^^ number
+                    ^^^ number
+                         ^^^ number
+                              ^^ number
+                                  ^^ number
+> f = [1.5, 1e6, inf, nan, -inf]
+       ^^^ number
+            ^^^ number
+                 ^^^ number
+                      ^^^ number
+                           ^^^^ number
+
+# Dates and times of every form
+> d = 1979-05-27T07:32:00Z
+      ^^^^^^^^^^^^^^^^^^^^ string.special
+> e = 1979-05-27
+      ^^^^^^^^^^ string.special
+> t = 07:32:00
+      ^^^^^^^^ string.special
+> o = 1979-05-27T07:32:00.999-07:00
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ string.special
+
+# Keys inside an inline table are properties, at any depth; values in an
+# array over several lines keep their colours
+> serde = { version = "1", features = ["derive"], opt = { a = 1 } }
+  ^^^^^ property
+            ^^^^^^^ property
+                      ^^^ string
+                           ^^^^^^^^ property
+                                       ^^^^^^^^ string
+                                                  ^^^ property
+                             ^ property
+> xs = [
+>   "a",
+    ^^^ string
+>   [1, 2],
+     ^ number
+> ]
+
+# A Cargo.lock reads like any other file
+> [[package]]
+    ^^^^^^^ type
+> name = "anyhow"
+  ^^^^ property
+> checksum = "b0674a1ddeecb70ab6cd9bd1af1e63d8d47fd2cd3bd97ff01d3a8c2c0e7f2c08"
+
+# Comments, on a line of their own and after a value
+> # just a comment
+  ^^^^^^^^^^^^^^^^ comment
+> x = 1 # trailing
+        ^^^^^^^^^^ comment

@@ -147,7 +147,19 @@ pub const LANGUAGES: &[Language] = &[
     Language {
         name: "Shell",
         extensions: &["sh", "bash", "zsh"],
-        filenames: &[".bashrc", ".zshrc", ".profile"],
+        filenames: &[
+            ".profile",
+            ".bashrc",
+            ".bash_profile",
+            ".bash_login",
+            ".bash_logout",
+            ".bash_aliases",
+            ".zshrc",
+            ".zshenv",
+            ".zprofile",
+            ".zlogin",
+            ".zlogout",
+        ],
         indent: Indent::Spaces(2),
         tab_width: 2,
         line_comment: Some("#"),
@@ -216,6 +228,8 @@ mod tests {
     fn some_languages_are_known_by_name() {
         assert_eq!(detect_name("Makefile"), "Makefile");
         assert_eq!(detect_name("project/GNUmakefile"), "Makefile");
+        assert_eq!(detect_name("/home/u/.zshenv"), "Shell");
+        assert_eq!(detect_name(".bash_aliases"), "Shell");
     }
 
     #[test]
