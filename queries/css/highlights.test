@@ -1,0 +1,103 @@
+%language CSS
+
+# A selector: a tag, a class a type, an id a constant; the `*` is the
+# selector's, the combinators operators
+> div.card > p + a ~ span, #main * {}
+  ^^^ tag
+      ^^^^ type
+           ^ operator
+             ^ tag
+                            ^^^^ constant
+                                 ^ tag
+
+# A pseudo-class, a pseudo-element and an attribute are attributes; a
+# value in an attribute selector is a string
+> a:hover::before, input[type="text"], li:nth-child(odd) {}
+    ^^^^^ attribute
+           ^^^^^^ attribute
+                         ^^^^ attribute
+                              ^^^^^^ string
+                                          ^^^^^^^^^ attribute
+
+# The element before `::` is a tag, the name after it the attribute
+> p::first-line, a:hover::before {}
+  ^ tag
+     ^^^^^^^^^^ attribute
+                 ^ tag
+                          ^^^^^^ attribute
+
+# A tag of one's own is a tag as any other: a custom element, one
+# without a dash, one in capitals
+> my-widget, x-foo > .a, foo, DIV {}
+  ^^^^^^^^^ tag
+             ^^^^^ tag
+                         ^^^ tag
+                              ^^^ tag
+> my-widget::part(label) {}
+  ^^^^^^^^^ tag
+             ^^^^ attribute
+
+# A declaration: the property's name, then numbers with their units, a
+# colour with its `#`, functions, a `*` that multiplies, `!important`
+> .btn { color: #fff; margin: 0 auto; width: calc(100% - 2 * 1rem) !important; }
+         ^^^^^ property
+                ^^^^ string.special
+                              ^ number
+                                             ^^^^ function
+                                                  ^^^ number
+                                                     ^ type
+                                                           ^ operator
+                                                              ^^^ type
+                                                                   ^^^^^^^^^^ keyword
+
+# A custom property is a variable, declared and used
+> :root { --gap: 8px; } .x { gap: var(--gap, 4px); }
+          ^^^^^ variable
+                 ^ number
+                  ^^ type
+                             ^^^ property
+                                  ^^^ function
+                                      ^^^^^ variable
+
+# Strings with their escapes, quoted either way
+> .y { content: "a\"b"; font-family: 'Fira Code', serif; }
+                ^^ string
+                  ^^ escape
+                    ^^ string
+                                     ^^^^^^^^^^^ string
+
+# Every at-rule is a keyword, the ones the grammar knows and the others;
+# a media query's words are operators, its features properties
+> @import url("x.css");
+  ^^^^^^^ keyword
+          ^^^ function
+              ^^^^^^^ string
+> @media screen and (max-width: 600px) {}
+  ^^^^^^ keyword
+                ^^^ operator
+                     ^^^^^^^^^ property
+> @font-face { src: url(x.woff2); }
+  ^^^^^^^^^^ keyword
+> @layer base, components;
+  ^^^^^^ keyword
+
+# Keyframes: `from` and `to` are keywords, a step a number
+> @keyframes spin { from { opacity: 0; } 50% { opacity: .5; } to { opacity: 1; } }
+  ^^^^^^^^^^ keyword
+                    ^^^^ keyword
+                                         ^^ number
+                                                        ^^ number
+                                                              ^^ keyword
+
+# Nesting: `&` is a selector, what follows it as anywhere else
+> .card { & .title { color: red; } &:hover { color: blue; } }
+          ^ tag
+             ^^^^^ type
+                                     ^^^^^ attribute
+
+# Comments, of CSS and of PostCSS
+> /* block */ .a {}
+  ^^^^^^^^^^^ comment
+> .a { color: red; // note
+                   ^^^^^^^ comment
+> }

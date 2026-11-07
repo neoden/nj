@@ -49,6 +49,13 @@ const LINKED: &[Linked] = &[
         ],
         injections: Some(include_str!("../../queries/cpp/injections.scm")),
     },
+    #[cfg(feature = "css")]
+    Linked {
+        name: "CSS",
+        language: || tree_sitter_css::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/css/highlights.scm")],
+        injections: None,
+    },
     #[cfg(feature = "go")]
     Linked {
         name: "Go",

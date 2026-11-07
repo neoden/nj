@@ -60,7 +60,9 @@ impl Ink {
             // The structure of a document, as a keyword is of a program.
             "markup.heading" | "markup.list" | "markup.quote" => Ink::Keyword,
             "markup.raw" | "markup.link.url" => Ink::String,
-            "keyword" | "attribute" => Ink::Keyword,
+            // A tag is a word of the markup itself: `div` in HTML and in a
+            // CSS selector.
+            "keyword" | "attribute" | "tag" => Ink::Keyword,
             "string" | "escape" => Ink::String,
             "comment" => Ink::Comment,
             "type" | "constructor" => Ink::Type,
@@ -127,6 +129,7 @@ mod tests {
         assert_eq!(Ink::named("type.lifetime"), Ink::Type);
         assert_eq!(Ink::named("label"), Ink::Label);
         assert_eq!(Ink::named("module"), Ink::Module);
+        assert_eq!(Ink::named("tag"), Ink::Keyword);
         assert_eq!(Ink::named("string.documentation"), Ink::Comment);
         assert_eq!(Ink::named("string.special.key"), Ink::String);
         assert_eq!(Ink::named("markup.heading.marker"), Ink::Keyword);
