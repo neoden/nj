@@ -63,3 +63,66 @@
                              ^^^ keyword
                                  ^^^^ function
                                                               ^^^^ keyword
+
+# Lines joined by `\`, a comment between them, in an ENV and a RUN; a
+# variable with a default is one token, its operator the operator's
+> ENV A=1 \
+  ^^^ keyword
+>     B="two words" \
+        ^^^^^^^^^^^ string
+>     C=${A:-fallback}
+        ^^^ constant
+             ^^^^^^^^^ constant
+> RUN set -eux; \
+      ^^^ function.builtin
+          ^^^^ constant
+>     # a comment inside the continuation
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
+>     apt-get update
+      ^^^^^^^ function
+
+# Heredocs: a dash before the marker, two in one RUN, a quoted marker;
+# the program named after the marker is Shell's command
+> RUN <<-EOT bash
+      ^^^^^^ label
+             ^^^^ function
+> echo indented
+  ^^^^ function.builtin
+> EOT
+  ^^^ label
+> RUN <<A <<B
+      ^^^ label
+          ^^^ label
+> echo first
+  ^^^^ function.builtin
+> A
+> echo second
+> B
+> COPY <<"EOF" /app/settings.yaml
+       ^^^^^^^ label
+> debug: true
+         ^^^^ constant.builtin
+> EOF
+
+# A platform and a digest, the flags of RUN, COPY and ADD
+> FROM --platform=$BUILDPLATFORM golang:1.22@sha256:abc123 AS build
+                  ^^^^^^^^^^^^^^ constant
+                                                           ^^ keyword
+> RUN --mount=type=secret,id=npmrc --network=none npm ci
+                                                  ^^^ function
+> COPY --link --chmod=755 --from=build /out/app /usr/local/bin/
+  ^^^^ keyword
+
+# Instructions about other instructions
+> ONBUILD RUN make
+  ^^^^^^^ keyword
+          ^^^ keyword
+              ^^^^ function
+> HEALTHCHECK NONE
+              ^^^^ keyword
+> SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+  ^^^^^ keyword
+         ^^^^^^^^^^^ string
+> ENTRYPOINT exec app --flag
+             ^^^^ function.builtin
+                      ^^^^^^ constant

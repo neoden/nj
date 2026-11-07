@@ -22,6 +22,9 @@
   "SHELL"
   "MAINTAINER"
   "CROSS_BUILD"
+  ; Added: `NONE` in `HEALTHCHECK NONE`, a word of the instruction that
+  ; upstream leaves out.
+  "NONE"
 ] @keyword
 
 [

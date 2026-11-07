@@ -125,11 +125,11 @@ pub const LANGUAGES: &[Language] = &[
     },
     Language {
         // Sections of `key = value`: config files of many tools, systemd's
-        // units, desktop entries, git's own config.
+        // units, git's own config. Not a desktop entry, though it is INI:
+        // its `Name[ru]=` keys are beyond the grammar, and each spoils
+        // the line after it.
         name: "INI",
-        extensions: &[
-            "ini", "cfg", "desktop", "service", "socket", "timer", "mount", "target",
-        ],
+        extensions: &["ini", "cfg", "service", "socket", "timer", "mount", "target"],
         filenames: &[
             ".gitconfig",
             ".gitmodules",

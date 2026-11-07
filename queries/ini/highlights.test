@@ -38,3 +38,31 @@
 > [alias]
 > lg = log --graph # pretty
        ^^^^^^^^^^^^^^^^^^^^ string
+
+# A key with spaces or dots is one key; an empty value is no error; a
+# comment may be indented
+> [section with spaces]
+   ^^^^^^^^^^^^^^^^^^^ type
+> my key = v
+  ^^^^^^ property
+           ^ string
+> a.b.c = dotted
+  ^^^^^ property
+          ^^^^^^ string
+> empty =
+  ^^^^^ property
+> next = 1
+  ^^^^ property
+         ^ string
+>   ; indented comment
+    ^^^^^^^^^^^^^^^^^^ comment
+
+# A value holds what the tool reads in it, a reference to another key, a
+# `;` that is no comment to the grammar
+> [paths]
+> data = %(home)s/data
+         ^^^^^^^^^^^^^ string
+> cache = ${home}/cache
+          ^^^^^^^^^^^^^ string
+> max = 100 ; inline
+        ^^^^^^^^^^^^ string
