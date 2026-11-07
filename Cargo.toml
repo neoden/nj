@@ -33,6 +33,7 @@ tree-sitter-javascript ={ version = "0.25", optional = true }
 tree-sitter-json ={ version = "0.24", optional = true }
 tree-sitter-make = { version = "1.1", optional = true }
 tree-sitter-md = { version = "0.5", optional = true }
+tree-sitter-php = { version = "0.25", optional = true }
 tree-sitter-python = { version = "0.25", optional = true }
 tree-sitter-rust = { version = "0.24", optional = true }
 tree-sitter-scss = { version = "1.0", optional = true }
@@ -46,7 +47,7 @@ unicode-width = "0.2.2"
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["c", "c-sharp", "cpp", "css", "diff", "dockerfile", "git", "go", "html", "ini", "java", "javascript", "json", "makefile", "markdown", "python", "rust", "scss", "shell", "sql", "toml", "typescript", "yaml"]
+default = ["c", "c-sharp", "cpp", "css", "diff", "dockerfile", "git", "go", "html", "ini", "java", "javascript", "json", "makefile", "markdown", "php", "python", "rust", "scss", "shell", "sql", "toml", "typescript", "yaml"]
 c = ["dep:tree-sitter-c"]
 c-sharp = ["dep:tree-sitter-c-sharp"]
 cpp = ["dep:tree-sitter-cpp"]
@@ -65,6 +66,7 @@ javascript = ["dep:tree-sitter-javascript"]
 json = ["dep:tree-sitter-json"]
 makefile = ["dep:tree-sitter-make"]
 markdown = ["dep:tree-sitter-md"]
+php = ["dep:tree-sitter-php"]
 python = ["dep:tree-sitter-python"]
 rust = ["dep:tree-sitter-rust"]
 scss = ["dep:tree-sitter-scss"]

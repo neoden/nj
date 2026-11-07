@@ -110,11 +110,21 @@
   . (identifier) @type)
  (#match? @type "^[A-Z]"))
 ; Added: the class an import names at its end, `List` in `import
-; java.util.List;`; a method a static import names stays a name.
+; java.util.List;`.
 ((import_declaration
   (scoped_identifier
     name: (identifier) @type))
  (#match? @type "^[A-Z]"))
+; Added: what a static import names at its end in small letters is a
+; method, `max` in `import static java.lang.Math.max;`, as PHP's `use
+; function` names one; in capitals it is a constant, by the pattern for
+; capitals below. A field in small letters, `out` in `import static
+; java.lang.System.out;`, reads as a method: the grammar cannot tell.
+((import_declaration
+  "static"
+  (scoped_identifier
+    name: (identifier) @function))
+ (#match? @function "^[a-z]"))
 
 (constructor_declaration
   name: (identifier) @type)

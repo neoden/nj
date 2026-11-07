@@ -1,0 +1,158 @@
+%language PHP
+
+# A namespace and what `use` brings in: a class, a function, a constant
+> <?php
+  ^^^^^ tag
+> namespace App\Http;
+  ^^^^^^^^^ keyword
+            ^^^ module
+                ^^^^ module
+> use App\Models\User as U;
+          ^^^^^^ module
+                 ^^^^ type
+                 ^ type
+> use function App\Support\helper;
+                           ^^^^^^ function
+> use const App\Config\MAX;
+                       ^^^ constant
+
+# A class: its attribute, what it extends, implements and uses, its
+# promoted constructor's parameters, a static property, a constant
+> <?php
+> #[Route('/users')]
+  ^^^^^^^^ attribute
+          ^^^^^^^^ string
+> final class UserController extends Controller implements HasRoutes {
+  ^^^^^ keyword
+              ^^^^^^^^^^^^^^ type
+                             ^^^^^^^ keyword
+                  ^^^^^^^^^^ type
+                                                ^^^^^^^^^^ keyword
+                                                           ^^^^^^^^^ type
+>     use Loggable;
+      ^^^ keyword
+          ^^^^^^^^ type
+>     public const LIMIT = 10;
+                   ^^^^^ constant
+>     private static int $count = 0;
+              ^^^^^^ keyword
+                     ^^^ type.builtin
+>     public function __construct(private readonly UserRepo $repo, ?string $name = null) {}
+                      ^^^^^^^^^^^ function.method
+                                          ^^^^^^^^ keyword
+                                                   ^^^^^^^^ type
+                                                                    ^^^^^^ type.builtin
+                                                                                   ^^^^ constant.builtin
+>     public function show(int|string ...$ids): static|null {}
+                      ^^^^ function.method
+                                                ^^^^^^ type.builtin
+> }
+
+# Strings: variables in a double-quoted one, an escape in either kind; a
+# heredoc in the language its marker names, a nowdoc
+> <?php
+> $label = "Hello $name, {$user->email}\n";
+           ^^^^^^^ string
+                                       ^^ escape
+> $raw = 'single \' quote';
+         ^^^^^^^^ string
+                 ^^ escape
+                   ^^^^^^^ string
+> $sql = <<<SQL
+>     SELECT * FROM users
+      ^^^^^^ keyword
+               ^^^^ keyword
+>     SQL;
+> $doc = <<<'EOT'
+>     raw $not
+      ^^^^^^^^ string
+>     EOT;
+
+# Functions without a name, match, numbers of every form, a cast
+> <?php
+> $double = fn($x) => $x * 2;
+            ^^ keyword
+> $add = function ($a) use ($label) { return $a; };
+         ^^^^^^^^ keyword
+                       ^^^ keyword
+> $r = match (true) { $x > 0 => 'yes', default => 'no' };
+       ^^^^^ keyword
+              ^^^^ constant.builtin
+                                       ^^^^^^^ keyword
+> $n = 0x1F + 0b1010 + 0o17 + 1_000 + 1.5e3 + (int) "3";
+       ^^^^ number
+              ^^^^^^ number
+                       ^^^^ number
+                              ^^^^^ number
+                                      ^^^^^ number
+                                               ^^^ type.builtin
+
+# A class reached by name: `::class`, self, parent, a full name,
+# `instanceof`
+> <?php
+> $cls = U::class; $max = self::LIMIT; parent::boot(); \App\Foo::bar();
+         ^ type
+            ^^^^^ keyword
+                          ^^^^ variable.builtin
+                                ^^^^^ constant
+                                       ^^^^^^ variable.builtin
+                                               ^^^^ function
+                                                        ^^^ module
+                                                            ^^^ type
+                                                                 ^^^ function
+> $ok = $user instanceof U;
+              ^^^^^^^^^^ keyword
+                         ^ type
+
+# The language's own: constants in any case, the constructs spelt as
+# calls, magic constants, `unset`, `list`
+> <?php
+> $v = TRUE ?? NULL;
+       ^^^^ constant.builtin
+               ^^^^ constant.builtin
+> if (isset($user) && !empty($ids)) { unset($user); }
+      ^^^^^ function.builtin
+                       ^^^^^ function.builtin
+                                      ^^^^^ keyword
+> echo __DIR__ . __LINE__;
+  ^^^^ keyword
+       ^^^^^^^ constant.builtin
+                 ^^^^^^^^ constant.builtin
+> list($a, $b) = [1, 2];
+  ^^^^ function.builtin
+
+# An enum and its cases, an interface, a trait
+> <?php
+> enum Suit: string { case Hearts = 'H'; }
+  ^^^^ keyword
+       ^^^^ type
+                      ^^^^ keyword
+                           ^^^^^^ constant
+> interface HasRoutes {}
+            ^^^^^^^^^ type
+> trait Loggable {}
+        ^^^^^^^^ type
+
+# Comments of three kinds
+> <?php
+> // line
+  ^^^^^^^ comment
+> # hash
+  ^^^^^^ comment
+> /** @param int $x */
+  ^^^^^^^^^^^^^^^^^^^^ comment
+
+# HTML around the code is HTML; a template's alternative syntax
+> <ul class="list">
+   ^^ tag
+      ^^^^^ attribute
+            ^^^^^^ string
+> <?php foreach ($items as $item): ?>
+  ^^^^^ tag
+        ^^^^^^^ keyword
+                                   ^^ tag
+>   <li><?= $item ?></li>
+     ^^ tag
+        ^^^ tag
+> <?php endforeach; ?>
+        ^^^^^^^^^^ keyword

@@ -50,6 +50,15 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: Some("//"),
     },
     Language {
+        // A file with HTML around its code; `.phtml` is a template.
+        name: "PHP",
+        extensions: &["php", "phtml"],
+        filenames: &[],
+        indent: Indent::Spaces(4),
+        tab_width: 4,
+        line_comment: Some("//"),
+    },
+    Language {
         name: "Python",
         extensions: &["py", "pyi"],
         filenames: &[],

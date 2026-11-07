@@ -162,6 +162,15 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/markdown/inline-highlights.scm")],
         injections: None,
     },
+    // The grammar of a whole file, its HTML around `<?php ... ?>` too; the
+    // crate's other, for PHP alone, is not needed.
+    #[cfg(feature = "php")]
+    Linked {
+        name: "PHP",
+        language: || tree_sitter_php::LANGUAGE_PHP.into(),
+        highlights: &[include_str!("../../queries/php/highlights.scm")],
+        injections: Some(include_str!("../../queries/php/injections.scm")),
+    },
     #[cfg(feature = "python")]
     Linked {
         name: "Python",
