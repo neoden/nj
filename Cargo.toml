@@ -13,6 +13,7 @@ rustix = { version = "1.1.4", features = ["stdio", "process"] }
 # cleanly on Ctrl+C.
 signal-hook = "0.3.18"
 tree-sitter = "0.27"
+tree-sitter-bash = { version = "0.25", optional = true }
 tree-sitter-c = { version = "0.24", optional = true }
 tree-sitter-cpp = { version = "0.23", optional = true }
 tree-sitter-go ={ version = "0.25", optional = true }
@@ -26,7 +27,7 @@ unicode-width = "0.2.2"
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["c", "cpp", "go", "json", "markdown", "python", "rust"]
+default = ["c", "cpp", "go", "json", "markdown", "python", "rust", "shell"]
 c = ["dep:tree-sitter-c"]
 cpp = ["dep:tree-sitter-cpp"]
 go =["dep:tree-sitter-go"]
@@ -34,6 +35,7 @@ json = ["dep:tree-sitter-json"]
 markdown = ["dep:tree-sitter-md"]
 python = ["dep:tree-sitter-python"]
 rust = ["dep:tree-sitter-rust"]
+shell = ["dep:tree-sitter-bash"]
 
 # Scenarios run one after another with their own `main` (ADR 25): a run owns
 # the process's working directory, and the filter after `--` is a file name.

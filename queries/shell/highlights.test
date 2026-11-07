@@ -1,0 +1,125 @@
+%language Shell
+
+# The first line is a comment like any other
+> #!/bin/bash
+  ^^^^^^^^^^^ comment
+
+# A variable assigned and expanded; inside a string it stands out of it,
+# with its `$`
+> export PATH="$HOME/bin:$PATH"
+  ^^^^^^ keyword
+         ^^^^ variable
+              ^ string
+               ^^^^^ variable
+                    ^^^^^ string
+                         ^^^^^ variable
+> echo "hello ${user:-anon}"
+  ^^^^ function.builtin
+       ^^^^^^^ string
+              ^^^^^^ variable
+
+# A command is a function, the shell's own a builtin, its flags constants
+> grep -v x file | sort > out.log
+  ^^^^ function
+       ^^ constant
+            ^^^^ -
+                   ^^^^ function
+> set -euo pipefail; source ./lib.sh; . ./lib.sh
+  ^^^ function.builtin
+      ^^^^ constant
+                     ^^^^^^ function.builtin
+                                      ^ function.builtin
+
+# A command inside a substitution is a command still, in a string too
+> today=$(date +%F); old=`date`; echo "now: $(date)"
+  ^^^^^ variable
+          ^^^^ function
+                          ^^^^ function
+                                      ^^^^^^ string
+                                              ^^^^ function
+
+# A test's flag is a flag as in `test -f`; a regex is a string
+> if [ -f "$f" ] && [[ $s =~ ^[0-9]+$ ]]; then
+  ^^ keyword
+       ^^ constant
+           ^^ variable
+                       ^^ variable
+                             ^^^^^^^^ string
+                                          ^^^^ keyword
+>   :
+> fi
+  ^^ keyword
+
+# Loops, with numbers in the arithmetic
+> for i in 1 2 3; do echo "$i"; done
+  ^^^ keyword
+      ^ variable
+        ^^ keyword
+                  ^^ keyword
+                           ^^ variable
+                                ^^^^ keyword
+> for ((i = 0; i < 10; i++)); do :; done
+            ^ number
+                   ^^ number
+> while read -r line; do :; done < file.txt
+  ^^^^^ keyword
+        ^^^^ function.builtin
+             ^^ constant
+
+# The variables the shell sets, the arguments among them, with their `$`
+> echo $? $# $@ $$ $0 "$1"
+       ^^ variable.builtin
+          ^^ variable.builtin
+             ^^ variable.builtin
+                ^^ variable.builtin
+                   ^^ variable.builtin
+                       ^^ variable.builtin
+
+# The words that leave a loop, a function or the shell are keywords
+> case "$1" in
+  ^^^^ keyword
+>   *) exit 1 ;;
+       ^^^^ keyword
+            ^ number
+> esac
+  ^^^^ keyword
+
+# A function declared either way; the words that declare, and their flags
+> function f() { local x=1; return 0; }
+  ^^^^^^^^ keyword
+           ^ function
+                 ^^^^^ keyword
+                       ^ variable
+                            ^^^^^^ keyword
+> g() { declare -a list; readonly X=1; unset X; }
+  ^ function
+        ^^^^^^^ keyword
+                ^^ constant
+                         ^^^^^^^^ keyword
+                                       ^^^^^ keyword
+
+# A heredoc is a string, its words both ends, and a variable stands out of
+# it; quoted, it expands nothing
+> cat <<EOF
+  ^^^ function
+        ^^^ string
+> Hello $name
+  ^^^^^ string
+        ^^^^^ variable
+> EOF
+  ^^^ string
+> cat <<'END'
+        ^^^^^ string
+> raw $x
+  ^^^^^^ string
+> END
+  ^^^ string
+
+# A file descriptor is a number
+> make 2>&1
+       ^ number
+
+# The other strings
+> echo $'a\tb' 'raw'
+       ^^^^^^^ string
+               ^^^^^ string

@@ -92,6 +92,13 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/rust/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "shell")]
+    Linked {
+        name: "Shell",
+        language: || tree_sitter_bash::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/shell/highlights.scm")],
+        injections: None,
+    },
 ];
 
 /// A grammar linked in, made when first asked for.

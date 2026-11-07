@@ -72,8 +72,8 @@
 > ```
 
 # A language this build has no grammar for: the code is plain
-> ```sh
-> echo hi
+> ```haskell
+> main = pure ()
   ^^^^ none
 > ```
 
