@@ -16,7 +16,7 @@ fn main() -> Result<ExitCode> {
     let signals = app::signals()?;
     let args = launch::args(std::env::args().skip(1))?;
     let pipe = (!io::stdin().is_terminal()).then(|| io::stdin().lock());
-    let buffer = launch::buffer(args.file.as_deref(), pipe)?;
+    let buffer = launch::buffer(&args, pipe)?;
 
     let mut downstream: Box<dyn Write> = match terminal::claim_stdout()? {
         Some(pipe) => Box::new(pipe),

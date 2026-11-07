@@ -23,6 +23,7 @@
 //!                  running is ended, the directory emptied
 //!   %grammar NAME  the scenario needs the grammar of the language NAME,
 //!                  which a build may leave out; without it the run stops
+//!                  there, and the headless run says it was skipped
 //!   ?exit N        the editor has exited, with code N
 //!   ?stdout "TEXT" and, a pipeline, handed TEXT downstream
 //!   ?file NAME "TEXT"   the file in the scenario's directory holds TEXT

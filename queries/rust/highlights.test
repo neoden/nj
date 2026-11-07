@@ -1,0 +1,34 @@
+%language Rust
+
+# Keywords, a function's name, a string; a local's name is plain
+> fn main() {
+  ^^ keyword
+     ^^^^ function
+>     let s = "hi";
+      ^^^ keyword
+          ^ -
+              ^^^^ string
+> }
+
+# All capitals is a constant, one letter as well
+> const MAX_SIZE: u8 = 1;
+  ^^^^^ keyword
+        ^^^^^^^^ constant
+                  ^^ type.builtin
+> const N: usize = 2;
+        ^ constant
+
+# A capital first is a constructor, in the path of a call too
+# The pattern for a type in a path comes later, so it loses.
+> let x = Some(Foo);
+          ^^^^ constructor
+               ^^^ constructor
+> Foo::bar();
+  ^^^ constructor
+       ^^^ function
+
+# A macro is named with its `!`, the string inside it as a string
+# The string is a token inside the macro's, and the inner one wins.
+> println!("x");
+  ^^^^^^^^ function.macro
+           ^^^ string

@@ -1,0 +1,36 @@
+%language Python
+
+# A name takes the most specific colour that fits it: the one after `def`
+# is a function and the one after `class` a type, though every name is
+# also an identifier
+> class Greeter:
+  ^^^^^ keyword
+        ^^^^^^^ type
+>     def greet(self, name):
+      ^^^ keyword
+          ^^^^^ function
+                ^^^^ variable
+
+# Operators spelt as words are keywords, like `if`
+> if not name:
+  ^^ keyword
+     ^^^ keyword
+> for x in xs:
+        ^^ keyword
+
+# A builtin is told from any other call; a string, a comment
+> return len("hi")  # polite
+         ^^^ function.builtin
+             ^^^^ string
+                    ^^^^^^^^ comment
+> greet(x)
+  ^^^^^ function
+
+# All capitals is a constant, a capital first a constructor
+> MAX = Greeter
+  ^^^ constant
+        ^^^^^^^ constructor
+
+# A call is a function first, whatever its name looks like
+> Greeter()
+  ^^^^^^^ function

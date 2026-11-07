@@ -21,7 +21,6 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 
-use nj::buffer::syntax;
 use nj::term::{sandbox, scenario};
 
 fn main() -> Result<ExitCode> {
@@ -87,12 +86,13 @@ fn collect(directory: &Path, into: &mut Vec<PathBuf>) -> Result<()> {
 
 fn check(script: &Path, update: bool) -> Result<String> {
     let written = fs::read_to_string(script)?;
-    // The frames were taken with the grammar in: without it there is
-    // nothing to compare them with, and nothing to write over them.
-    if let Some(name) = missing_grammar(&written) {
-        return Ok(format!("skipped (no {name} grammar)"));
-    }
-    let fresh = rendered(&written)?;
+    let snapshots = match sandbox::run(&written)? {
+        sandbox::Run::Done(snapshots) => snapshots,
+        // The frames were taken with the grammar in: without it there is
+        // nothing to compare them with, and nothing to write over them.
+        sandbox::Run::Skipped(name) => return Ok(format!("skipped (no {name} grammar)")),
+    };
+    let fresh = rendered(&written, snapshots);
     if update {
         fs::write(script, &fresh)?;
         return Ok("written".to_owned());
@@ -103,27 +103,11 @@ fn check(script: &Path, update: bool) -> Result<String> {
     anyhow::bail!("{}", differences(&written, &fresh));
 }
 
-/// The first grammar a `%grammar` line asks for that this build left out.
-/// A line that does not read is left to the run, which names it.
-fn missing_grammar(script: &str) -> Option<&'static str> {
-    scenario::lines(script).find_map(|line| match line {
-        scenario::Line::Text(text) => match scenario::parse(text) {
-            Ok(Some(scenario::Instruction::Grammar(language)))
-                if !syntax::has_grammar(language) =>
-            {
-                Some(language.name)
-            }
-            _ => None,
-        },
-        _ => None,
-    })
-}
-
 /// The scenario with its frames as the screen shows them now: the author's
 /// lines kept as they are, the old frames dropped, and under each snapshot
 /// the frame it produced, closed by the blank line that marks its end.
-fn rendered(written: &str) -> Result<String> {
-    let mut snapshots = sandbox::run(written)?.into_iter();
+fn rendered(written: &str, snapshots: Vec<sandbox::Snapshot>) -> String {
+    let mut snapshots = snapshots.into_iter();
     let mut out = String::new();
     for line in scenario::lines(written) {
         match line {
@@ -141,7 +125,7 @@ fn rendered(written: &str) -> Result<String> {
             scenario::Line::Frame(_) => {}
         }
     }
-    Ok(out)
+    out
 }
 
 /// The lines that differ, by their number in the file: `-` for what is

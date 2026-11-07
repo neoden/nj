@@ -3,14 +3,18 @@
 
 use std::io::{self, Read};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use nj::term::sandbox;
 
 fn main() -> Result<()> {
     let mut script = String::new();
     io::stdin().read_to_string(&mut script)?;
-    for snapshot in sandbox::run(&script)? {
+    let snapshots = match sandbox::run(&script)? {
+        sandbox::Run::Done(snapshots) => snapshots,
+        sandbox::Run::Skipped(name) => bail!("this build has no {name} grammar"),
+    };
+    for snapshot in snapshots {
         match snapshot.caption.as_str() {
             "" => println!("---"),
             caption => println!("--- {caption}"),

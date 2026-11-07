@@ -226,32 +226,37 @@ impl Buffer {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let file = fs::File::open(path).with_context(|| cannot_read(path))?;
-        Self::from_file(path, file)
+        Self::from_file(path, file, None)
     }
 
     /// The file at `path` if there is one, else an empty buffer to be
     /// written there: `nj newfile` starts a file that is not there yet.
-    pub fn open_or_new(path: impl AsRef<Path>) -> Result<Self> {
+    /// In `language` if one is given, else in the one its name says.
+    pub fn open_or_new(
+        path: impl AsRef<Path>,
+        language: Option<&'static Language>,
+    ) -> Result<Self> {
         let path = path.as_ref();
         match fs::File::open(path) {
-            Ok(file) => Self::from_file(path, file),
-            Err(err) if err.kind() == ErrorKind::NotFound => Ok(Self::default().at(path)),
+            Ok(file) => Self::from_file(path, file, language),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(Self::default().at(path, language)),
             Err(err) => Err(err).with_context(|| cannot_read(path)),
         }
     }
 
-    fn from_file(path: &Path, file: fs::File) -> Result<Self> {
+    fn from_file(path: &Path, file: fs::File, language: Option<&'static Language>) -> Result<Self> {
         let buffer = Self::read(file).with_context(|| cannot_read(path))?;
-        Ok(buffer.at(path))
+        Ok(buffer.at(path, language))
     }
 
-    /// Backed by the file at `path`, whether or not it is there yet.
-    fn at(mut self, path: &Path) -> Self {
+    /// Backed by the file at `path`, whether or not it is there yet, and in
+    /// `language`, else the one its name says.
+    fn at(mut self, path: &Path, language: Option<&'static Language>) -> Self {
         self.backing = Backing::File {
             path: path.to_path_buf(),
             on_disk: Stamp::of(path),
         };
-        self.set_language(language::detect(path));
+        self.set_language(language.unwrap_or_else(|| language::detect(path)));
         self
     }
 
@@ -767,7 +772,7 @@ mod tests {
         let path = scratch("new");
         let _ = fs::remove_file(&path);
 
-        let mut buffer = Buffer::open_or_new(&path).unwrap();
+        let mut buffer = Buffer::open_or_new(&path, None).unwrap();
         assert!(matches!(
             buffer.backing,
             Backing::File { on_disk: None, .. }
@@ -812,7 +817,7 @@ mod tests {
         let path = scratch("appeared");
         let _ = fs::remove_file(&path);
 
-        let buffer = Buffer::open_or_new(&path).unwrap();
+        let buffer = Buffer::open_or_new(&path, None).unwrap();
         assert!(!buffer.changed_on_disk());
 
         fs::write(&path, "someone else\n").unwrap();

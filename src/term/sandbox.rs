@@ -122,7 +122,7 @@ impl Sandbox {
         if args.socket.is_some() {
             bail!("--socket: a run has no socket");
         }
-        let buffer = launch::buffer(args.file.as_deref(), stdin.map(Cursor::new))?;
+        let buffer = launch::buffer(&args, stdin.map(Cursor::new))?;
         let mut editor = Editor::new(buffer).with_desktop(self.pasteboard.clone());
         self.size = DEFAULT_SIZE;
         self.frames = Frames::default();
@@ -177,9 +177,19 @@ enum Stage {
     Exited(Outcome),
 }
 
-/// Runs `script` against a fresh headless editor and returns its snapshots,
-/// in order. An error names the line it happened on.
-pub fn run(script: &str) -> Result<Vec<Snapshot>> {
+/// How a run ended.
+#[derive(Debug)]
+pub enum Run {
+    /// Through to the end, with its snapshots in order.
+    Done(Vec<Snapshot>),
+    /// Stopped at a `%grammar` line: this build has no grammar of the
+    /// language named, and what the frames show depends on it.
+    Skipped(&'static str),
+}
+
+/// Runs `script` against a fresh headless editor. An error names the line
+/// it happened on.
+pub fn run(script: &str) -> Result<Run> {
     let workdir = Workdir::enter()?;
     let mut sandbox = Sandbox::new();
     let mut stage = Stage::Before;
@@ -235,7 +245,7 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
             }
             Instruction::Grammar(language) => {
                 if !syntax::has_grammar(language) {
-                    bail!("{}: this build has no {} grammar", at(), language.name);
+                    return Ok(Run::Skipped(language.name));
                 }
                 continue;
             }
@@ -293,7 +303,7 @@ pub fn run(script: &str) -> Result<Vec<Snapshot>> {
             | Instruction::Grammar(_) => unreachable!("the run's own lines are done above"),
         }
     }
-    Ok(snapshots)
+    Ok(Run::Done(snapshots))
 }
 
 /// The fake desktop clipboard. The sandbox shares it with the editor to
@@ -372,9 +382,17 @@ impl Drop for Workdir {
 mod tests {
     use super::*;
 
+    /// The snapshots of a run that has no `%grammar` to stop at.
+    fn snapshots(script: &str) -> Vec<Snapshot> {
+        match run(script).unwrap() {
+            Run::Done(snapshots) => snapshots,
+            Run::Skipped(name) => panic!("skipped for want of the {name} grammar"),
+        }
+    }
+
     #[test]
     fn a_run_answers_each_snapshot_and_names_the_line_of_an_error() {
-        let shown = run("size 6 2\ntype \"ab\"\n--- typed\n\n---\n").unwrap();
+        let shown = snapshots("size 6 2\ntype \"ab\"\n--- typed\n\n---\n");
         assert_eq!(shown[0].caption, "typed");
         assert_eq!(shown[0].frame, "0|1 ab\n |----^-\n1| …1:3\n");
         assert_eq!(shown[1].frame, "same\n");
@@ -387,7 +405,7 @@ mod tests {
     /// while it lasts, and what one writes the other never sees.
     #[test]
     fn runs_in_one_process_do_not_share_the_directory() {
-        let first = run("%file a.txt \"a\"\n").unwrap();
+        let first = snapshots("%file a.txt \"a\"\n");
         assert!(first.is_empty());
         assert!(!PathBuf::from("a.txt").exists());
 
@@ -401,14 +419,14 @@ mod tests {
     /// gave before it is the pipe. Afterwards neither has a place.
     #[test]
     fn start_takes_the_command_line_and_stdin_the_pipe() {
-        let shown = run("%stdin \"piped\"\n%start\nsize 36 2\n---\n").unwrap();
+        let shown = snapshots("%stdin \"piped\"\n%start\nsize 36 2\n---\n");
         assert_eq!(
             shown[0].frame,
             "0|1 piped\n |--^---------------------------------\n1|     [stdin] · Text · 1 lines · 1:1\n"
         );
 
         let shown =
-            run("%file a.txt \"filed\"\n%stdin \"piped\"\n%start a.txt\nsize 30 2\n---\n").unwrap();
+            snapshots("%file a.txt \"filed\"\n%stdin \"piped\"\n%start a.txt\nsize 30 2\n---\n");
         assert!(shown[0].frame.contains("filed"), "{}", shown[0].frame);
 
         // `size` is the editor's line, so it starts the editor like any
@@ -444,10 +462,10 @@ mod tests {
             "type \"a\"\n",
             "?exit 1\n",
         );
-        assert!(run(script).unwrap().is_empty());
+        assert!(snapshots(script).is_empty());
 
         let piped = "%stdin \"in\"\ntype \"x\"\nkey Ctrl+S\nkey Ctrl+Q\n?exit 0\n?stdout \"xin\"\n";
-        assert!(run(piped).unwrap().is_empty());
+        assert!(snapshots(piped).is_empty());
 
         for (script, error) in [
             (
@@ -484,7 +502,7 @@ mod tests {
     /// to take a line, only `?exit` and `?stdout` to say how it ended.
     #[test]
     fn an_exit_ends_the_run() {
-        run("%stdin \"in\"\nkey Ctrl+Shift+Q\n?exit 1\n?stdout \"\"\n").unwrap();
+        snapshots("%stdin \"in\"\nkey Ctrl+Shift+Q\n?exit 1\n?stdout \"\"\n");
 
         for script in [
             "key Ctrl+Q\n--- gone\n",
@@ -499,10 +517,9 @@ mod tests {
         // The run goes on without an editor: a file is written, and
         // `%start` starts another, which begins as the first did, with the
         // default frame and a whole first snapshot.
-        let shown = run(
+        let shown = snapshots(
             "%file a.txt \"kept\"\nsize 6 2\ntype \"x\"\n---\n\nkey Ctrl+Shift+Q\ntype \"a\"\n?exit 1\n%file b.txt \"b\"\n%start a.txt\n---\n",
-        )
-        .unwrap();
+        );
         // Whole, and the default ten rows: the eight blank ones are listed.
         assert!(
             shown[1].frame.starts_with("0|1 kept\n"),
@@ -518,10 +535,9 @@ mod tests {
     /// first line of a run would.
     #[test]
     fn reset_takes_the_run_back_to_before_anything() {
-        let shown = run(
+        let shown = snapshots(
             "%file a.txt \"a\"\n%stdin \"piped\"\ntype \"x\"\n%reset\nsize 60 2\nkey Ctrl+O\ntype \"a.txt\"\nkey Enter\n---\n\nkey Ctrl+Q\n%reset\n%reset\ntype \"y\"\n---\n",
-        )
-        .unwrap();
+        );
         assert!(shown[0].frame.starts_with("0|1\n"), "{}", shown[0].frame);
         assert!(
             shown[0].frame.contains("cannot read a.txt"),

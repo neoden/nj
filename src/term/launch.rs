@@ -9,13 +9,17 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 
 use crate::buffer::Buffer;
+use crate::buffer::language::{self, Language};
 use crate::editor::{Editor, Exit};
 
-/// `nj [--socket PATH] [FILE]`.
+/// `nj [--socket PATH] [--language NAME] [FILE]`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Args {
     pub file: Option<String>,
     pub socket: Option<PathBuf>,
+    /// The language to edit in, over what the file's name says: a pipe
+    /// has no name to say it.
+    pub language: Option<&'static Language>,
 }
 
 /// Reads the command line, given without the program's own name.
@@ -27,6 +31,12 @@ pub fn args(arguments: impl IntoIterator<Item = String>) -> Result<Args> {
             "--socket" => {
                 let path = rest.next().context("--socket takes a path")?;
                 args.socket = Some(PathBuf::from(path));
+            }
+            "--language" => {
+                let name = rest.next().context("--language takes a language's name")?;
+                let language = language::by_name(&name)
+                    .with_context(|| format!("no language is called `{name}`"))?;
+                args.language = Some(language);
             }
             flag if flag.starts_with("--") => bail!("unknown option `{flag}`"),
             path => match args.file {
@@ -40,13 +50,20 @@ pub fn args(arguments: impl IntoIterator<Item = String>) -> Result<Args> {
 
 /// The buffer the editor starts with: the file named, else what is piped
 /// in, else nothing. A path wins over a pipe: `nj file < input` edits the
-/// file.
-pub fn buffer(file: Option<&str>, pipe: Option<impl Read>) -> Result<Buffer> {
-    match (file, pipe) {
-        (Some(path), _) => Buffer::open_or_new(path),
-        (None, Some(pipe)) => Buffer::from_pipe(pipe),
-        (None, None) => Ok(Buffer::default()),
+/// file. A file is opened in the language asked for, if any; a pipe and
+/// nothing have no name to tell one from, and are plain text unless asked.
+pub fn buffer(args: &Args, pipe: Option<impl Read>) -> Result<Buffer> {
+    if let Some(path) = args.file.as_deref() {
+        return Buffer::open_or_new(path, args.language);
     }
+    let mut buffer = match pipe {
+        Some(pipe) => Buffer::from_pipe(pipe)?,
+        None => Buffer::default(),
+    };
+    if let Some(language) = args.language {
+        buffer.set_language(language);
+    }
+    Ok(buffer)
 }
 
 /// How the process ends once the editor has exited: its exit code, with

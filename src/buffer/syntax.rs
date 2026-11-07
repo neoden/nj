@@ -13,14 +13,21 @@ use super::language::Language;
 use crate::text::Text;
 use crate::text::transaction::Change;
 
-/// The grammar for a language and its highlight query, by name. Linked in
-/// for now; loaded from files, they would be found the same way.
+/// The grammar for a language, from its crate, and the highlight query
+/// for it, from `queries`: the crates' own queries do not agree on which
+/// of two patterns naming a node wins. Linked in for now; loaded from
+/// files, they would be found the same way.
 fn grammar(language: &Language) -> Option<(tree_sitter::Language, &'static str)> {
     match language.name {
         #[cfg(feature = "rust")]
         "Rust" => Some((
             tree_sitter_rust::LANGUAGE.into(),
-            tree_sitter_rust::HIGHLIGHTS_QUERY,
+            include_str!("../../queries/rust/highlights.scm"),
+        )),
+        #[cfg(feature = "python")]
+        "Python" => Some((
+            tree_sitter_python::LANGUAGE.into(),
+            include_str!("../../queries/python/highlights.scm"),
         )),
         _ => None,
     }
@@ -55,8 +62,14 @@ impl Syntax {
         parser
             .set_language(&grammar)
             .expect("a grammar linked in matches the runtime it is linked with");
-        let query = Query::new(&grammar, highlights)
-            .expect("a query linked in names the nodes of the grammar it came with");
+        // Both are linked in, and tests/highlights loads every query of the
+        // build: one that does not fit is a bug of the build.
+        let query = Query::new(&grammar, highlights).unwrap_or_else(|error| {
+            panic!(
+                "the {} query does not fit its grammar: {error}",
+                language.name
+            )
+        });
         let tree = parse(&mut parser, text, None);
         Some(Self {
             parser,
@@ -307,20 +320,6 @@ mod rust_tests {
             .iter()
             .find(|token| token.range == (at..at + word.len()))
             .cloned()
-    }
-
-    #[test]
-    fn the_query_names_the_tokens() {
-        let buffer = rust_buffer("fn main() {\n    let s = \"hi\";\n}\n");
-        let syntax = buffer.syntax().unwrap();
-        let tokens = syntax.tokens(buffer.text(), 0..buffer.text().len());
-
-        let name = |word| token_of(&buffer, &tokens, word).map(|token| token.name);
-        assert_eq!(name("fn"), Some("keyword"));
-        assert_eq!(name("main"), Some("function"));
-        assert_eq!(name("let"), Some("keyword"));
-        assert_eq!(name("\"hi\""), Some("string"));
-        assert_eq!(name("s"), None);
     }
 
     #[test]
