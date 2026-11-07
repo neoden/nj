@@ -51,3 +51,35 @@
   ^^^^^^^^ diff.minus
 > +new = 2
   ^^^^^^^^ diff.plus
+
+# A merge's message as git writes it: the subject a heading, the help a
+# comment
+> Merge branch 'feature'
+  ^^^^^^^^^^^^^^^^^^^^^^ markup.heading
+> # Please enter a commit message to explain why this merge is necessary,
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
+
+# A squash's message: the commands done are a rebase's, in the comments
+> # This is a combination of 2 commits.
+> # This is the 1st commit message:
+>
+> second
+  ^^^^^^ markup.heading
+>
+> # This is the commit message #2:
+>
+> # fixup! second
+>
+> # Please enter the commit message for your changes. Lines starting
+> # with '#' will be ignored, and an empty message aborts the commit.
+> #
+> # interactive rebase in progress; onto ec3b0de
+                                         ^^^^^^^ constant
+> # Last commands done (2 commands done):
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ markup.heading
+> #    pick 0e0be44 # second
+       ^^^^ keyword
+            ^^^^^^^ constant.builtin
+> #    squash c2af15e # fixup! second
+       ^^^^^^ keyword
+> # No commands remaining.

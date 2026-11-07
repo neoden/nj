@@ -45,3 +45,39 @@
 # git's comments
 > # Rebase 1a2b3c4..6b7c8d9 onto 1a2b3c4 (8 commands)
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
+
+# The short forms of the commands; a full hash; git 2.55 writes the
+# subject after a `#`
+> p 0e0be44 # short pick
+  ^ keyword
+    ^^^^^^^ constant.builtin
+            ^^^^^^^^^^^^ comment
+> d 5e6f7a8 # drop
+  ^ keyword
+> pick 0e0be4400000000000000000000000000000000 # full hash
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ constant.builtin
+
+# A label made and reset to; a break; what `exec` runs, with a pipe
+> l onto
+  ^ function
+    ^^^^ constant
+> t onto
+  ^ function
+> b
+  ^ keyword
+> x make test | tee log.txt && echo "done ok"
+  ^ keyword
+    ^^^^ function
+                ^^^ function
+                               ^^^^ function.builtin
+                                    ^^^^^^^^^ string
+
+# A ref moved where the rebase has got, in both forms; a list of nothing
+> u refs/heads/topic
+  ^ keyword
+    ^^^^^^^^^^^^^^^^ constant
+> update-ref refs/heads/other
+  ^^^^^^^^^^ keyword
+             ^^^^^^^^^^^^^^^^ constant
+> noop
+  ^^^^ keyword

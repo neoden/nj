@@ -44,6 +44,17 @@
   (message) @string)
  (#match? @keyword "^(m|merge)$"))
 
+; Added: the commands upstream leaves out. `update-ref` moves a branch to
+; where the rebase has got, `u refs/heads/topic`, the ref a label of
+; git's own; git writes these lines itself under `--update-refs`. `noop`
+; is a list with nothing to do.
+(((command) @keyword
+  (label) @constant)
+ (#match? @keyword "^(u|update-ref)$"))
+
+((command) @keyword
+ (#eq? @keyword "noop"))
+
 (option) @operator
 
 (comment) @comment
