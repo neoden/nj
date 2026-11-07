@@ -85,7 +85,7 @@ const LINKED: &[Linked] = &[
     Linked {
         name: "markdown_inline",
         language: || tree_sitter_md::INLINE_LANGUAGE.into(),
-        highlights: &[include_str!("../../queries/markdown_inline/highlights.scm")],
+        highlights: &[include_str!("../../queries/markdown/inline-highlights.scm")],
         injections: None,
     },
     #[cfg(feature = "python")]
