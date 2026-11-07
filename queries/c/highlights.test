@@ -1,0 +1,83 @@
+%language C
+
+# The directives are keywords and the header a string; a macro's name is
+# a constant or a macro
+> #include <stdio.h>
+  ^^^^^^^^ keyword
+           ^^^^^^^^^ string
+> #define BUF_SIZE 64
+  ^^^^^^^ keyword
+          ^^^^^^^^ constant
+
+# A macro's body is read as C, though it is raw text to the grammar
+> #define BUF_SIZE 64
+                   ^^ number
+> #define MAX(a, b) ((a) > (b) ? (a) : (b))
+          ^^^ function.macro
+              ^ variable
+                      ^ variable
+                         ^ operator
+> #define LOG(msg) fprintf(stderr, "%s\n", msg)
+                   ^^^^^^^ function
+                                      ^^ escape
+
+# The text after `#error` is not C, and stays plain
+> #error need a C99 compiler
+         ^^^^^^^^^^^^^^^^^^^ -
+
+# The language's own types, a definition, a call; a macro used reads as a
+# function or a constant, by its look
+> static unsigned long count(const char *s) {
+  ^^^^^^ keyword
+         ^^^^^^^^^^^^^ type.builtin
+                       ^^^^^ function
+                             ^^^^^ keyword
+                                   ^^^^ type.builtin
+                                         ^ variable
+>     return strlen(s) + MAX(1, BUF_SIZE);
+      ^^^^^^ keyword
+             ^^^^^^ function
+                    ^ variable
+                         ^^^ function
+                                ^^^^^^^^ constant
+> }
+
+# A field is a property, a call through one a function; `NULL`, `true`
+# and `false` are the language's
+> void f(struct node *p) {
+         ^^^^^^ keyword
+                ^^^^ type
+>     p->next = NULL;
+      ^ variable
+       ^^ operator
+         ^^^^ property
+                ^^^^ constant.builtin
+>     p->ops.run(true, false);
+             ^^^ function
+                 ^^^^ constant.builtin
+                       ^^^^^ constant.builtin
+> }
+
+# A character is a string, with its escapes as in a string
+> char c = '\n', *t = "a\tb";
+           ^ string
+            ^^ escape
+              ^ string
+                      ^^ string
+                        ^^ escape
+                          ^^ string
+
+# A label, where it stands and where `goto` names it
+> void f(void) {
+> again:
+  ^^^^^ label
+>     goto again;
+      ^^^^ keyword
+           ^^^^^ label
+> }
+
+# Comments of both kinds
+> int x = 1; // why
+             ^^^^^^ comment
+> /* block */
+  ^^^^^^^^^^^ comment

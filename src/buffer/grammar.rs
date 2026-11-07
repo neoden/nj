@@ -28,6 +28,13 @@ struct Linked {
 
 /// Every grammar of the build, each by a feature of its own.
 const LINKED: &[Linked] = &[
+    #[cfg(feature = "c")]
+    Linked {
+        name: "C",
+        language: || tree_sitter_c::LANGUAGE.into(),
+        highlights: include_str!("../../queries/c/highlights.scm"),
+        injections: Some(include_str!("../../queries/c/injections.scm")),
+    },
     #[cfg(feature = "go")]
     Linked {
         name: "Go",
