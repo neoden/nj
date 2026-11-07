@@ -81,11 +81,19 @@ pub const LANGUAGES: &[Language] = &[
     },
     Language {
         name: "CSS",
-        extensions: &["css", "scss"],
+        extensions: &["css"],
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
         line_comment: None,
+    },
+    Language {
+        name: "SCSS",
+        extensions: &["scss"],
+        filenames: &[],
+        indent: Indent::Spaces(2),
+        tab_width: 2,
+        line_comment: Some("//"),
     },
     Language {
         name: "JSON",
@@ -222,6 +230,8 @@ mod tests {
         assert_eq!(detect_name("src/main.rs"), "Rust");
         assert_eq!(detect_name("/tmp/a/b/script.py"), "Python");
         assert_eq!(detect_name("Cargo.toml"), "TOML");
+        assert_eq!(detect_name("site.css"), "CSS");
+        assert_eq!(detect_name("site.scss"), "SCSS");
     }
 
     #[test]

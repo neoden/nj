@@ -1,0 +1,75 @@
+%language SCSS
+
+# CSS's rules hold: a class a type, a property, numbers with units
+> .a { color: red; width: 10px; }
+   ^ type
+       ^^^^^ property
+                          ^^ number
+                            ^^ type
+
+# A variable is a variable where it is declared and where it is used; a
+# module used is a string
+> @use "sass:math";
+  ^^^^ keyword
+       ^^^^^^^^^^^ string
+> $primary: #333 !default;
+  ^^^^^^^^ variable
+            ^^^^ string.special
+> .b { color: $primary; }
+              ^^^^^^^^ variable
+
+# Nesting with `&`, its suffixes and pseudo-classes
+> .card { &__title { font-size: 2rem; } &:hover { opacity: .5; } }
+   ^^^^ type
+          ^ tag
+                                          ^^^^^ attribute
+
+# A mixin and a function: their names functions where they are defined
+# and used, their parameters parameters
+> @mixin flex($dir: row) { display: flex; }
+  ^^^^^^ keyword
+         ^^^^ function
+              ^^^^ variable.parameter
+                                    ^^^^ -
+> .c { @include flex(column); }
+       ^^^^^^^^ keyword.import
+                ^^^^ function
+> @function double($n) { @return $n * 2; }
+  ^^^^^^^^^ keyword.function
+            ^^^^^^ function
+                   ^^ variable.parameter
+                         ^^^^^^^ keyword.return
+
+# Conditions and loops, and the words in them
+> @if $a == 1 { x: y } @else if $a != 2 { x: z } @else { x: w }
+  ^^^ keyword
+         ^^ operator
+                       ^^^^^ keyword
+   ^^ keyword
+                                   ^^ operator
+> @each $item in $list {}
+  ^^^^^ keyword.repeat
+              ^^ keyword.repeat
+> @for $i from 1 through 3 {}
+  ^^^^ keyword.repeat
+          ^^^^ keyword.repeat
+                 ^^^^^^^ keyword.repeat
+
+# A placeholder is a type where it is defined and where it is extended
+> %button { padding: 0; }
+  ^^^^^^^ type
+> .d { @extend %button; }
+       ^^^^^^^ keyword
+               ^^^^^^^ type
+
+# Interpolation is read in a value. In a string it is part of the string,
+# and in a selector the grammar reads it one way at the top and another
+# inside a rule, so no example holds it there.
+> .e { width: calc(#{$w} - 1px); }
+                     ^^ variable
+
+# Comments of both kinds
+> // line comment
+  ^^^^^^^^^^^^^^^ comment
+> /* block */
+  ^^^^^^^^^^^ comment

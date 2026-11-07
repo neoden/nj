@@ -30,9 +30,9 @@ wait
 
 --- the language list in its place, the palette gone
  2|────────────────────────────────────────
- 3|   YAML
- 4|   TOML
- 5|   JSON
+ 3|   TOML
+ 4|   JSON
+ 5|   SCSS
  6|   HTML
  7|   Python
  8|   Rust
@@ -43,7 +43,7 @@ wait
   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 13| >
   |   ^
-15| 16/16 …ratch]* · Text · 1 lines · 1:13
+15| 17/17 …ratch]* · Text · 1 lines · 1:13
 
 type "ru"
 
@@ -54,7 +54,7 @@ type "ru"
   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 13| > ru
   |     ^
-15| 1/16 …cratch]* · Text · 1 lines · 1:13
+15| 1/17 …cratch]* · Text · 1 lines · 1:13
 
 key Enter
 

@@ -53,7 +53,10 @@ const LINKED: &[Linked] = &[
     Linked {
         name: "CSS",
         language: || tree_sitter_css::LANGUAGE.into(),
-        highlights: &[include_str!("../../queries/css/highlights.scm")],
+        highlights: &[
+            include_str!("../../queries/css/highlights.scm"),
+            include_str!("../../queries/css/css-only.scm"),
+        ],
         injections: None,
     },
     #[cfg(feature = "go")]
@@ -97,6 +100,18 @@ const LINKED: &[Linked] = &[
         name: "Rust",
         language: || tree_sitter_rust::LANGUAGE.into(),
         highlights: &[include_str!("../../queries/rust/highlights.scm")],
+        injections: None,
+    },
+    // CSS's patterns hold in SCSS too, but for the few in `css-only.scm`,
+    // whose nodes its older grammar does not have.
+    #[cfg(feature = "scss")]
+    Linked {
+        name: "SCSS",
+        language: tree_sitter_scss::language,
+        highlights: &[
+            include_str!("../../queries/css/highlights.scm"),
+            include_str!("../../queries/scss/highlights.scm"),
+        ],
         injections: None,
     },
     #[cfg(feature = "shell")]

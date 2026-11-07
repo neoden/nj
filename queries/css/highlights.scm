@@ -1,5 +1,6 @@
 ; CSS's highlights, after the query of tree-sitter-css 0.25.0 (MIT), with
-; the changes marked below. The last pattern that names a node wins, as in
+; the changes marked below. SCSS reads this query too, before its own;
+; what only CSS's grammar has is in `css-only.scm`. The last pattern that names a node wins, as in
 ; tree-sitter's own highlighter, so for any node the general patterns come
 ; first and the specific ones after them.
 
@@ -28,9 +29,7 @@
 "or" @operator
 "not" @operator
 "only" @operator
-; Added: the other words of a query, `of` in `:nth-child(2 of .x)` and
-; `selector` in `@supports selector(...)`.
-"of" @operator
+; Added: `selector` in `@supports selector(...)`.
 "selector" @operator
 
 (attribute_selector (plain_value) @string)
@@ -68,16 +67,12 @@
 "@namespace" @keyword
 "@supports" @keyword
 "@keyframes" @keyword
-; Added: the one at-rule upstream's list leaves out.
-"@scope" @keyword
 (at_keyword) @keyword
 (to) @keyword
 (from) @keyword
 (important) @keyword
 
 (string_value) @string
-; Added: an escape is a token of its own inside a string.
-(escape_sequence) @escape
 (color_value) @string.special
 
 (integer_value) @number
