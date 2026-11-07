@@ -94,6 +94,14 @@
 >     indented code
       ^^^^^^^^ markup.raw.block
 
+# A block of HTML is HTML
+> <div class="note">
+   ^^^ tag
+       ^^^^^ attribute
+             ^^^^^^ string
+> Text
+> </div>
+
 # The line between sections
 > ---
   ^^^ punctuation.special

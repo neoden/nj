@@ -1,0 +1,60 @@
+%language HTML
+
+# The doctype is a constant
+> <!DOCTYPE html>
+  ^^^^^^^^^^^^^^ constant
+
+# Tags and attributes; a value is a string with its quotes, quoted either
+# way or not at all; an entity is an escape, the text plain
+> <a href="/x" class='btn' data-id=42 disabled>Go &amp; see &#169;</a>
+   ^ tag
+     ^^^^ attribute
+          ^^^^ string
+                     ^^^^^ string
+                           ^^^^^^^ attribute
+                                   ^^ string
+                                      ^^^^^^^^ attribute
+                                               ^^ -
+                                                  ^^^^^ escape
+                                                            ^^^^^^ escape
+
+# Void and self-closing elements, custom ones, any case
+> <br><img src="a.png" alt=""/><my-widget size="2"></my-widget><DIV></DIV>
+   ^^ tag
+       ^^^ tag
+                           ^^ string
+                                ^^^^^^^^^ tag
+                                          ^^^^ attribute
+                                                                ^^^ tag
+
+# A comment
+> <!-- note -->
+  ^^^^^^^^^^^^^ comment
+
+# A script is JavaScript, a module too
+> <script>const x = 1; console.log(x);</script>
+   ^^^^^^ tag
+          ^^^^^ keyword
+                    ^ number
+                       ^^^^^^^ variable.builtin
+                               ^^^ function.method
+> <script type="module">import { a } from "./a.js";</script>
+                        ^^^^^^ keyword
+
+# A style is CSS
+> <style>.card > p { color: red; }</style>
+   ^^^^^ tag
+          ^^^^ type
+                 ^ tag
+                     ^^^^^ property
+
+# An event handler's value is JavaScript; another attribute's is a string
+> <button onclick="go(1)" title="go(1)">Go</button>
+          ^^^^^^^ attribute
+                   ^^ function
+                      ^ number
+                                ^^^^^^^ string
+
+# A closing tag that closes nothing open is an error's
+> <div></span></div>
+         ^^^^ tag.error

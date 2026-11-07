@@ -1,0 +1,29 @@
+%language TSX
+
+# TypeScript's patterns and JSX's together: typed parameters and generics,
+# tags and components
+> export function App({ title }: Props): JSX.Element {
+                  ^^^ function
+                        ^^^^^ variable.parameter
+                                 ^^^^^ type
+>   const [n, setN] = useState<number>(0);
+                      ^^^^^^^^ function
+                               ^^^^^^ type.builtin
+>   return <div className="app" onClick={() => setN(n + 1)}><Header title={title} /></div>;
+            ^^^ tag
+                ^^^^^^^^^ attribute
+                                               ^^^^ function
+                                                             ^^^^^^ constructor
+                                                                    ^^^^^ attribute
+                                                                                      ^^^ tag
+> }
+
+# A generic arrow takes a comma, `<T,>`, so as not to be a tag
+> const id = <T,>(x: T): T => x;
+              ^ type
+                  ^ variable.parameter
+
+# An enum, as in TypeScript
+> enum Mode { On }
+       ^^^^ type
+              ^^ constant

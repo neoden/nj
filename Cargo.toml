@@ -18,7 +18,8 @@ tree-sitter-c = { version = "0.24", optional = true }
 tree-sitter-cpp = { version = "0.23", optional = true }
 tree-sitter-css = { version = "0.25", optional = true }
 tree-sitter-go ={ version = "0.25", optional = true }
-tree-sitter-javascript = { version = "0.25", optional = true }
+tree-sitter-html = { version = "0.23", optional = true }
+tree-sitter-javascript ={ version = "0.25", optional = true }
 tree-sitter-json ={ version = "0.24", optional = true }
 tree-sitter-make = { version = "1.1", optional = true }
 tree-sitter-md = { version = "0.5", optional = true }
@@ -26,6 +27,7 @@ tree-sitter-python = { version = "0.25", optional = true }
 tree-sitter-rust = { version = "0.24", optional = true }
 tree-sitter-scss = { version = "1.0", optional = true }
 tree-sitter-toml-ng = { version = "0.7", optional = true }
+tree-sitter-typescript = { version = "0.23", optional = true }
 tree-sitter-yaml = { version = "0.7", optional = true }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
@@ -33,11 +35,12 @@ unicode-width = "0.2.2"
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["c", "cpp", "css", "go", "javascript", "json", "makefile", "markdown", "python", "rust", "scss", "shell", "toml", "yaml"]
+default = ["c", "cpp", "css", "go", "html", "javascript", "json", "makefile", "markdown", "python", "rust", "scss", "shell", "toml", "typescript", "yaml"]
 c = ["dep:tree-sitter-c"]
 cpp = ["dep:tree-sitter-cpp"]
 css = ["dep:tree-sitter-css"]
 go =["dep:tree-sitter-go"]
+html = ["dep:tree-sitter-html"]
 javascript = ["dep:tree-sitter-javascript"]
 json = ["dep:tree-sitter-json"]
 makefile = ["dep:tree-sitter-make"]
@@ -47,6 +50,8 @@ rust = ["dep:tree-sitter-rust"]
 scss = ["dep:tree-sitter-scss"]
 shell = ["dep:tree-sitter-bash"]
 toml = ["dep:tree-sitter-toml-ng"]
+# Both TypeScript and TSX, the two grammars of one crate.
+typescript = ["dep:tree-sitter-typescript"]
 yaml = ["dep:tree-sitter-yaml"]
 
 # Scenarios run one after another with their own `main` (ADR 25): a run owns

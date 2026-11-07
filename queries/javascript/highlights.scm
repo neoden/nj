@@ -1,8 +1,8 @@
 ; JavaScript's highlights, after the query of tree-sitter-javascript 0.25.0
-; (MIT), with the changes marked below. Its JSX and its parameters are in
-; files of their own, read after this one, as upstream has them:
-; TypeScript reads this one too, and its grammar has neither JSX nor the
-; same parameters. The last pattern that names a node wins, as in
+; (MIT), with the changes marked below. TypeScript and TSX read this one
+; too, before their own. JSX is in `jsx-highlights.scm`, which TypeScript's
+; grammar has not, and what only JavaScript's grammar has, its parameters
+; and its classes' names, in `javascript-only.scm`. The last pattern that names a node wins, as in
 ; tree-sitter's own highlighter, so for any node the general patterns
 ; come first and the specific ones after them.
 
@@ -28,13 +28,6 @@
   function: (member_expression
     property: [(property_identifier) (private_property_identifier)] @function.method))
 
-; Added: a decorator is a function, as Python's is: `@observable` and the
-; call in `@Component({...})`.
-(decorator (identifier) @function)
-(decorator
-  (call_expression
-    function: (identifier) @function))
-
 ; Special identifiers
 ;--------------------
 
@@ -49,13 +42,6 @@
     (shorthand_property_identifier_pattern)
  ] @constant
  (#match? @constant "^[A-Z_][A-Z\\d_]*$"))
-
-; Added: a class's name where it is declared, whatever its case, as it is
-; where it is used with a capital.
-(class_declaration
-  name: (identifier) @type)
-(class
-  name: (identifier) @type)
 
 ; Function and method definitions
 ;--------------------------------
@@ -88,6 +74,13 @@
 (assignment_expression
   left: (identifier) @function
   right: [(function_expression) (arrow_function)])
+
+; Added: a decorator is a function, as Python's is, whatever its name:
+; `@observable` and the call in `@Component({...})`.
+(decorator (identifier) @function)
+(decorator
+  (call_expression
+    function: (identifier) @function))
 
 ; Changed: upstream adds `(#is-not? local)` to these two, for a highlighter
 ; that tracks local names, which this one does not: a local `console`

@@ -65,7 +65,17 @@ pub const LANGUAGES: &[Language] = &[
     },
     Language {
         name: "TypeScript",
-        extensions: &["ts", "tsx"],
+        extensions: &["ts", "mts", "cts"],
+        filenames: &[],
+        indent: Indent::Spaces(2),
+        tab_width: 2,
+        line_comment: Some("//"),
+    },
+    Language {
+        // TypeScript with JSX, which a grammar of its own reads: `<T>x` is
+        // a cast in TypeScript and a tag here.
+        name: "TSX",
+        extensions: &["tsx"],
         filenames: &[],
         indent: Indent::Spaces(2),
         tab_width: 2,
@@ -232,6 +242,8 @@ mod tests {
         assert_eq!(detect_name("Cargo.toml"), "TOML");
         assert_eq!(detect_name("site.css"), "CSS");
         assert_eq!(detect_name("site.scss"), "SCSS");
+        assert_eq!(detect_name("app.ts"), "TypeScript");
+        assert_eq!(detect_name("app.tsx"), "TSX");
     }
 
     #[test]

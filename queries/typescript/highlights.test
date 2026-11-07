@@ -1,0 +1,126 @@
+%language TypeScript
+
+# The language's own types, `void` among them though JavaScript has the
+# word as a keyword; a type's name, generic or not
+> let n: number, s: string, u: unknown, v: void, x: never, o: object;
+         ^^^^^^ type.builtin
+                    ^^^^^^ type.builtin
+                               ^^^^^^^ type.builtin
+                                           ^^^^ type.builtin
+                                                    ^^^^^ type.builtin
+                                                              ^^^^^^ type.builtin
+> const list: Array<User> = []; void 0;
+              ^^^^^ type
+                    ^^^^ type
+                                ^^^^ keyword
+
+# An interface: its members properties and methods
+> interface Shape extends Base { readonly name: string; area(): number; size?: number; }
+  ^^^^^^^^^ keyword
+            ^^^^^ type
+                  ^^^^^^^ keyword
+                          ^^^^ type
+                                 ^^^^^^^^ keyword
+                                          ^^^^ property
+                                                        ^^^^ function.method
+                                                                        ^^^^ property
+
+# Type aliases and the words of types
+> type Id = string | number;
+  ^^^^ keyword
+       ^^ type
+> type Keys = keyof typeof obj;
+              ^^^^^ keyword
+                    ^^^^^^ keyword
+> type Elem<T> = T extends Array<infer U> ? U : never;
+       ^^^^ type
+            ^ type
+                                 ^^^^^ keyword
+                                       ^ type
+> type Lit = "a" | "b";
+             ^^^ string
+
+# A generic function and a call of one
+> function first<T extends object>(xs: T[], fallback?: T): T { return xs[0] ?? fallback!; }
+           ^^^^^ function
+                 ^ type
+                                   ^^ variable.parameter
+                                            ^^^^^^^^ variable.parameter
+> const r = first<number>([1]);
+            ^^^^^ function
+                  ^^^^^^ type.builtin
+
+# Parameters of every form; a default's value is not one
+> function f(a = b, { c, d = 1 }: Opts, [e]: number[], ...rest: string[]) {}
+             ^ variable.parameter
+                 ^ variable
+                      ^ variable.parameter
+                         ^ variable.parameter
+                                  ^^^^ type
+                                         ^ variable.parameter
+                                                          ^^^^ variable.parameter
+
+# An enum's members are constants; a namespace is a module
+> enum Color { Red, Green = 2 }
+  ^^^^ keyword
+       ^^^^^ type
+               ^^^ constant
+                    ^^^^^ constant
+> namespace Shapes.Util { export const k = 1; }
+  ^^^^^^^^^ keyword
+            ^^^^^^ module
+                   ^^^^ module
+> declare module "lib" {}
+  ^^^^^^^ keyword
+          ^^^^^^ keyword
+                 ^^^^^ string
+> declare global { interface Window {} }
+          ^^^^^^ keyword
+
+# A class with its modifiers; `this` as a type
+> abstract class Animal implements Named {
+  ^^^^^^^^ keyword
+                 ^^^^^^ type
+                        ^^^^^^^^^^ keyword
+                                   ^^^^^ type
+>   private readonly id: number;
+    ^^^^^^^ keyword
+            ^^^^^^^^ keyword
+                     ^^ property
+>   constructor(public name: string) { super(); }
+    ^^^^^^^^^^^ function.method
+                ^^^^^^ keyword
+                       ^^^^ variable.parameter
+>   abstract speak(): void;
+             ^^^^^ function.method
+>   protected override move(): this { return this; }
+    ^^^^^^^^^ keyword
+              ^^^^^^^^ keyword
+                       ^^^^ function.method
+                               ^^^^ type.builtin
+                                             ^^^^ variable.builtin
+> }
+
+# An overload, a type predicate, an assertion
+> function parse(x: string): number;
+           ^^^^^ function
+> function isStr(x: unknown): x is string { return true; }
+                                ^^ keyword
+> function check(x: unknown): asserts x is string {}
+                              ^^^^^^^ keyword
+
+# Casts both ways, `satisfies`, `import type`
+> const a = <number>value, b = value as number, c = cfg satisfies Config;
+             ^^^^^^ type.builtin
+                                     ^^ keyword
+                                                        ^^^^^^^^^ keyword
+                                                                  ^^^^^^ type
+> import type { User } from "./user";
+         ^^^^ keyword
+
+# A decorator is a function whatever its name, a function declared too
+> @Component({ selector: "app" }) class AppComponent {}
+   ^^^^^^^^^ function
+                                        ^^^^^^^^^^^^ type
+> export function App(): JSX.Element { return null; }
+                  ^^^ function

@@ -1,8 +1,10 @@
-; JavaScript's parameters where they are declared, after the query of
-; tree-sitter-javascript 0.25.0 (MIT), with the change marked below. Read
-; after `highlights.scm` and `jsx-highlights.scm`, by JavaScript alone:
-; TypeScript's parameters are built otherwise.
+; The patterns of JavaScript's highlights that TypeScript cannot share:
+; its grammar builds a parameter otherwise and names a class with a
+; `type_identifier`, which its own query names a type. Read after
+; `highlights.scm` and `jsx-highlights.scm`, by JavaScript alone.
 
+; JavaScript's parameters where they are declared, after the query of
+; tree-sitter-javascript 0.25.0 (MIT), its `highlights-params.scm`.
 (formal_parameters
   [
     (identifier) @variable.parameter
@@ -30,3 +32,10 @@
       (identifier) @variable.parameter)
   ]
 )
+
+; Added: a class's name where it is declared, whatever its case, as it is
+; where it is used with a capital.
+(class_declaration
+  name: (identifier) @type)
+(class
+  name: (identifier) @type)

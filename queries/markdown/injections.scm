@@ -1,5 +1,4 @@
 ; Markdown's injections, after the query of tree-sitter-md 0.5.4 (MIT).
-; The HTML is not read yet.
 
 (fenced_code_block
   (info_string
@@ -14,6 +13,10 @@
 
 ((plus_metadata) @injection.content
   (#set! injection.language "toml"))
+
+; A block of HTML, a `<div>` on lines of its own.
+((html_block) @injection.content
+  (#set! injection.language "html"))
 
 ((inline) @injection.content
  (#set! injection.language "markdown_inline"))

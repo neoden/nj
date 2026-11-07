@@ -66,6 +66,13 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/go/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "html")]
+    Linked {
+        name: "HTML",
+        language: || tree_sitter_html::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/html/highlights.scm")],
+        injections: Some(include_str!("../../queries/html/injections.scm")),
+    },
     #[cfg(feature = "javascript")]
     Linked {
         name: "JavaScript",
@@ -73,7 +80,7 @@ const LINKED: &[Linked] = &[
         highlights: &[
             include_str!("../../queries/javascript/highlights.scm"),
             include_str!("../../queries/javascript/jsx-highlights.scm"),
-            include_str!("../../queries/javascript/params-highlights.scm"),
+            include_str!("../../queries/javascript/javascript-only.scm"),
         ],
         injections: Some(include_str!("../../queries/javascript/injections.scm")),
     },
@@ -145,6 +152,29 @@ const LINKED: &[Linked] = &[
         language: || tree_sitter_toml_ng::LANGUAGE.into(),
         highlights: &[include_str!("../../queries/toml/highlights.scm")],
         injections: None,
+    },
+    // TypeScript grows from JavaScript, as C++ from C. TSX is the same with
+    // JSX, which costs it `<T>x`, so it is a grammar of its own.
+    #[cfg(feature = "typescript")]
+    Linked {
+        name: "TypeScript",
+        language: || tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        highlights: &[
+            include_str!("../../queries/javascript/highlights.scm"),
+            include_str!("../../queries/typescript/highlights.scm"),
+        ],
+        injections: Some(include_str!("../../queries/javascript/injections.scm")),
+    },
+    #[cfg(feature = "typescript")]
+    Linked {
+        name: "TSX",
+        language: || tree_sitter_typescript::LANGUAGE_TSX.into(),
+        highlights: &[
+            include_str!("../../queries/javascript/highlights.scm"),
+            include_str!("../../queries/javascript/jsx-highlights.scm"),
+            include_str!("../../queries/typescript/highlights.scm"),
+        ],
+        injections: Some(include_str!("../../queries/javascript/injections.scm")),
     },
     #[cfg(feature = "yaml")]
     Linked {
