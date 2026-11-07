@@ -183,6 +183,16 @@
       ^^^^^ function.builtin
             ^^^^^^^^ variable.builtin
 
+# A name declared is what it declares, whatever its look; used, its look
+# decides
+> def Factory(): pass
+      ^^^^^^^ function
+> class HTTP: pass
+        ^^^^ type
+> x = Factory() + HTTP.code
+      ^^^^^^^ type
+                  ^^^^ constant
+
 # Operators spelt as signs
 > y = a @ b; y @= c; z := 1
         ^ operator

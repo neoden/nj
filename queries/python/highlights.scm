@@ -51,15 +51,6 @@
    @function.builtin
    "^(abs|all|any|ascii|bin|bool|breakpoint|bytearray|bytes|callable|chr|classmethod|compile|complex|delattr|dict|dir|divmod|enumerate|eval|exec|filter|float|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|int|isinstance|issubclass|iter|len|list|locals|map|max|memoryview|min|next|object|oct|open|ord|pow|print|property|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|str|sum|super|tuple|type|vars|zip|__import__)$"))
 
-; Function definitions
-
-(function_definition
-  name: (identifier) @function)
-
-; Added: the name in a class definition.
-(class_definition
-  name: (identifier) @type)
-
 ; Identifier naming conventions
 ; Changed: upstream has these before the calls, so that `Greeter()`, which
 ; makes a `Greeter`, is a function. Here a name's look has the last word
@@ -83,6 +74,19 @@
 ; Added: the types listed in an annotation, `int` in `Callable[[int],
 ; str]`.
 (type (list (identifier) @type))
+
+; Function definitions
+
+; Changed: upstream has the function's name before the conventions, so
+; that `def Foo():` is a class by its capital, and `class HTTP:` a
+; constant by its capitals. A name declared is what it declares, whatever
+; its look; used, its look decides, as JavaScript's query has it.
+(function_definition
+  name: (identifier) @function)
+
+; Added: the name in a class definition.
+(class_definition
+  name: (identifier) @type)
 
 ; Added: a module where an import names it, after the conventions so that
 ; `PIL` is a module, not a constant. What `from` brings in is left alone:
