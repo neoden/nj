@@ -16,14 +16,44 @@
 ; not told from a variable.
 (package_identifier) @module
 
+; Added: a type parameter is a type where it is declared, as it is where
+; it is used: `T` in `func Map[T any](xs []T)`.
+(type_parameter_declaration
+  name: (identifier) @type)
+
+; Added: a constant where it is declared, `MaxSize` in `const MaxSize =
+; 10`; Go does not spell constants in capitals, so their look does not
+; tell. Used later it is a name like any other.
+(const_spec
+  name: (identifier) @constant)
+
+; Added: a key in a composite literal is a field, `cfg` in `App{cfg: c}`.
+; In a map's literal, `M{k: v}`, it is a variable, and the grammar cannot
+; tell the two apart when the type is a name; a struct is the likelier.
+(keyed_element
+  key: (literal_element
+    (identifier) @property))
+
+; Added: a label, where it stands and where `break` or `goto` names it.
+(label_name) @label
+
 ; Function calls
 
 (call_expression
   function: (identifier) @function)
 
+; Changed: upstream's list stops before Go 1.21, which added `clear`,
+; `max` and `min`.
 (call_expression
   function: (identifier) @function.builtin
-  (#match? @function.builtin "^(append|cap|close|complex|copy|delete|imag|len|make|new|panic|print|println|real|recover)$"))
+  (#match? @function.builtin "^(append|cap|clear|close|complex|copy|delete|imag|len|make|max|min|new|panic|print|println|real|recover)$"))
+
+; Added: a conversion to a predeclared type is the type, though the
+; grammar reads it as a call: `int64` in `int64(x)`. Known by its text; a
+; conversion to a type of one's own, `Celsius(x)`, stays a call.
+(call_expression
+  function: (identifier) @type
+  (#match? @type "^(any|bool|byte|complex64|complex128|error|float32|float64|int|int8|int16|int32|int64|rune|string|uint|uint8|uint16|uint32|uint64|uintptr)$"))
 
 (call_expression
   function: (selector_expression
@@ -35,6 +65,11 @@
   name: (identifier) @function)
 
 (method_declaration
+  name: (field_identifier) @function.method)
+
+; Added: a method an interface asks for, `Read` in `interface { Read(p
+; []byte) }`, which is a property by the field pattern above.
+(method_elem
   name: (field_identifier) @function.method)
 
 ; Operators

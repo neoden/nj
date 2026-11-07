@@ -22,6 +22,60 @@
   ^ variable
     ^^^^^ function.method
 
+# A method an interface asks for is a method, not a field
+> type Reader interface { Read(p []byte) (n int, err error) }
+                          ^^^^ function.method
+
+# A type parameter is a type where it is declared and where it is used
+> func Map[T any](xs []T) T { return xs[0] }
+           ^ type
+             ^^^ type
+                       ^ type
+                          ^ type
+
+# A constant is a constant where it is declared, whatever its look; used
+# later, only its look tells
+> const MaxSize = 10
+        ^^^^^^^ constant
+> const (
+>     A = iota
+      ^ constant
+          ^^^^ constant.builtin
+>     b
+      ^ constant
+> )
+> n := MaxSize
+       ^^^^^^^ variable
+
+# A key in a composite literal is a field, its value a value
+> a := App{cfg: c, n: 1}
+       ^^^ type
+           ^^^ property
+                ^ variable
+                   ^ property
+
+# A label where it stands and where `break` and `goto` name it
+> func f() {
+> outer:
+  ^^^^^ label
+>     for { break outer }
+                  ^^^^^ label
+>     goto outer
+           ^^^^^ label
+> }
+
+# The builtins of Go 1.21 are builtins
+> m := min(a, b) + max(a, b); clear(xs)
+       ^^^ function.builtin
+                   ^^^ function.builtin
+                              ^^^^^ function.builtin
+
+# A conversion to a predeclared type is the type; to one's own, a call
+> n := int64(x) + float64(y) + Celsius(z)
+       ^^^^^ type
+                  ^^^^^^^ type
+                               ^^^^^^^ function
+
 # A field read is a property, not a call
 > n := g.count
   ^ variable
