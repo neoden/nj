@@ -138,7 +138,9 @@ pub const LANGUAGES: &[Language] = &[
         // its `Name[ru]=` keys are beyond the grammar, and each spoils
         // the line after it.
         name: "INI",
-        extensions: &["ini", "cfg", "service", "socket", "timer", "mount", "target"],
+        extensions: &[
+            "ini", "cfg", "service", "socket", "timer", "mount", "target",
+        ],
         filenames: &[
             ".gitconfig",
             ".gitmodules",
@@ -404,7 +406,10 @@ mod tests {
         assert_eq!(detect_name("/home/u/.zshenv"), "Shell");
         assert_eq!(detect_name(".bash_aliases"), "Shell");
         assert_eq!(detect_name("repo/.git/COMMIT_EDITMSG"), "Git commit");
-        assert_eq!(detect_name("repo/.git/rebase-merge/git-rebase-todo"), "Git rebase");
+        assert_eq!(
+            detect_name("repo/.git/rebase-merge/git-rebase-todo"),
+            "Git rebase"
+        );
         assert_eq!(detect_name("app/Dockerfile"), "Dockerfile");
         assert_eq!(detect_name("app/Containerfile"), "Dockerfile");
     }
