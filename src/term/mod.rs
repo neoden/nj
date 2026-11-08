@@ -13,3 +13,4 @@ pub mod screen;
 pub mod socket;
 pub mod system_clipboard;
 pub mod terminal;
+pub mod theme;

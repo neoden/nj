@@ -6,11 +6,10 @@
 use std::io::Write;
 
 use anyhow::Result;
-use crossterm::style::{
-    Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor,
-};
+use crossterm::style::{Attribute, Print, SetAttribute, SetBackgroundColor, SetForegroundColor};
 use crossterm::{cursor, queue};
 
+use super::theme;
 use crate::editor::style::{CellStyle, Ink, Mark};
 use crate::text::layout::{self, Glyph};
 
@@ -193,45 +192,54 @@ impl Grid {
     }
 }
 
-/// Assumes a dark terminal, which is what a theme (F12) will fix.
-const CURRENT_LINE: Color = Color::AnsiValue(236);
-
 fn set_style(out: &mut impl Write, style: CellStyle) -> Result<()> {
     queue!(out, SetAttribute(Attribute::Reset))?;
-    match style.ink {
-        Ink::Text => {}
+    let ink = match style.ink {
+        // Dwarf leaves a function's name as plain as a variable's. A
+        // module too: any colour of its own was the keyword's blue or close
+        // to it, and `use` stands right before it.
+        Ink::Text | Ink::Function | Ink::Module => None,
         // The number of the current line is lit, the others stay dim.
-        Ink::Gutter if style.mark == Mark::CurrentLine => {
-            queue!(out, SetForegroundColor(Color::Grey))?
+        Ink::Gutter if style.mark == Mark::CurrentLine => Some(theme::FOREGROUND),
+        Ink::Gutter | Ink::Rule => Some(theme::DIM),
+        Ink::Status => {
+            queue!(
+                out,
+                SetForegroundColor(theme::BACKGROUND.into()),
+                SetBackgroundColor(theme::STATUS.into())
+            )?;
+            None
         }
-        Ink::Gutter | Ink::Rule | Ink::Comment => queue!(out, SetForegroundColor(Color::DarkGrey))?,
-        Ink::Status => queue!(out, SetAttribute(Attribute::Reverse))?,
-        // The terminal's own palette, so that the text looks at home in
-        // whatever scheme the terminal has.
+        Ink::Comment => Some(theme::COMMENT),
         // A builtin is told from a keyword in the frames, not yet on the
-        // screen: one colour fewer for the default scheme to carry.
-        Ink::Keyword | Ink::Builtin => queue!(out, SetForegroundColor(Color::Magenta))?,
-        Ink::String => queue!(out, SetForegroundColor(Color::Green))?,
-        Ink::Type => queue!(out, SetForegroundColor(Color::Yellow))?,
-        Ink::Function => queue!(out, SetForegroundColor(Color::Blue))?,
-        Ink::Constant => queue!(out, SetForegroundColor(Color::Cyan))?,
+        // screen.
+        Ink::Keyword | Ink::Builtin => Some(theme::KEYWORD),
+        Ink::String => Some(theme::STRING),
+        Ink::Type => Some(theme::TYPE),
+        Ink::Constant => Some(theme::CONSTANT),
         // Next to `break` and `continue`, so of the keyword's family, and
         // told from it.
-        Ink::Label => queue!(out, SetForegroundColor(Color::DarkMagenta))?,
-        // Next to the type it holds in `config.Config`, and told from it.
-        Ink::Module => queue!(out, SetForegroundColor(Color::DarkYellow))?,
+        Ink::Label => Some(theme::LABEL),
         // As `git diff` colours them.
-        Ink::Added => queue!(out, SetForegroundColor(Color::Green))?,
-        Ink::Deleted => queue!(out, SetForegroundColor(Color::Red))?,
+        Ink::Added => Some(theme::ADDED),
+        Ink::Deleted => Some(theme::DELETED),
+    };
+    if let Some(ink) = ink {
+        queue!(out, SetForegroundColor(ink.into()))?;
     }
     match style.mark {
         Mark::None => {}
-        Mark::CurrentLine => queue!(out, SetBackgroundColor(CURRENT_LINE))?,
-        Mark::Selected => queue!(out, SetBackgroundColor(Color::DarkGrey))?,
+        Mark::CurrentLine => queue!(out, SetBackgroundColor(theme::CURRENT_LINE.into()))?,
+        Mark::Selected => queue!(out, SetBackgroundColor(theme::SELECTION.into()))?,
         // Underlined rather than coloured, so that a hit reads the same
         // whatever the terminal's palette looks like.
         Mark::Matched => queue!(out, SetAttribute(Attribute::Underlined))?,
-        Mark::Cursor => queue!(out, SetAttribute(Attribute::Reverse))?,
+        // The same block on whatever it stands, a keyword or a string.
+        Mark::Cursor => queue!(
+            out,
+            SetForegroundColor(theme::BACKGROUND.into()),
+            SetBackgroundColor(theme::FOREGROUND.into())
+        )?,
     }
     Ok(())
 }

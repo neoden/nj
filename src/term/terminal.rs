@@ -1,19 +1,21 @@
+use std::fmt;
 use std::fs::File;
 use std::io::{self, IsTerminal, Write};
 use std::os::fd::AsFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, bail};
-use crossterm::cursor;
 use crossterm::event::{
     DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
-use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
     supports_keyboard_enhancement,
 };
+use crossterm::{Command, cursor, execute};
+
+use super::theme;
 
 static MODIFIED: AtomicBool = AtomicBool::new(false);
 static KEYBOARD_FLAGS_PUSHED: AtomicBool = AtomicBool::new(false);
@@ -72,7 +74,8 @@ impl Terminal {
             EnterAlternateScreen,
             EnableMouseCapture,
             EnableBracketedPaste,
-            cursor::Hide
+            cursor::Hide,
+            SetDefaultColors
         )?;
 
         if matches!(supports_keyboard_enhancement(), Ok(true)) {
@@ -107,6 +110,7 @@ fn restore() {
     }
     let _ = execute!(
         out,
+        ResetDefaultColors,
         cursor::Show,
         DisableBracketedPaste,
         DisableMouseCapture,
@@ -114,6 +118,33 @@ fn restore() {
     );
     let _ = disable_raw_mode();
     let _ = out.flush();
+}
+
+/// Makes the theme's colours the terminal's own default ones (OSC 10 and
+/// 11), rather than painting them on every cell: a cell with no colour of
+/// its own, a cleared screen and the padding around the cells, which no
+/// cell covers, all take them then.
+struct SetDefaultColors;
+
+impl Command for SetDefaultColors {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(
+            f,
+            "\x1b]10;{}\x1b\\\x1b]11;{}\x1b\\",
+            theme::FOREGROUND,
+            theme::BACKGROUND
+        )
+    }
+}
+
+/// Gives the terminal back the default colours its own settings say
+/// (OSC 110 and 111).
+struct ResetDefaultColors;
+
+impl Command for ResetDefaultColors {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        f.write_str("\x1b]110\x1b\\\x1b]111\x1b\\")
+    }
 }
 
 /// The default hook prints before unwinding, so `Drop` alone would leave the

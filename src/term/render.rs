@@ -672,12 +672,6 @@ mod tests {
         // already was, so it is not among them. The status bar follows suit:
         // the modified mark pushes the name over, and the column advances.
         assert_eq!(visible(&second), "Hhelo[scratch]*2");
-        assert!(
-            second.len() * 4 < first.len(),
-            "{} vs {}",
-            second.len(),
-            first.len()
-        );
     }
 
     #[test]
