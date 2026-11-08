@@ -101,6 +101,13 @@ const LINKED: &[Linked] = &[
         highlights: &[include_str!("../../queries/go/highlights.scm")],
         injections: None,
     },
+    #[cfg(feature = "helm")]
+    Linked {
+        name: "Helm",
+        language: || tree_sitter_go_template::LANGUAGE.into(),
+        highlights: &[include_str!("../../queries/helm/highlights.scm")],
+        injections: Some(include_str!("../../queries/helm/injections.scm")),
+    },
     #[cfg(feature = "html")]
     Linked {
         name: "HTML",

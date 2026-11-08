@@ -26,6 +26,8 @@ tree-sitter-diff = { git = "https://github.com/the-mikedavis/tree-sitter-diff", 
 tree-sitter-git-rebase = { git = "https://github.com/the-mikedavis/tree-sitter-git-rebase", rev = "32686d6b72980b36f876ae2d07719c9c3ed154e2", optional = true }
 tree-sitter-gitcommit = { version = "0.5", optional = true }
 tree-sitter-go ={ version = "0.25", optional = true }
+# From a fork: upstream's Rust binding is built for tree-sitter 0.19.
+tree-sitter-go-template = { git = "https://github.com/neoden/tree-sitter-go-template", rev = "f52e6248b85c857df3912295df07de590dfd0668", optional = true }
 tree-sitter-html = { version = "0.23", optional = true }
 tree-sitter-ini = { version = "1.4", optional = true }
 tree-sitter-java = { version = "0.23", optional = true }
@@ -47,7 +49,7 @@ unicode-width = "0.2.2"
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["c", "c-sharp", "cpp", "css", "diff", "dockerfile", "git", "go", "html", "ini", "java", "javascript", "json", "makefile", "markdown", "php", "python", "rust", "scss", "shell", "sql", "toml", "typescript", "yaml"]
+default = ["c", "c-sharp", "cpp", "css", "diff", "dockerfile", "git", "go", "helm", "html", "ini", "java", "javascript", "json", "makefile", "markdown", "php", "python", "rust", "scss", "shell", "sql", "toml", "typescript", "yaml"]
 c = ["dep:tree-sitter-c"]
 c-sharp = ["dep:tree-sitter-c-sharp"]
 cpp = ["dep:tree-sitter-cpp"]
@@ -59,6 +61,8 @@ dockerfile = ["dep:tree-sitter-containerfile"]
 # A commit's message and a rebase's list, the two files git hands over.
 git = ["dep:tree-sitter-gitcommit", "dep:tree-sitter-git-rebase"]
 go =["dep:tree-sitter-go"]
+# A chart's templates: Go's templates around YAML.
+helm = ["dep:tree-sitter-go-template"]
 html = ["dep:tree-sitter-html"]
 ini = ["dep:tree-sitter-ini"]
 java = ["dep:tree-sitter-java"]

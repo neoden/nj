@@ -22,7 +22,9 @@ pub struct Language {
     pub extensions: &'static [&'static str],
     /// For the few languages known by name rather than by suffix. A `*`
     /// stands for any run of characters, `Dockerfile.*`; a name without
-    /// one is that name alone.
+    /// one is that name alone. A name with a `/` is the end of a path, the
+    /// directories the file lies in too, `templates/**/*.yaml`, where `**`
+    /// stands for any number of directories, none too.
     pub filenames: &'static [&'static str],
     /// What one level of indentation is made of in a fresh file.
     pub indent: Indent,
@@ -180,6 +182,21 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: Some("#"),
     },
     Language {
+        // A chart's template: YAML, with Go's `{{ ... }}` in it. Known by
+        // where it lies, as its name is any YAML file's; one that is not a
+        // template has no `{{` and reads as the YAML it is.
+        name: "Helm",
+        extensions: &[],
+        filenames: &[
+            "templates/**/*.yaml",
+            "templates/**/*.yml",
+            "templates/**/*.tpl",
+        ],
+        indent: Indent::Spaces(2),
+        tab_width: 2,
+        line_comment: Some("#"),
+    },
+    Language {
         name: "Markdown",
         extensions: &["md", "markdown"],
         filenames: &[],
@@ -306,7 +323,7 @@ pub const LANGUAGES: &[Language] = &[
 
 pub fn detect(path: &Path) -> &'static Language {
     let name = path.file_name().and_then(|name| name.to_str());
-    if let Some(language) = name.and_then(by_filename) {
+    if let Some(language) = name.and_then(|name| by_filename(name, path)) {
         return language;
     }
 
@@ -326,7 +343,8 @@ pub fn by_name(name: &str) -> Option<&'static Language> {
 
 /// A name spelt out wins over a pattern, whichever language has it: a
 /// `Dockerfile.*` does not take a name another language lists whole.
-fn by_filename(name: &str) -> Option<&'static Language> {
+/// `name` is the last part of `path`, which a pattern with a `/` reads.
+fn by_filename(name: &str, path: &Path) -> Option<&'static Language> {
     let exact = LANGUAGES
         .iter()
         .find(|language| language.filenames.contains(&name));
@@ -335,9 +353,40 @@ fn by_filename(name: &str) -> Option<&'static Language> {
             language
                 .filenames
                 .iter()
-                .any(|pattern| pattern.contains('*') && matches(pattern, name))
+                .any(|pattern| match pattern.contains('/') {
+                    true => matches_path(pattern, path),
+                    false => pattern.contains('*') && matches(pattern, name),
+                })
         })
     })
+}
+
+/// Whether the end of `path` fits `pattern`, a pattern for each of its
+/// last parts, read from the file up: `*` within a part as `matches` has
+/// it, and `**` for any number of parts, none too.
+fn matches_path(pattern: &str, path: &Path) -> bool {
+    let parts: Vec<&str> = pattern.split('/').collect();
+    let Some(components) = path
+        .components()
+        .map(|component| component.as_os_str().to_str())
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    fits(&parts, &components)
+}
+
+fn fits(parts: &[&str], components: &[&str]) -> bool {
+    match parts.split_last() {
+        // The pattern is used up; what lies above the part it read is
+        // whatever it is.
+        None => true,
+        Some((&"**", above)) => (0..=components.len()).any(|end| fits(above, &components[..end])),
+        Some((part, above)) => match components.split_last() {
+            Some((component, rest)) => matches(part, component) && fits(above, rest),
+            None => false,
+        },
+    }
 }
 
 /// Whether `name` fits `pattern`, whose `*`s each stand for any run of
@@ -426,6 +475,20 @@ mod tests {
         assert_eq!(detect_name("deploy/prod.env"), "Shell");
         assert_eq!(detect_name("/home/u/.gitconfig"), "INI");
         assert_eq!(detect_name("app.service"), "INI");
+    }
+
+    #[test]
+    fn a_pattern_can_name_the_directories_too() {
+        assert_eq!(detect_name("chart/templates/deployment.yaml"), "Helm");
+        assert_eq!(detect_name("/srv/chart/templates/_helpers.tpl"), "Helm");
+        // `**` stands for any number of directories, none too.
+        assert_eq!(detect_name("chart/templates/jobs/cron.yml"), "Helm");
+        assert_eq!(detect_name("chart/values.yaml"), "YAML");
+        assert_eq!(detect_name("chart/templates.yaml"), "YAML");
+        assert_eq!(detect_name("chart/old-templates/a.yaml"), "YAML");
+        // Only what the path says: the directory a bare name lies in is
+        // not known here.
+        assert_eq!(detect_name("deployment.yaml"), "YAML");
     }
 
     #[test]

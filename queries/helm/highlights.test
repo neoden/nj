@@ -1,0 +1,108 @@
+%language Helm
+
+# A value through a pipeline of functions, and a default from the chart
+> image: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+         ^^ punctuation.bracket
+            ^ punctuation.delimiter
+             ^^^^^^ property
+                          ^^^ property
+                              ^ operator
+                                ^^^^^^^ function
+                                               ^^^^^^^^^^ property
+                                                            ^^^^^ function
+                                                                  ^^ punctuation.bracket
+
+# Trimmed on either side; the template given on, `.`
+> labels:
+>   {{- include "app.labels" . | nindent 4 }}
+    ^^^ punctuation.bracket
+        ^^^^^^^ function
+                ^^^^^^^^^^^^ string
+                             ^ variable.builtin
+                                         ^ number
+> {{- define "app.name" -}}
+      ^^^^^^ keyword
+                        ^^^ punctuation.bracket
+> {{- end }}
+      ^^^ keyword
+
+# A condition and its branches, a call in parentheses
+> {{- if and .Values.a (not .Values.b) }}
+      ^^ keyword
+         ^^^ function
+                       ^ punctuation.bracket
+                        ^^^ function
+> {{- else if eq .Values.mode "x" }}
+      ^^^^ keyword
+           ^^ keyword
+              ^^ function
+                              ^^^ string
+> {{- else }}
+      ^^^^ keyword
+> {{- end }}
+      ^^^ keyword
+
+# A loop's variables, and the root of the values from inside it
+> {{- range $key, $value := .Values.env }}
+      ^^^^^ keyword
+            ^^^^ variable
+                ^ punctuation.delimiter
+                  ^^^^^^ variable
+                         ^^ operator
+> - name: {{ $key }}
+             ^^^^ variable
+>   value: {{ $.Values.prefix }}{{ $value }}
+              ^ variable
+                       ^^^^^^ property
+> {{- end }}
+      ^^^ keyword
+
+# A variable set and set again inside `with`; a loop left early
+> {{ with .Values.x }}{{ $n := 1 }}{{ $n = 2 }}{{ end }}
+     ^^^^ keyword
+                         ^^ variable
+                                         ^ operator
+                                           ^ number
+> {{ range .Values.list }}{{ if . }}{{ break }}{{ end }}{{ continue }}{{ end }}
+                                       ^^^^^ keyword
+                                                           ^^^^^^^^ keyword
+
+# A comment; another template, by name
+> {{- /* the name, cut to 63 */ -}}
+      ^^^^^^^^^^^^^^^^^^^^^^^^^ comment
+> {{ template "app.name" . }}
+     ^^^^^^^^ keyword
+              ^^^^^^^^^^ string
+
+# Literals of every kind
+> {{ printf "%s\n" `raw` 'c' 1.5 0x1F true nil }}
+            ^^^ string
+               ^^ escape
+                 ^ string
+                   ^^^^^ string
+                         ^^^ string
+                             ^^^ number
+                                 ^^^^ number
+                                      ^^^^ boolean
+                                           ^^^ constant.builtin
+
+# The text around the code is YAML, all of a file's text one document:
+# the keys after a quote the code stands inside of are still keys
+> spec:
+  ^^^^ property
+>   replicas: {{ .Values.replicas }}
+    ^^^^^^^^ property
+              ^^ punctuation.bracket
+>   image: "{{ .Values.repo }}:{{ .Values.tag }}"
+           ^ string
+            ^^ punctuation.bracket
+                              ^ string
+                                                ^ string
+>   pullPolicy: Always
+    ^^^^^^^^^^ property
+                ^^^^^^ string
+>   ports:
+    ^^^^^ property
+>     - containerPort: 80
+        ^^^^^^^^^^^^^ property
+                       ^^ number

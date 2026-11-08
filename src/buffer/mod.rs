@@ -257,7 +257,7 @@ impl Buffer {
             path: path.to_path_buf(),
             on_disk: Stamp::of(path),
         };
-        self.set_language(language.unwrap_or_else(|| language::detect(path)));
+        self.set_language(language.unwrap_or_else(|| language_of(path)));
         self
     }
 
@@ -474,7 +474,7 @@ impl Buffer {
         if matches!(self.backing, Backing::Stdio { .. }) {
             return Ok(());
         }
-        self.set_language(language::detect(&path));
+        self.set_language(language_of(&path));
         self.backing = Backing::File {
             on_disk: Stamp::of(&path),
             path,
@@ -514,6 +514,14 @@ impl Framing {
 /// Every CRLF goes, not just those of the ending that was detected: a file
 /// whose first break happens to be bare would otherwise keep the carriage
 /// returns of all the others. A lone CR stays, being data.
+/// The language the file at `path` is in, by the whole of the path: a
+/// chart's template is known by its `templates` directory, which a path
+/// typed from inside it does not say. Made absolute by the working
+/// directory alone, without asking the disk.
+fn language_of(path: &Path) -> &'static Language {
+    language::detect(&std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
 fn cannot_read(path: &Path) -> String {
     format!("cannot read {}", path.display())
 }
