@@ -71,6 +71,16 @@
 >     EOT;
 > ?>
 
+# A function where it is defined; a call of a function, of a method, of a
+# static method
+> <?php
+> function greet($n) { return strtoupper($n) . $this->tail() . Str::of($n); }
+           ^^^^^ function
+                              ^^^^^^^^^^ function.call
+                                                      ^^^^ function.method.call
+                                                                    ^^ function.method.call
+> ?>
+
 # Functions without a name, match, numbers of every form, a cast
 > <?php
 > $double = fn($x) => $x * 2;
@@ -100,10 +110,10 @@
                           ^^^^ variable.builtin
                                 ^^^^^ constant
                                        ^^^^^^ variable.builtin
-                                               ^^^^ function
+                                               ^^^^ function.method.call
                                                         ^^^ module
                                                             ^^^ type
-                                                                 ^^^ function
+                                                                 ^^^ function.method.call
 > $ok = $user instanceof U;
               ^^^^^^^^^^ keyword
                          ^ type

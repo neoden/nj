@@ -195,10 +195,12 @@ impl Grid {
 fn set_style(out: &mut impl Write, style: CellStyle) -> Result<()> {
     queue!(out, SetAttribute(Attribute::Reset))?;
     let ink = match style.ink {
-        // Dwarf leaves a function's name as plain as a variable's. A
-        // module too: any colour of its own was the keyword's blue or close
-        // to it, and `use` stands right before it.
-        Ink::Text | Ink::Function | Ink::Module => None,
+        // A module is plain: any colour of its own was the keyword's blue
+        // or close to it, and `use` stands right before it.
+        Ink::Text | Ink::Module => None,
+        // Where a function is defined, a call being plain.
+        Ink::Function => Some(theme::FUNCTION),
+        Ink::Type => Some(theme::TYPE),
         // The number of the current line is lit, the others stay dim.
         Ink::Gutter if style.mark == Mark::CurrentLine => Some(theme::FOREGROUND),
         Ink::Gutter | Ink::Rule => Some(theme::DIM),
@@ -215,7 +217,6 @@ fn set_style(out: &mut impl Write, style: CellStyle) -> Result<()> {
         // screen.
         Ink::Keyword | Ink::Builtin => Some(theme::KEYWORD),
         Ink::String => Some(theme::STRING),
-        Ink::Type => Some(theme::TYPE),
         Ink::Constant => Some(theme::CONSTANT),
         // Next to `break` and `continue`, so of the keyword's family, and
         // told from it.

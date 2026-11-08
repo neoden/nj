@@ -12,38 +12,42 @@
 (field_identifier) @property
 
 ; Function calls
+; Changed: a call is `function.call`, a method's `function.method.call`,
+; told from where a function is defined, as Neovim's queries have it.
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 (call_expression
   function: (field_expression
-    field: (field_identifier) @function.method))
+    field: (field_identifier) @function.method.call))
 (call_expression
   function: (scoped_identifier
     "::"
-    name: (identifier) @function))
+    name: (identifier) @function.call))
 
 (generic_function
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 (generic_function
   function: (scoped_identifier
-    name: (identifier) @function))
+    name: (identifier) @function.call))
 (generic_function
   function: (field_expression
-    field: (field_identifier) @function.method))
+    field: (field_identifier) @function.method.call))
 
+; Changed: a macro called is `function.macro.call`, told from where
+; `macro_rules!` defines it, as a function's call is.
 (macro_invocation
-  macro: (identifier) @function.macro
-  "!" @function.macro)
+  macro: (identifier) @function.macro.call
+  "!" @function.macro.call)
 
 ; Added: a macro called inside another's arguments, `matches!` in
 ; `assert!(matches!(x, Some(_)))`. The arguments are loose tokens to the
 ; grammar, and a name, a `!` and a bracketed group right after it are a
 ; call; `a != b` has `!=`, a token of its own.
 (token_tree
-  (identifier) @function.macro
+  (identifier) @function.macro.call
   .
-  "!" @function.macro
+  "!" @function.macro.call
   .
   (token_tree))
 

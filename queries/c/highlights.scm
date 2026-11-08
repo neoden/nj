@@ -113,11 +113,13 @@
 (primitive_type) @type.builtin
 (sized_type_specifier) @type.builtin
 
+; Changed: a call is `function.call`, told from where a function is
+; declared, as Neovim's queries have it; a macro used reads as a call.
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 (call_expression
   function: (field_expression
-    field: (field_identifier) @function))
+    field: (field_identifier) @function.call))
 (function_declarator
   declarator: (identifier) @function)
 ; Changed: upstream calls this `function.special`; a macro, as in Rust's

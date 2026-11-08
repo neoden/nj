@@ -3,32 +3,48 @@
 ; patterns win over C's for the same node.
 
 ; Functions
+; Changed: a call is `function.call`, a method's `function.method.call`,
+; told from where a function is declared, as Neovim's queries have it.
 
 (call_expression
   function: (qualified_identifier
-    name: (identifier) @function))
+    name: (identifier) @function.call))
 ; Added: a longer path nests a path in its name, and a query cannot say
 ; "at any depth", so each depth is spelt out, up to `a::b::c::d::f()`.
 ; Upstream stops at one, so that `now` in `std::chrono::now()` is plain.
 (call_expression
   function: (qualified_identifier
     name: (qualified_identifier
-      name: (identifier) @function)))
+      name: (identifier) @function.call)))
 (call_expression
   function: (qualified_identifier
     name: (qualified_identifier
       name: (qualified_identifier
-        name: (identifier) @function))))
+        name: (identifier) @function.call))))
 (call_expression
   function: (qualified_identifier
     name: (qualified_identifier
       name: (qualified_identifier
         name: (qualified_identifier
-          name: (identifier) @function)))))
+          name: (identifier) @function.call)))))
 
-; Changed: upstream has this pattern twice.
+; Changed: upstream has this pattern twice. A template's name where it is
+; declared; called, below, it is a call, alone or at the end of a path
+; two deep, `std::chrono::duration_cast<ms>(d)`.
 (template_function
   name: (identifier) @function)
+(call_expression
+  function: (template_function
+    name: (identifier) @function.call))
+(call_expression
+  function: (qualified_identifier
+    name: (template_function
+      name: (identifier) @function.call)))
+(call_expression
+  function: (qualified_identifier
+    name: (qualified_identifier
+      name: (template_function
+        name: (identifier) @function.call))))
 
 ; Added: the four casts are keywords, which the grammar reads as a call
 ; of a template function; known by their text.
@@ -38,7 +54,7 @@
    "static_cast" "dynamic_cast" "reinterpret_cast" "const_cast"))
 
 (template_method
-  name: (field_identifier) @function)
+  name: (field_identifier) @function.method.call)
 
 (function_declarator
   declarator: (qualified_identifier
@@ -69,6 +85,14 @@
 (destructor_name) @function
 (destructor_name
   (identifier) @function)
+; Changed: called, it is a call.
+(call_expression
+  function: (field_expression
+    field: (destructor_name) @function.call))
+(call_expression
+  function: (field_expression
+    field: (destructor_name
+      (identifier) @function.call)))
 
 ; Types
 

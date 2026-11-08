@@ -69,8 +69,10 @@
   (parameters
     (parameter (variable) @variable.parameter)))
 
+; Changed: a mixin included is a call, `function.call`, told from where
+; `@mixin` defines it, as Neovim's queries have it.
 (include_statement
-  (identifier) @function)
+  (identifier) @function.call)
 
 ; Added: a placeholder selector, `%button` in `@extend %button`, is a
 ; class to be extended, as `.button` is a type.

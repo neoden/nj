@@ -18,7 +18,7 @@
                       ^ variable
                          ^ operator
 > #define LOG(msg) fprintf(stderr, "%s\n", msg)
-                   ^^^^^^^ function
+                   ^^^^^^^ function.call
                                       ^^ escape
 
 # The text after `#error` is not C, and stays plain
@@ -26,7 +26,7 @@
          ^^^^^^^^^^^^^^^^^^^ -
 
 # The language's own types, a definition, a call; a macro used reads as a
-# function or a constant, by its look
+# call or a constant, by its look
 > static unsigned long count(const char *s) {
   ^^^^^^ keyword
          ^^^^^^^^^^^^^ type.builtin
@@ -36,9 +36,9 @@
                                          ^ variable
 >     return strlen(s) + MAX(1, BUF_SIZE);
       ^^^^^^ keyword
-             ^^^^^^ function
+             ^^^^^^ function.call
                     ^ variable
-                         ^^^ function
+                         ^^^ function.call
                                 ^^^^^^^^ constant
 > }
 
@@ -69,7 +69,7 @@
   ^^^^^^^^^^ keyword
              ^^^^^^^^^ attribute
 
-# A field is a property, a call through one a function; `NULL`, `true`
+# A field is a property, a call through one a call; `NULL`, `true`
 # and `false` are the language's
 > void f(struct node *p) {
          ^^^^^^ keyword
@@ -80,7 +80,7 @@
          ^^^^ property
                 ^^^^ constant.builtin
 >     p->ops.run(true, false);
-             ^^^ function
+             ^^^ function.call
                  ^^^^ constant.builtin
                        ^^^^^ constant.builtin
 > }

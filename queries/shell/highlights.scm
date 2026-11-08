@@ -39,8 +39,10 @@
 ] @string
 
 ; Changed: upstream has this before the strings and the expansions; a
-; command inside `"$(date)"` is a command still.
-(command_name) @function
+; command inside `"$(date)"` is a command still. A command run is a
+; call, `function.call`, told from a function the script defines, as
+; Neovim's queries have it.
+(command_name) @function.call
 
 ; Added: the commands the shell itself carries out, `cd` and `echo`, as
 ; `len` is Python's; and the four that leave a loop, a function or the

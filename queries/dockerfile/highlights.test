@@ -26,13 +26,13 @@
 # A RUN is Shell, over lines joined by `\` too
 > RUN apt-get update && apt-get install -y curl \
   ^^^ keyword
-      ^^^^^^^ function
+      ^^^^^^^ function.call
                                         ^^ constant
 >     && rm -rf /var/lib/apt/lists/*
-         ^^ function
+         ^^ function.call
             ^^^ constant
 > RUN --mount=type=cache,target=/root/.cache pip install -r requirements.txt
-                                             ^^^ function
+                                             ^^^ function.call
 
 # A RUN's heredoc is Shell, its markers labels
 > RUN <<EOF
@@ -61,7 +61,7 @@
 > HEALTHCHECK --interval=30s CMD curl -f http://localhost/ || exit 1
   ^^^^^^^^^^^ keyword
                              ^^^ keyword
-                                 ^^^^ function
+                                 ^^^^ function.call
                                                               ^^^^ keyword
 
 # Lines joined by `\`, a comment between them, in an ENV and a RUN; a
@@ -79,13 +79,13 @@
 >     # a comment inside the continuation
       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
 >     apt-get update
-      ^^^^^^^ function
+      ^^^^^^^ function.call
 
 # Heredocs: a dash before the marker, two in one RUN, a quoted marker;
 # the program named after the marker is Shell's command
 > RUN <<-EOT bash
       ^^^^^^ label
-             ^^^^ function
+             ^^^^ function.call
 > echo indented
   ^^^^ function.builtin
 > EOT
@@ -109,7 +109,7 @@
                   ^^^^^^^^^^^^^^ constant
                                                            ^^ keyword
 > RUN --mount=type=secret,id=npmrc --network=none npm ci
-                                                  ^^^ function
+                                                  ^^^ function.call
 > COPY --link --chmod=755 --from=build /out/app /usr/local/bin/
   ^^^^ keyword
 
@@ -117,7 +117,7 @@
 > ONBUILD RUN make
   ^^^^^^^ keyword
           ^^^ keyword
-              ^^^^ function
+              ^^^^ function.call
 > HEALTHCHECK NONE
               ^^^^ keyword
 > SHELL ["/bin/bash", "-o", "pipefail", "-c"]

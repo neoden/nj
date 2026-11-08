@@ -35,7 +35,7 @@
              ^^^^^^ type
                        ^^^ type
                           ^^ punctuation.delimiter
-                            ^^^ function
+                            ^^^ function.call
 > impl Point { fn new() -> Self { Self { x: 1 } } }
   ^^^^ keyword
        ^^^^^ type
@@ -64,16 +64,24 @@
 > let n = p.x + p.len();
             ^ property
            ^ punctuation.delimiter
-                  ^^^ function.method
+                  ^^^ function.method.call
+
+# A function where it is defined: alone, a method, a trait's signature
+> fn area(r: f64) -> f64 { r }
+     ^^^^ function
+> impl Point { fn new() -> Self { Self { x: 1 } } }
+                  ^^^ function
+> trait Shape { fn area(&self) -> f64; }
+                   ^^^^ function
 
 # Calls by name, by path and with generics
 > Foo::bar();
   ^^^ type
-       ^^^ function
+       ^^^ function.call
 > std::mem::swap(a, b);
   ^^^ module
        ^^^ module
-            ^^^^ function
+            ^^^^ function.call
 
 # A name a path goes through is a module, in a `use` too; the last one
 # can be anything, and a capital makes a type
@@ -89,19 +97,21 @@
          ^^^^^^ module
                  ^^^^^^ type
                           ^^^^^^ module
-                                  ^^^^ function
+                                  ^^^^ function.call
 > let m = u8::MAX;
           ^^ type.builtin
 > let x = parse::<u8>(s);
-          ^^^^^ function
+          ^^^^^ function.call
                   ^^ type.builtin
 > let y = s.parse::<u8>();
-            ^^^^^ function.method
+            ^^^^^ function.method.call
+> let t = mem::take::<u8>(x);
+               ^^^^ function.call
 > let f = move |r: &dyn Any| ref_it(r);
           ^^^^ keyword
                     ^^^ keyword
                         ^^^ type
-                             ^^^^^^ function
+                             ^^^^^^ function.call
 
 # A parameter where it is declared; where it is used it is a plain name
 > fn move_by(&mut self, dx: i32) { self.x += dx; }
@@ -135,8 +145,8 @@
 # A macro called in another's arguments is a macro too; a `!=` there and
 # a `!` before a name are not calls
 > assert!(matches!(x, Some(_)) && a != b && !done);
-  ^^^^^^^ function.macro
-          ^^^^^^^^ function.macro
+  ^^^^^^^ function.macro.call
+          ^^^^^^^^ function.macro.call
                                   ^ -
                                     ^^ -
                                             ^^^^^ -
@@ -148,10 +158,10 @@
 # A macro is named with its `!`, the string inside it as a string
 # The string is a token inside the macro's, and the inner one wins.
 > println!("x");
-  ^^^^^^^^ function.macro
+  ^^^^^^^^ function.macro.call
            ^^^ string
 > let v = vec![1, 2];
-          ^^^^ function.macro
+          ^^^^ function.macro.call
                ^ number
 > macro_rules! twice { () => {} }
   ^^^^^^^^^^^^ keyword

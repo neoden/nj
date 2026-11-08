@@ -21,12 +21,15 @@
 ; Function and method calls
 ;--------------------------
 
+; Changed: a call is `function.call`, a method's `function.method.call`,
+; told from where a function is defined, as Neovim's queries have it.
+
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (call_expression
   function: (member_expression
-    property: [(property_identifier) (private_property_identifier)] @function.method))
+    property: [(property_identifier) (private_property_identifier)] @function.method.call))
 
 ; Special identifiers
 ;--------------------
@@ -75,12 +78,21 @@
   left: (identifier) @function
   right: [(function_expression) (arrow_function)])
 
-; Added: a decorator is a function, as Python's is, whatever its name:
-; `@observable` and the call in `@Component({...})`.
-(decorator (identifier) @function)
+; Added: a decorator is an attribute, as Python's is, whatever its name:
+; its `@` and the last name of it, `@observable`, the call in
+; `@Component({...})`, a member in `@mobx.observable`.
+(decorator "@" @attribute)
+(decorator (identifier) @attribute)
+(decorator
+  (member_expression
+    property: (property_identifier) @attribute))
 (decorator
   (call_expression
-    function: (identifier) @function))
+    function: (identifier) @attribute))
+(decorator
+  (call_expression
+    function: (member_expression
+      property: (property_identifier) @attribute)))
 
 ; Changed: upstream adds `(#is-not? local)` to these two, for a highlighter
 ; that tracks local names, which this one does not: a local `console`

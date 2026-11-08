@@ -25,7 +25,7 @@
                                           ^^^^^ attribute
 
 # A mixin and a function: their names functions where they are defined
-# and used, their parameters parameters
+# and calls where they are used, their parameters parameters
 > @mixin flex($dir: row) { display: flex; }
   ^^^^^^ keyword
          ^^^^ function
@@ -33,12 +33,14 @@
                                     ^^^^ -
 > .c { @include flex(column); }
        ^^^^^^^^ keyword.import
-                ^^^^ function
+                ^^^^ function.call
 > @function double($n) { @return $n * 2; }
   ^^^^^^^^^ keyword.function
             ^^^^^^ function
                    ^^ variable.parameter
                          ^^^^^^^ keyword.return
+> .d { width: double(2px); }
+              ^^^^^^ function.call
 
 # Conditions and loops, and the words in them
 > @if $a == 1 { x: y } @else if $a != 2 { x: z } @else { x: w }

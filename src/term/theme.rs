@@ -40,13 +40,19 @@ pub const KEYWORD: Rgb = Rgb(0x8a, 0xa7, 0xd6);
 /// The keyword's blue before dwarf brightened it: of its family, and told
 /// from it.
 pub const LABEL: Rgb = Rgb(0x6c, 0x88, 0xaf);
+/// Where a function is defined; a call to it is plain. Dwarf's orange,
+/// which it gave constants: a hue of the scheme's own, where every new
+/// one was either drowned by the text or stood out of the scheme.
+pub const FUNCTION: Rgb = Rgb(0xd6, 0x8f, 0x61);
 pub const STRING: Rgb = Rgb(0xa3, 0xb8, 0x84);
-pub const CONSTANT: Rgb = Rgb(0xd6, 0x8f, 0x61);
-/// Dwarf's type was a grey as dim as a comment and as cool, and the two
-/// ran together; a warm gold instead. Lighter and fuller than the string's
-/// green, since to an eye that does not tell red from green the two
-/// differ in nothing else: a paler sand was the string's very colour to it.
-pub const TYPE: Rgb = Rgb(0xe3, 0xc4, 0x7a);
+/// A warm gold, the lightest of the colours: a constant is rare, and a
+/// number in the code is worth seeing. Lighter and fuller than the
+/// string's green, since to an eye that does not tell red from green the
+/// two differ in nothing else.
+pub const CONSTANT: Rgb = Rgb(0xe3, 0xc4, 0x7a);
+/// Dwarf's cool grey-blue for a type, `#7a8294`, lifted: as it was it
+/// ran into a comment beside it.
+pub const TYPE: Rgb = Rgb(0x88, 0x91, 0xa3);
 /// What the status bar lies on; its text is in the background colour. The
 /// text's own colours turned over, so that the bar reads at once as not
 /// being text: dwarf's dark bar looked like one more line of it.

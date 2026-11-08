@@ -37,7 +37,7 @@
           ^^^^^ keyword
                     ^ number
                        ^^^^^^^ variable.builtin
-                               ^^^ function.method
+                               ^^^ function.method.call
 > <script type="module">import { a } from "./a.js";</script>
                         ^^^^^^ keyword
 
@@ -51,7 +51,7 @@
 # An event handler's value is JavaScript; another attribute's is a string
 > <button onclick="go(1)" title="go(1)">Go</button>
           ^^^^^^^ attribute
-                   ^^ function
+                   ^^ function.call
                       ^ number
                                 ^^^^^^^ string
 

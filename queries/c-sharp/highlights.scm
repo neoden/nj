@@ -320,16 +320,18 @@
 
 ;; Method calls
 
-(invocation_expression (member_access_expression name: (identifier) @function))
+; Changed: a call is `function.call`, a method's `function.method.call`,
+; told from where a method is declared, as Neovim's queries have it.
+(invocation_expression (member_access_expression name: (identifier) @function.method.call))
 ; Added: a call by name, `Run()`, and of a generic, `Parse<int>()`, which
 ; upstream leaves a variable and a type.
 (invocation_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 (invocation_expression
-  function: (generic_name (identifier) @function))
+  function: (generic_name (identifier) @function.call))
 (invocation_expression
   (member_access_expression
-    name: (generic_name (identifier) @function)))
+    name: (generic_name (identifier) @function.method.call)))
 
 ; Added: `nameof`, a word of the language spelt as a call.
 ((invocation_expression

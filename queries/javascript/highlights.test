@@ -19,7 +19,7 @@
                          ^ constant
 
 # A function declared is a function whatever its name, a React component
-# among them; called, its look decides
+# among them; called, its look decides between a class and a call
 > export default function App() {}
          ^^^^^^^ keyword
                           ^^^ function
@@ -29,7 +29,7 @@
   ^^^^^^^ constructor
              ^^^ keyword
                  ^^^^^^^ constructor
-                            ^^^^^^ function
+                            ^^^^^^ function.call
 
 # Parameters where they are declared, of every form; used, plain names
 > function greet(name, { greeting = "hi" }, [first], ...rest) {
@@ -70,8 +70,9 @@
                          ^^^^ variable.builtin
                               ^^^^^^ property
 >   bump() { super.bump(); this.#tick(); }
+    ^^^^ function.method
              ^^^^^ variable.builtin
-                                ^^^^^ function.method
+                                ^^^^^ function.method.call
 > }
 > class lower {}
         ^^^^^ type
@@ -79,10 +80,10 @@
 # Calls through members, optional chains, the builtins
 > console.log(obj?.a, JSON.parse(s), require("fs"));
   ^^^^^^^ variable.builtin
-          ^^^ function.method
+          ^^^ function.method.call
                  ^^ punctuation.delimiter
                       ^^^^ constant
-                           ^^^^^ function.method
+                           ^^^^^ function.method.call
                                      ^^^^^^^ function.builtin
 
 # Strings with escapes, a regex with its slashes, numbers of every form
@@ -107,7 +108,7 @@
   ^^^^^ keyword
                           ^^^^^ keyword
                                 ^^^^^ keyword
-                                      ^^^^^ function
+                                      ^^^^^ function.call
 > using res = open(); if (typeof x === "string") {}
   ^^^^^ keyword
                           ^^^^^^ keyword
@@ -118,9 +119,15 @@
                       ^^ keyword
                                             ^^^^^ label
 
-# A decorator is a function
+# A decorator is an attribute, its `@` too, and of a member or a call,
+# the last name
 > @observable class Store {}
-   ^^^^^^^^^^ function
+  ^ attribute
+   ^^^^^^^^^^ attribute
+> @Component({ tag: "x" }) class App {}
+   ^^^^^^^^^ attribute
+> @mobx.observable class Cart {}
+        ^^^^^^^^^^ attribute
 
 # JSX: a tag in small letters is HTML's, one with a capital a component;
 # attributes are attributes, what is in braces JavaScript
@@ -129,14 +136,14 @@
                   ^^^^^^^^^ attribute
                             ^^^ string
                                 ^^^^^^^ attribute
-                                               ^^ function
+                                               ^^ function.call
                                                        ^^^^^^ constructor
                                                               ^^^ attribute
                                                                       ^^^ tag
 
 # A template's tag names the language inside it
 > const style = css`color: red;`;
-                ^^^ function
+                ^^^ function.call
                     ^^^^^ property
 
 # Comments

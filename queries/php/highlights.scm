@@ -216,18 +216,21 @@
 (method_declaration
   name: (name) @function.method)
 
+; Changed: a call is `function.call`, a method's `function.method.call`,
+; a static one's too, told from where a function is defined, as Neovim's
+; queries have it.
 (function_call_expression
   function: [
     (qualified_name (name))
     (relative_name (name))
     (name)
-  ] @function)
+  ] @function.call)
 
 (scoped_call_expression
-  name: (name) @function)
+  name: (name) @function.method.call)
 
 (member_call_expression
-  name: (name) @function.method)
+  name: (name) @function.method.call)
 
 (function_definition
   name: (name) @function)

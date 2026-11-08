@@ -11,8 +11,10 @@
 
 (method_declaration
   name: (identifier) @function.method)
+; Changed: a call is `function.method.call`, told from where a method is
+; declared, as Neovim's queries have it.
 (method_invocation
-  name: (identifier) @function.method)
+  name: (identifier) @function.method.call)
 (super) @function.builtin
 
 ; Annotations

@@ -1,7 +1,7 @@
 %language Go
 
-# A function is a function where it is declared and where it is called,
-# though its name is also an identifier
+# A function is a function where it is declared and a call where it is
+# called, though its name is also an identifier
 > func greet(name string) string {
   ^^^^ keyword
        ^^^^^ function
@@ -9,7 +9,7 @@
                   ^^^^^^ type
 >     return format(name)
       ^^^^^^ keyword
-             ^^^^^^ function
+             ^^^^^^ function.call
                     ^^^^ variable
 
 # A method too, declared on a receiver and called through a dot, though
@@ -20,7 +20,7 @@
                     ^^^^^ function.method
 > g.Greet()
   ^ variable
-    ^^^^^ function.method
+    ^^^^^ function.method.call
 
 # A method an interface asks for is a method, not a field
 > type Reader interface { Read(p []byte) (n int, err error) }
@@ -74,7 +74,7 @@
 > n := int64(x) + float64(y) + Celsius(z)
        ^^^^^ type
                   ^^^^^^^ type
-                               ^^^^^^^ function
+                               ^^^^^^^ function.call
 
 # A field read is a property, not a call
 > n := g.count
@@ -84,7 +84,7 @@
 # The functions the language provides are builtins; any other is not
 > n := len(xs) + lenient(xs)
        ^^^ function.builtin
-                 ^^^^^^^ function
+                 ^^^^^^^ function.call
 
 # A package is a module in a type, its clause and an import's alias; in
 # an expression it is a name like any other
@@ -98,7 +98,7 @@
          ^^^^^^ module
                 ^^^^^^ type
                          ^^^^^^ variable
-                                ^^^^ function.method
+                                ^^^^ function.method.call
 
 # Literals of every kind, and the constants of the language
 > var s, r, c = "a\tb", `raw\n`, 'x'

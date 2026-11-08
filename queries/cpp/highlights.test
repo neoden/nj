@@ -19,10 +19,10 @@
 > auto n = std::max(a, b);
   ^^^^ type
            ^^^ module
-                ^^^ function
+                ^^^ function.call
 > Config::load();
   ^^^^^^ type
-          ^^^^ function
+          ^^^^ function.call
 
 # The namespace `using namespace` brings in is a module, every name of
 # its path; what a plain `using` brings in is not; an alias is a module
@@ -42,15 +42,16 @@
                  ^^^ module
                       ^^^^^^^^^^ module
 
-# A function at the end of a longer path is a function, called or
-# defined, up to four nestings deep; a name at its end not called is not
+# A function at the end of a longer path is a call where called and a
+# function where defined, up to four nestings deep; a name at its end
+# not called is neither
 > auto t = std::chrono::steady_clock::now();
            ^^^ module
                 ^^^^^^ module
                         ^^^^^^^^^^^^ module
-                                      ^^^ function
+                                      ^^^ function.call
 > a::b::c::d::f();
-              ^ function
+              ^ function.call
 > a::b::c::d::e::f();
                  ^ variable
 > void app::Greeter::greet() {}
@@ -81,7 +82,8 @@
                                       ^ property
                                           ^^^^^^^ constant.builtin
 
-# A destructor is a function with its `~`, declared, defined and called
+# A destructor is a function with its `~`, declared and defined, and a
+# call where called
 > struct Greeter {
 >     ~Greeter();
       ^^^^^^^^ function
@@ -90,29 +92,37 @@
   ^^^^^^^ type
            ^^^^^^^^ function
 > void f(Greeter* g) { g->~Greeter(); }
-                          ^^^^^^^^ function
+                          ^^^^^^^^ function.call
 
 # The operators spelt as words are keywords
 > bool f() { return not a and b; }
                     ^^^ keyword
                           ^^^ keyword
 
-# A template and a call of one
+# A template and a call of one, alone, at the end of a path, of a path
+# two deep, and a template method called
 > template <typename T> T id(T x) { return x; }
   ^^^^^^^^ keyword
             ^^^^^^^^ keyword
                      ^ type
+                          ^^ function
+> auto q = id<int>(1);
+           ^^ function.call
 > auto p = std::make_unique<Greeter>();
            ^^^ module
-                ^^^^^^^^^^^ function
+                ^^^^^^^^^^^ function.call
                             ^^^^^^^ type
+> auto d = std::chrono::duration_cast<ms>(t);
+                        ^^^^^^^^^^^^^ function.call
+> auto v = obj.template get<int>();
+                        ^^^ function.method.call
 
 # A cast is a keyword, though spelt as a call of a template; a function
-# called the same way is not
+# called the same way is a call
 > int i = static_cast<int>(x) + std::bit_cast<int>(f);
           ^^^^^^^^^^^ keyword
                       ^^^ type.builtin
-                                     ^^^^^^^^ function
+                                     ^^^^^^^^ function.call
 > auto p = dynamic_cast<Base*>(q);
            ^^^^^^^^^^^^ keyword
                         ^^^^ type

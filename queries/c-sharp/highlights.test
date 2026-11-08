@@ -42,7 +42,8 @@
                    ^^^^^^^^^^^^ type
 > }
 
-# Methods: async, a local function, named arguments, calls of every kind
+# Methods: async, a local function, named arguments, calls of every kind;
+# a method where it is declared, a call where it is called
 > async Task<int> RunAsync(params int[] xs) {
   ^^^^^ keyword
         ^^^^ type
@@ -53,14 +54,17 @@
       ^^^^^ keyword
             ^^^^^^^ keyword
                      ^^^ keyword
-                              ^^^^^^ function
+                              ^^^^^^ function.call
 >     using var file = Open(path: "a.txt");
       ^^^^^ keyword
-                       ^^^^ function
+                       ^^^^ function.call
 >     int Local(int y) => y + 1;
           ^^^^^ function
 >     return await Task.FromResult(total);
-                        ^^^^^^^^^^ function
+                        ^^^^^^^^^^ function.method.call
+>     var n = Parse<int>(s) + list.Get<int>(0);
+              ^^^^^ function.call
+                                   ^^^ function.method.call
 > }
 
 # A switch expression and the patterns in it
@@ -126,7 +130,7 @@
                              ^^^^^^^^ keyword
 >     public static string Shout(this string s) => s.ToUpper();
                                  ^^^^ keyword
-                                                     ^^^^^^^ function
+                                                     ^^^^^^^ function.method.call
 >     unsafe void Raw() { int* ptr = stackalloc int[4]; fixed (char* cp = "x") { } }
       ^^^^^^ keyword
                                      ^^^^^^^^^^ keyword

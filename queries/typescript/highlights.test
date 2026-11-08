@@ -47,7 +47,7 @@
                                    ^^ variable.parameter
                                             ^^^^^^^^ variable.parameter
 > const r = first<number>([1]);
-            ^^^^^ function
+            ^^^^^ function.call
                   ^^^^^^ type.builtin
 
 # Parameters of every form; a default's value is not one
@@ -118,9 +118,10 @@
 > import type { User } from "./user";
          ^^^^ keyword
 
-# A decorator is a function whatever its name, a function declared too
+# A decorator is an attribute whatever its name; a function declared is a
+# function
 > @Component({ selector: "app" }) class AppComponent {}
-   ^^^^^^^^^ function
+   ^^^^^^^^^ attribute
                                         ^^^^^^^^^^^^ type
 > export function App(): JSX.Element { return null; }
                   ^^^ function

@@ -43,7 +43,7 @@
          ^^^^^ property
                 ^^^^ string.special
                               ^ number
-                                             ^^^^ function
+                                             ^^^^ function.call
                                                   ^^^ number
                                                      ^ type
                                                            ^ operator
@@ -56,7 +56,7 @@
                  ^ number
                   ^^ type
                              ^^^ property
-                                  ^^^ function
+                                  ^^^ function.call
                                       ^^^^^ variable
 
 # Strings with their escapes, quoted either way
@@ -70,7 +70,7 @@
 # a media query's words are operators, its features properties
 > @import url("x.css");
   ^^^^^^^ keyword
-          ^^^ function
+          ^^^ function.call
               ^^^^^^^ string
 > @media screen and (max-width: 600px) {}
   ^^^^^^ keyword

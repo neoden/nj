@@ -38,9 +38,11 @@
 (label_name) @label
 
 ; Function calls
+; Changed: a call is `function.call`, a method's `function.method.call`,
+; told from where a function is declared, as Neovim's queries have it.
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 ; Changed: upstream's list stops before Go 1.21, which added `clear`,
 ; `max` and `min`.
@@ -57,7 +59,7 @@
 
 (call_expression
   function: (selector_expression
-    field: (field_identifier) @function.method))
+    field: (field_identifier) @function.method.call))
 
 ; Function definitions
 

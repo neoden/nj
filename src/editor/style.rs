@@ -56,6 +56,9 @@ impl Ink {
     fn known(name: &str) -> Option<Self> {
         Some(match name {
             "variable.builtin" | "function.builtin" | "constant.builtin" => Ink::Builtin,
+            // A function is coloured where it is defined, and a call to it
+            // is as plain as any other use of a name.
+            "function.call" | "function.method.call" | "function.macro.call" => Ink::Text,
             "label" => Ink::Label,
             "module" => Ink::Module,
             "diff.plus" => Ink::Added,
@@ -133,6 +136,11 @@ mod tests {
         assert_eq!(Ink::named("function.builtin.extra"), Ink::Builtin);
         assert_eq!(Ink::named("type.builtin"), Ink::Type);
         assert_eq!(Ink::named("type.lifetime"), Ink::Type);
+        // A call is plain, where a definition is a function's.
+        assert_eq!(Ink::named("function.call"), Ink::Text);
+        assert_eq!(Ink::named("function.method.call"), Ink::Text);
+        assert_eq!(Ink::named("function.macro.call"), Ink::Text);
+        assert_eq!(Ink::named("function.macro"), Ink::Function);
         assert_eq!(Ink::named("label"), Ink::Label);
         assert_eq!(Ink::named("module"), Ink::Module);
         assert_eq!(Ink::named("tag"), Ink::Keyword);

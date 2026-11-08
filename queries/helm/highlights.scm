@@ -2,16 +2,17 @@
 ; of tree-sitter-go-template (MIT) and Helix's, with the changes marked
 ; below. The text around them is not this query's.
 
-; Changed: every function is a function, with no builtins among them.
-; Upstream names Go's own, `len` and `printf`, builtins; a chart calls
-; Sprig's and Helm's as often, `include` and `toYaml`, and none of them is
-; the chart's own.
+; Changed: every function is called, with no builtins among them, and a
+; call is `function.call`, as Neovim's queries have it. Upstream names
+; Go's own, `len` and `printf`, builtins; a chart calls Sprig's and
+; Helm's as often, `include` and `toYaml`, and none of them is the
+; chart's own. A template is defined with `define`, by a string.
 (function_call
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (method_call
   method: (selector_expression
-    field: (field_identifier) @function))
+    field: (field_identifier) @function.method.call))
 
 [
   (field)

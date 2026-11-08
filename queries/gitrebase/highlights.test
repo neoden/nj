@@ -35,7 +35,7 @@
 # What `exec` runs is Shell
 > exec cargo test --all
   ^^^^ keyword
-       ^^^^^ function
+       ^^^^^ function.call
                   ^^^^^ constant
 > x echo "done"
   ^ keyword
@@ -67,8 +67,8 @@
   ^ keyword
 > x make test | tee log.txt && echo "done ok"
   ^ keyword
-    ^^^^ function
-                ^^^ function
+    ^^^^ function.call
+                ^^^ function.call
                                ^^^^ function.builtin
                                     ^^^^^^^^^ string
 

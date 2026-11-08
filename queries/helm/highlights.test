@@ -7,16 +7,16 @@
              ^^^^^^ property
                           ^^^ property
                               ^ operator
-                                ^^^^^^^ function
+                                ^^^^^^^ function.call
                                                ^^^^^^^^^^ property
-                                                            ^^^^^ function
+                                                            ^^^^^ function.call
                                                                   ^^ punctuation.bracket
 
 # Trimmed on either side; the template given on, `.`
 > labels:
 >   {{- include "app.labels" . | nindent 4 }}
     ^^^ punctuation.bracket
-        ^^^^^^^ function
+        ^^^^^^^ function.call
                 ^^^^^^^^^^^^ string
                              ^ variable.builtin
                                          ^ number
@@ -29,13 +29,13 @@
 # A condition and its branches, a call in parentheses
 > {{- if and .Values.a (not .Values.b) }}
       ^^ keyword
-         ^^^ function
+         ^^^ function.call
                        ^ punctuation.bracket
-                        ^^^ function
+                        ^^^ function.call
 > {{- else if eq .Values.mode "x" }}
       ^^^^ keyword
            ^^ keyword
-              ^^ function
+              ^^ function.call
                               ^^^ string
 > {{- else }}
       ^^^^ keyword

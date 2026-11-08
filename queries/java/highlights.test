@@ -81,11 +81,11 @@
 # Calls through a class, a method reference, `super`
 > System.out.println(Math.max(1, 2));
   ^^^^^^ type
-             ^^^^^^^ function.method
+             ^^^^^^^ function.method.call
                      ^^^^ type
-                          ^^^ function.method
+                          ^^^ function.method.call
 > items.forEach(System.out::println);
-        ^^^^^^^ function.method
+        ^^^^^^^ function.method.call
                 ^^^^^^ type
 > Runnable r = () -> super.toString();
                      ^^^^^ function.builtin

@@ -39,9 +39,9 @@
                   ^^^^^^^^^^^ type
                                           ^^^ constant
 
-# Any other call is a function
+# Any other call is a call
 > greet(x)
-  ^^^^^ function
+  ^^^^^ function.call
 
 # Parameters where they are declared, their types, the return type
 >     def __init__(self, name: str, n: int = 0) -> None:
@@ -71,18 +71,24 @@
   ^^^^ variable.builtin
        ^^^^ property
               ^^^ variable.builtin
-                  ^^^^ function.method
+                  ^^^^ function.method.call
 >         super().__init__()
           ^^^^^ function.builtin
-                  ^^^^^^^^ function.method
+                  ^^^^^^^^ function.method.call
 
-# A decorator is a function, its `@` too
+# A decorator is an attribute, its `@` too, and of a name reached through
+# another or called, the last name
 > @property
-  ^ function
-   ^^^^^^^^ function
+  ^ attribute
+   ^^^^^^^^ attribute
 > @app.route("/")
+  ^ attribute
    ^^^ variable
-       ^^^^^ function.method
+       ^^^^^ attribute
+> @functools.cache
+             ^^^^^ attribute
+> @wraps(f)
+   ^^^^^ attribute
 
 # A builtin is told from any other call
 > return len("hi")  # polite
@@ -151,7 +157,7 @@
 # Used later, it is a name like any other
 > os.getcwd()
   ^^ variable
-     ^^^^^^ function.method
+     ^^^^^^ function.method.call
 
 # Where a type stands a name is a type, whatever its look: a type
 # parameter is not a constant

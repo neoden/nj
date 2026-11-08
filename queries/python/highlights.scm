@@ -33,15 +33,13 @@
 (attribute attribute: (identifier) @property)
 
 ; Function calls
-
-(decorator) @function
-(decorator
-  (identifier) @function)
+; Changed: a call is `function.call`, a method's `function.method.call`,
+; told from where a function is defined, as Neovim's queries have it.
 
 (call
-  function: (attribute attribute: (identifier) @function.method))
+  function: (attribute attribute: (identifier) @function.method.call))
 (call
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 ; Builtin functions
 
@@ -87,6 +85,21 @@
 ; Added: the name in a class definition.
 (class_definition
   name: (identifier) @type)
+
+; Changed: a decorator is an attribute, as Neovim's query has it and as
+; Java's annotations and Rust's attributes are here: a mark on what it
+; decorates, where upstream has a function. Its `@` and the last name of
+; it, however it is reached: `@property`, `@app.route("/")`. After the
+; calls and the conventions, which would have the name otherwise.
+(decorator "@" @attribute)
+(decorator
+  (identifier) @attribute)
+(decorator
+  (attribute attribute: (identifier) @attribute))
+(decorator
+  (call function: (identifier) @attribute))
+(decorator
+  (call function: (attribute attribute: (identifier) @attribute)))
 
 ; Added: a module where an import names it, after the conventions so that
 ; `PIL` is a module, not a constant. What `from` brings in is left alone:

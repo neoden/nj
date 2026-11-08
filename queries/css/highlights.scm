@@ -59,7 +59,9 @@
 (pseudo_class_selector (class_name) @attribute)
 (attribute_name) @attribute
 
-(function_name) @function
+; Changed: a function is only ever called here, `rgb(...)`, and a call is
+; `function.call`, as Neovim's queries have it.
+(function_name) @function.call
 
 "@media" @keyword
 "@import" @keyword

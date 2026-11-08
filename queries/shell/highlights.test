@@ -18,12 +18,12 @@
        ^^^^^^^ string
               ^^^^^^ variable
 
-# A command is a function, the shell's own a builtin, its flags constants
+# A command is a call, the shell's own a builtin, its flags constants
 > grep -v x file | sort > out.log
-  ^^^^ function
+  ^^^^ function.call
        ^^ constant
             ^^^^ -
-                   ^^^^ function
+                   ^^^^ function.call
 > set -euo pipefail; source ./lib.sh; . ./lib.sh
   ^^^ function.builtin
       ^^^^ constant
@@ -33,10 +33,10 @@
 # A command inside a substitution is a command still, in a string too
 > today=$(date +%F); old=`date`; echo "now: $(date)"
   ^^^^^ variable
-          ^^^^ function
-                          ^^^^ function
+          ^^^^ function.call
+                          ^^^^ function.call
                                       ^^^^^^ string
-                                              ^^^^ function
+                                              ^^^^ function.call
 
 # A test's flag is a flag as in `test -f`; a regex is a string
 > if [ -f "$f" ] && [[ $s =~ ^[0-9]+$ ]]; then
@@ -101,7 +101,7 @@
 # A heredoc is a string, its words both ends, and a variable stands out of
 # it; quoted, it expands nothing
 > cat <<EOF
-  ^^^ function
+  ^^^ function.call
         ^^^ string
 > Hello $name
   ^^^^^ string
