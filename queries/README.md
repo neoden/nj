@@ -1,17 +1,18 @@
 # Queries and their tests
 
-One directory per language, named as `src/buffer/grammar.rs` links it:
+One directory per language, named as `src/buffer/grammar.rs` links it.
+Each holds:
 
-- `highlights.scm` — the highlight query. Written here, not taken from the
-  grammar's crate: the crates do not agree on which of two patterns naming
-  the same node wins. Here the last one does, as in tree-sitter's own
-  highlighter, so general patterns come first and specific ones after. A
-  pattern that departs from the crate's query says so in a comment
-  starting with `Changed:` or `Added:`.
-- `injections.scm` — which pieces of the text another grammar reads, if
+- `highlights.scm` — the highlight query. The queries are kept here, not
+  taken from the grammar crates, because the crates disagree on a basic
+  rule: when two patterns name the same node, which one wins. Here the
+  last one wins, as in tree-sitter's own highlighter. So general patterns
+  go first and specific ones after. A pattern that differs from the
+  crate's query has a comment starting with `Changed:` or `Added:`.
+- `injections.scm` — which parts of the text another grammar parses, if
   any.
-- `*.test` — examples of the language and what the query must call them.
-  Any name with that suffix counts; a language may have several files.
+- `*.test` — examples of the language with the names the query must give
+  them. Any file with that suffix is run; a language may have several.
 
 ## The test format
 
@@ -30,25 +31,29 @@ One directory per language, named as `src/buffer/grammar.rs` links it:
               ^^ string
 ```
 
-- `%language NAME` — the language, by its name from `language.rs`; once,
+- `%language NAME` — the language, by its name from `language.rs`. Once,
   before the examples.
-- `# TEXT` — a comment. The first comment line above an example names it
-  in the output.
-- `> CODE` — a line of code; `>` alone is an empty line. Several in a row
-  are one example. The code is what comes after the two-column prefix.
-- `^^^ NAME` — every character above the carets is named NAME by the
-  query. `-` for none: the text is plain. A line of code may have any
-  number of these; they line up with the code, two columns in.
+- `# TEXT` — a comment. The first comment line above an example is its
+  name in the output.
+- `> CODE` — a line of code. `>` alone is an empty line. Several in a row
+  make one example. The code starts after the two-column prefix.
+- `^^^ NAME` — the query names every character above the carets NAME.
+  `-` means no name: plain text. A line of code may have any number of
+  caret lines. They line up with the code, two columns in.
 - A blank line ends the example.
 
-Each example is parsed on its own, as a whole file of the language, so one
-that does not parse spoils no other; a fragment that needs a root around
-it must bring it along. Injections apply, so a `<script>` in an HTML
-example is checked as JavaScript. Where tokens nest, a character takes
-the innermost, as on the screen. The carets count characters and line up
-by columns, which is the same only while every character before them is
-one column wide: a tab, a CJK letter or an emoji before the carets fails
-the claim.
+Each example is parsed on its own, as a whole file of the language. An
+example that does not parse breaks nothing else. A fragment that needs a
+root element around it has to include one. Injections apply: a
+`<script>` in an HTML example is checked as JavaScript.
+
+Where tokens nest, a character takes the innermost one, as on the
+screen. That is why the string above is claimed in two parts: the escape
+in the middle is not string.
+
+The carets count characters but line up by columns. The two agree only
+while every character before the carets is one column wide. A tab, a CJK
+letter or an emoji before the carets fails the claim.
 
 ## Running
 
@@ -60,5 +65,5 @@ cargo test --test highlights -- --code rust/ | nj --language Rust
 ```
 
 A failure names the file and line, the column, and what the query said
-instead. A language whose grammar the build left out is skipped. Without a
-filter, every grammar linked in must have examples here.
+instead. A language whose grammar is not in the build is skipped. Without
+a filter, every grammar in the build must have examples here.

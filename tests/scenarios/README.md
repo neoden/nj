@@ -1,0 +1,166 @@
+# Scenario tests
+
+A scenario is a file of keystrokes and what the screen should show after
+them, run against a headless editor. One `.sc` per scenario, in a
+directory per area; a scenario is named by its path from here,
+`search/esc-ends-the-search`. The file name is the claim it makes.
+
+```sh
+cargo test --test scenarios                   # all of them
+cargo test --test scenarios -- search/        # one area
+cargo test --test scenarios -- esc            # names containing `esc`
+cargo test --test scenarios -- --update esc   # rewrite their frames
+```
+
+## A file
+
+```text
+# Ctrl+/ comments the touched lines out with the language's marker...
+
+%file main.rs "fn main() {\n    let x = 1;\n}"
+%start main.rs
+size 30 7
+key Down
+key Ctrl+/
+
+--- one line commented, the marker at its own indent
+0|1 fn main() {
+1|2     // let x = 1;
+ |--^---------------------------
+2|3 }
+3-5|
+6| ….rs* · Rust · 3 lines · 2:1
+
+key Ctrl+S
+?file main.rs "fn main() {\n    // let x = 1;\n}"
+```
+
+The author writes everything except the frames: the comment at the top,
+which says what the scenario shows and why, the instructions, the `?`
+checks and the `---` lines with their captions. The frame under a `---`
+line, up to the blank line that ends it, is generated. The test renders
+the scenario again and compares the result with the file. `--update`
+writes the fresh frames into the file and changes nothing else.
+
+The split is deliberate. A frame is a picture: nobody can write it by
+hand, so the machine writes it and the author looks at it. An exit code
+or a file's contents can be stated before the run, so the author states
+it as a `?` line, and a regression there is never blessed by `--update`.
+A `---` with no frame under it fails, so a new scenario cannot pass
+before anyone has looked at its frames.
+
+## The lines
+
+One instruction per line; blank lines and `#` comments are skipped. Text
+is in double quotes, with `\n`, `\t`, `\"` and `\\` inside; names are
+bare. The full description is the header of `src/term/scenario.rs`.
+
+The editor's own, what a user would do:
+
+| line | does |
+| --- | --- |
+| `size W H` | the screen, in cells; 40×10 until said |
+| `type "TEXT"` | keystroke by keystroke; no control characters |
+| `key NAME` | one key: `Enter`, `F3`, `Ctrl+Shift+L` |
+| `paste "TEXT"` | one bracketed paste; the way to enter a newline |
+| `click X Y [MODS]` | the left button going down at column X, row Y |
+| `drag X Y [MODS]` | the pointer moving there with the button held |
+| `scroll up\|down X Y [MODS]` | the wheel |
+| `wait` | let every background job finish |
+
+The run's, around the editor:
+
+| line | does |
+| --- | --- |
+| `%file NAME "TEXT"` | a file in the scenario's directory |
+| `%start ARGS` | start the editor with this command line; without it the editor starts as bare `nj` would, at the first line that is not a `%` line |
+| `%stdin "TEXT"` | what is piped into the editor; a terminal otherwise |
+| `%clipboard "TEXT"` | what the desktop clipboard holds |
+| `%grammar NAME` | the scenario needs this grammar; a build without it skips the scenario |
+| `%reset` | end the editor, empty the directory, start over |
+
+The run's checks, of what the screen cannot show:
+
+| line | holds when |
+| --- | --- |
+| `?exit N` | the editor has exited with code N |
+| `?stdout "TEXT"` | and, as a pipeline, handed TEXT downstream |
+| `?file NAME "TEXT"` | the file holds TEXT |
+| `?nopath NAME` | nothing is there |
+| `?clipboard "TEXT"` | the desktop clipboard holds TEXT |
+
+A `?` line that does not hold is an error naming the line. Put `?` lines
+after the keys they check and before the next `---`. Once the editor has
+exited there is no screen, so a `---` or a key there is an error; `?exit`
+and `?stdout` say what became of it, and `%start` starts the next one.
+
+## Frames
+
+Under the text, the screen has two layers of letters. The marks say
+where the cursor, the selection and the search hits are. The inks say
+what colour each word has: keyword, string, comment and so on. A frame
+shows one layer at a time, because two rows of letters under one line of
+text would not be readable:
+
+- `--- CAPTION` shows the text and the marks.
+- `---ink CAPTION` shows the text and the inks.
+
+The caption is the author's: it says what the frame should show. When
+both layers matter at one point, write the two lines one after the other.
+
+A frame is a diff. The first `---` in a file shows the whole screen; every
+later `---` shows only the rows that changed since the previous `---`, or
+`same` if nothing did. `---ink` works the same way, but compares with the
+previous `---ink`, not with the previous `---`. So the first `---ink` in a
+file is always a whole screen, however many `---` came before it.
+
+```text
+ 0|1 fn main() {}
+  |--------------^-------------------------
+ 1-10|
+15| 1/25 …cratch]* · Text · 1 lines · 1:13
+```
+
+Before `|` is the row number, right-aligned; after it, the cells. A row
+with letters has a second line under it, one letter per column. Empty
+rows run together, `1-10|`. Trailing spaces are cut. The editor's own
+furniture, line numbers, rules and the status bar, gets no letters: it is
+told by where it is and what it says.
+
+Marks: `-` the current line, `~` selected, `=` a search hit, `^` a caret.
+
+Inks: `k` keyword, `s` string, `c` comment, `t` type, `f` function,
+`n` constant, `b` builtin, `l` label, `m` module, `+` added, `-` deleted.
+
+## The run
+
+Each scenario runs in an empty directory of its own. The test creates it
+at `target/scenarios/<pid>` and removes it when the scenario ends. The
+sandbox binary for live replay uses the system's temporary directory
+instead. The run changes into that directory, so a relative path typed
+into a prompt or given to `%file` lands there, and nothing outside it is
+touched.
+
+The clipboard is a fake. It holds only what the scenario copies or what a
+`%clipboard` line puts there, and nothing from the real desktop.
+
+A picker streams its candidates from a worker, so a `---` right after one
+opens may catch the list half filled. That is what `wait` is for: put it
+before the snapshot unless the half-filled frame is the point. The
+headless run does not wait on its own, and a missing `wait` shows up when
+the scenario is replayed by hand.
+
+## Replaying by hand
+
+The same file drives a live editor, to see what the frames describe or to
+find where a scenario and the editor part ways:
+
+```sh
+tools/replay sandbox          # in one terminal: the editor, under the run's conditions
+tools/replay run FILE.sc      # in another: the scenario, line by line
+```
+
+Each line is shown and sent on Enter; `a` sends the rest, `q` stops. At a
+`---` the frame is worked out as the test works it out and compared with
+the file, and the two are printed where they differ. Debug builds only,
+like the headless run.
