@@ -15,6 +15,7 @@
                            ^^^^^^ function
 > use const App\Config\MAX;
                        ^^^ constant
+> ?>
 
 # A class: its attribute, what it extends, implements and uses, its
 # promoted constructor's parameters, a static property, a constant
@@ -47,6 +48,7 @@
                       ^^^^ function.method
                                                 ^^^^^^ type.builtin
 > }
+> ?>
 
 # Strings: variables in a double-quoted one, an escape in either kind; a
 # heredoc in the language its marker names, a nowdoc
@@ -67,6 +69,7 @@
 >     raw $not
       ^^^^^^^^ string
 >     EOT;
+> ?>
 
 # Functions without a name, match, numbers of every form, a cast
 > <?php
@@ -86,6 +89,7 @@
                               ^^^^^ number
                                       ^^^^^ number
                                                ^^^ type.builtin
+> ?>
 
 # A class reached by name: `::class`, self, parent, a full name,
 # `instanceof`
@@ -103,6 +107,7 @@
 > $ok = $user instanceof U;
               ^^^^^^^^^^ keyword
                          ^ type
+> ?>
 
 # The language's own: constants in any case, the constructs spelt as
 # calls, magic constants, `unset`, `list`
@@ -120,6 +125,7 @@
                  ^^^^^^^^ constant.builtin
 > list($a, $b) = [1, 2];
   ^^^^ function.builtin
+> ?>
 
 # An enum and its cases, an interface, a trait
 > <?php
@@ -132,6 +138,7 @@
             ^^^^^^^^^ type
 > trait Loggable {}
         ^^^^^^^^ type
+> ?>
 
 # Comments of three kinds
 > <?php
@@ -141,6 +148,7 @@
   ^^^^^^ comment
 > /** @param int $x */
   ^^^^^^^^^^^^^^^^^^^^ comment
+> ?>
 
 # HTML around the code is HTML; a template's alternative syntax
 > <ul class="list">
@@ -156,3 +164,12 @@
         ^^^ tag
 > <?php endforeach; ?>
         ^^^^^^^^^^ keyword
+
+# A tag the code stands inside of goes on past it: the HTML of a file is
+# one document; what the code does not name is not the HTML's string
+> <a href="<?php echo $url; ?>" class="link">Go</a>
+                          ^ -
+                              ^ string
+                                ^^^^^ attribute
+                                      ^^^^^^ string
+                                                 ^ tag

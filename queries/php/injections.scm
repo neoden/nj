@@ -2,11 +2,12 @@
 ; `injections.scm` and `injections-text.scm` in one. Upstream's injection
 ; of a comment into PHPDoc, a grammar this build has not, is left out.
 
-; The text outside `<?php ... ?>` is HTML. Upstream reads all of a file's
-; pieces of it as one document; here each piece is read alone, so an
-; element that a PHP tag cuts in two is coloured in its two halves.
+; The text outside `<?php ... ?>` is HTML, all of a file's pieces of it
+; one document: in `<a href="<?= $url ?>" class="x">` the tag goes on past
+; the PHP, which a piece read alone would end it at.
 ((text) @injection.content
- (#set! injection.language "html"))
+ (#set! injection.language "html")
+ (#set! injection.combined))
 
 ; A heredoc's marker names its language: `<<<SQL ... SQL`. Changed: its
 ; body is made of pieces of string, children a piece leaves out unless

@@ -6,7 +6,9 @@
 //!
 //! Some pieces of the text are another grammar's: the text inside a
 //! Markdown block. Each is parsed whole, on its own, the first time it is
-//! drawn, and kept until the next edit.
+//! drawn, and kept until the next edit. Where the query combines them —
+//! the HTML between a PHP file's tags — they are parsed together, as one
+//! document with the outer grammar's text left out of it.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -45,12 +47,24 @@ pub struct Syntax {
     /// through every piece, which this is spared. Within one version of
     /// the text a place holds one piece, read by one grammar.
     injected: RefCell<HashMap<(usize, usize), Parsed>>,
+    /// The pieces the query combines, one per pattern, from all of the
+    /// text: what the first frame after an edit reads, all frames up to
+    /// the next edit draw from. `None` until then.
+    combined: RefCell<Option<Vec<Parsed>>>,
 }
 
 /// A piece as its grammar read it.
 struct Parsed {
     grammar: &'static Grammar,
     tree: Tree,
+    spans: Vec<tree_sitter::Range>,
+}
+
+impl Parsed {
+    fn tokens(&self, text: &Text, range: Range<usize>) -> Vec<Token<'static>> {
+        let found = highlight(self.grammar, &self.tree, text, range);
+        clip(found, &self.spans)
+    }
 }
 
 /// A piece of the text for another grammar: where it lies, and the spans
@@ -76,6 +90,7 @@ impl Syntax {
             parser,
             tree,
             injected: RefCell::default(),
+            combined: RefCell::default(),
         })
     }
 
@@ -94,21 +109,43 @@ impl Syntax {
     /// its only child may cover the same bytes and are still two tokens,
     /// the child's after the parent's. The tokens of a piece another
     /// grammar reads lie inside the piece, and so come after the outer
-    /// grammar's that start where they do: they are the inner ones.
+    /// grammar's that start where they do: they are the inner ones. They
+    /// lie only on the bytes of the piece the grammar read, cut in parts
+    /// where they would cover the outer grammar's.
     pub fn tokens(&self, text: &Text, range: Range<usize>) -> Vec<Token<'_>> {
         let mut tokens = highlight(self.grammar, &self.tree, text, range.clone());
         let Some(injections) = &self.grammar.injections else {
             return tokens;
         };
         let mut injected = self.injected.borrow_mut();
-        for piece in pieces(injections, &self.tree, text, range.clone()) {
+        for piece in pieces(injections, &self.tree, text, range.clone(), false) {
             let parsed = injected
                 .entry((piece.range.start, piece.range.end))
                 .or_insert_with(|| Parsed {
                     grammar: piece.grammar,
                     tree: parse_piece(&piece, text),
+                    spans: piece.spans,
                 });
-            tokens.extend(highlight(parsed.grammar, &parsed.tree, text, range.clone()));
+            tokens.extend(parsed.tokens(text, range.clone()));
+        }
+        let mut combined = self.combined.borrow_mut();
+        let combined = combined.get_or_insert_with(|| {
+            // Reading all of the text is what a combined piece costs, and
+            // a query with none would pay it for nothing.
+            if !combines(injections) {
+                return Vec::new();
+            }
+            pieces(injections, &self.tree, text, 0..text.len(), true)
+                .into_iter()
+                .map(|piece| Parsed {
+                    grammar: piece.grammar,
+                    tree: parse_piece(&piece, text),
+                    spans: piece.spans,
+                })
+                .collect()
+        });
+        for parsed in combined.iter() {
+            tokens.extend(parsed.tokens(text, range.clone()));
         }
         // Stable, so that the outer tokens stay before the inner ones that
         // start where they do, and those of one grammar in its order.
@@ -136,6 +173,7 @@ impl Syntax {
         }
         self.tree = parse(&mut self.parser, text, Some(&self.tree));
         self.injected.get_mut().clear();
+        *self.combined.get_mut() = None;
     }
 }
 
@@ -178,13 +216,45 @@ fn highlight(
     tokens
 }
 
+/// The parts of `tokens` that lie in `spans`, the bytes the grammar read.
+/// A node spans the bytes it was not given as well, when they fall inside
+/// it: the string of `href="<?= $url ?>"`, the code of a quote that goes on
+/// past a line's `> `. Those bytes are the outer grammar's, and the outer
+/// grammar need not name every one of them to cover them.
+fn clip(tokens: Vec<Token<'static>>, spans: &[tree_sitter::Range]) -> Vec<Token<'static>> {
+    let mut clipped = Vec::with_capacity(tokens.len());
+    for token in tokens {
+        let first = spans.partition_point(|span| span.end_byte <= token.range.start);
+        for span in spans[first..]
+            .iter()
+            .take_while(|span| span.start_byte < token.range.end)
+        {
+            clipped.push(Token {
+                range: token.range.start.max(span.start_byte)..token.range.end.min(span.end_byte),
+                name: token.name,
+            });
+        }
+    }
+    clipped
+}
+
 /// The pieces touching `range` that the injection query gives to another
 /// grammar, read as tree-sitter's own highlighter reads one: the piece is
 /// `@injection.content`, its grammar named by the text of
 /// `@injection.language` or else by `#set! injection.language`, and its
 /// children left out unless `#set! injection.include-children`. A grammar
 /// this build does not have leaves its piece to the outer one.
-fn pieces(query: &Query, tree: &Tree, text: &Text, range: Range<usize>) -> Vec<Piece> {
+///
+/// Either the pieces of the patterns that do not combine, or those of the
+/// patterns that do, `#set! injection.combined`: all the matches of such a
+/// pattern make one piece, in the grammar its first match names.
+fn pieces(
+    query: &Query,
+    tree: &Tree,
+    text: &Text,
+    range: Range<usize>,
+    combined: bool,
+) -> Vec<Piece> {
     let content = query.capture_index_for_name("injection.content");
     let named = query.capture_index_for_name("injection.language");
     let mut cursor = QueryCursor::new();
@@ -193,7 +263,9 @@ fn pieces(query: &Query, tree: &Tree, text: &Text, range: Range<usize>) -> Vec<P
         text.chunks_in(node.byte_range())
     });
 
-    let mut pieces = Vec::new();
+    let mut pieces: Vec<Piece> = Vec::new();
+    // The pattern each piece is of, for a combined one to be found again.
+    let mut patterns = Vec::new();
     while let Some(found) = matches.next() {
         let mut name = None;
         let mut node = None;
@@ -205,14 +277,19 @@ fn pieces(query: &Query, tree: &Tree, text: &Text, range: Range<usize>) -> Vec<P
             }
         }
         let mut children = false;
+        let mut combines = false;
         for property in query.property_settings(found.pattern_index) {
             match &*property.key {
                 "injection.language" if name.is_none() => {
                     name = property.value.as_deref().map(str::to_owned);
                 }
                 "injection.include-children" => children = true,
+                "injection.combined" => combines = true,
                 _ => {}
             }
+        }
+        if combines != combined {
+            continue;
         }
         let (Some(name), Some(node)) = (name, node) else {
             continue;
@@ -221,15 +298,34 @@ fn pieces(query: &Query, tree: &Tree, text: &Text, range: Range<usize>) -> Vec<P
             continue;
         };
         let spans = spans(node, children);
-        if !spans.is_empty() {
-            pieces.push(Piece {
-                grammar,
-                range: node.byte_range(),
-                spans,
-            });
+        if spans.is_empty() {
+            continue;
         }
+        // Matches come in the order they start, so the spans stay in order.
+        if combined && let Some(at) = patterns.iter().position(|&p| p == found.pattern_index) {
+            let piece = &mut pieces[at];
+            piece.range.end = node.end_byte();
+            piece.spans.extend(spans);
+            continue;
+        }
+        patterns.push(found.pattern_index);
+        pieces.push(Piece {
+            grammar,
+            range: node.byte_range(),
+            spans,
+        });
     }
     pieces
+}
+
+/// Whether any pattern of the injection query combines its pieces.
+fn combines(query: &Query) -> bool {
+    (0..query.pattern_count()).any(|pattern| {
+        query
+            .property_settings(pattern)
+            .iter()
+            .any(|property| &*property.key == "injection.combined")
+    })
 }
 
 /// The grammar for a piece by the name the query gives it: a language's,
@@ -544,5 +640,21 @@ mod markdown_tests {
         buffer.apply(transaction, EditKind::Other);
         assert_eq!(buffer.text().to_string(), "a `bx c\n");
         assert!(names_at(&buffer, 3).is_empty());
+    }
+
+    #[test]
+    fn an_inner_token_leaves_out_what_its_grammar_did_not_read() {
+        // The code goes on over the second line's `> > `, which the inline
+        // grammar was not given: the code is on both sides of it, and not
+        // on it.
+        let mut buffer = Buffer::from_text(Text::from_str("> > `one\n> > two`\n"));
+        buffer.set_language(language::detect(Path::new("x.md")));
+        let marker = "> > `one\n> ".len();
+        assert_eq!(names_at(&buffer, marker), ["markup.quote.marker"]);
+        assert_eq!(names_at(&buffer, "> > `o".len()), ["markup.raw.inline"]);
+        assert_eq!(
+            names_at(&buffer, "> > `one\n> > t".len()),
+            ["markup.raw.inline"]
+        );
     }
 }
