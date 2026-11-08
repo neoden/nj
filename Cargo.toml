@@ -42,6 +42,7 @@ tree-sitter-scss = { version = "1.0", optional = true }
 tree-sitter-sequel = { version = "0.3", optional = true }
 tree-sitter-toml-ng = { version = "0.7", optional = true }
 tree-sitter-typescript = { version = "0.23", optional = true }
+tree-sitter-xml = { version = "0.7", optional = true }
 tree-sitter-yaml = { version = "0.7", optional = true }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
@@ -49,7 +50,7 @@ unicode-width = "0.2.2"
 # One feature per grammar linked into the binary. A language left out is
 # still detected and indented, just not highlighted.
 [features]
-default = ["c", "c-sharp", "cpp", "css", "diff", "dockerfile", "git", "go", "helm", "html", "ini", "java", "javascript", "json", "makefile", "markdown", "php", "python", "rust", "scss", "shell", "sql", "toml", "typescript", "yaml"]
+default = ["c", "c-sharp", "cpp", "css", "diff", "dockerfile", "git", "go", "helm", "html", "ini", "java", "javascript", "json", "makefile", "markdown", "php", "python", "rust", "scss", "shell", "sql", "toml", "typescript", "xml", "yaml"]
 c = ["dep:tree-sitter-c"]
 c-sharp = ["dep:tree-sitter-c-sharp"]
 cpp = ["dep:tree-sitter-cpp"]
@@ -81,6 +82,7 @@ sql = ["dep:tree-sitter-sequel"]
 toml = ["dep:tree-sitter-toml-ng"]
 # Both TypeScript and TSX, the two grammars of one crate.
 typescript = ["dep:tree-sitter-typescript"]
+xml = ["dep:tree-sitter-xml"]
 yaml = ["dep:tree-sitter-yaml"]
 
 # Scenarios run one after another with their own `main` (ADR 25): a run owns

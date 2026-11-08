@@ -248,6 +248,15 @@ const LINKED: &[Linked] = &[
         ],
         injections: Some(include_str!("../../queries/javascript/injections.scm")),
     },
+    // The crate has a DTD grammar too, for `.dtd` files; a DOCTYPE's
+    // internal subset is part of the XML grammar itself.
+    #[cfg(feature = "xml")]
+    Linked {
+        name: "XML",
+        language: || tree_sitter_xml::LANGUAGE_XML.into(),
+        highlights: &[include_str!("../../queries/xml/highlights.scm")],
+        injections: None,
+    },
     #[cfg(feature = "yaml")]
     Linked {
         name: "YAML",

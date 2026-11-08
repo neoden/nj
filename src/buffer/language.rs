@@ -111,6 +111,19 @@ pub const LANGUAGES: &[Language] = &[
         line_comment: None,
     },
     Language {
+        // The suffixes XML goes by: schemas and stylesheets, images, feeds,
+        // .NET's project files, Apple's property lists.
+        name: "XML",
+        extensions: &[
+            "xml", "xsd", "xsl", "xslt", "svg", "rss", "atom", "opml", "plist", "xaml", "csproj",
+            "fsproj", "vbproj", "props", "targets", "nuspec", "resx", "wsdl", "kml", "gpx",
+        ],
+        filenames: &[],
+        indent: Indent::Spaces(2),
+        tab_width: 2,
+        line_comment: None,
+    },
+    Language {
         name: "CSS",
         extensions: &["css"],
         filenames: &[],
@@ -444,6 +457,8 @@ mod tests {
         assert_eq!(detect_name("Cargo.toml"), "TOML");
         assert_eq!(detect_name("site.css"), "CSS");
         assert_eq!(detect_name("site.scss"), "SCSS");
+        assert_eq!(detect_name("pom.xml"), "XML");
+        assert_eq!(detect_name("icons/logo.svg"), "XML");
         assert_eq!(detect_name("app.ts"), "TypeScript");
         assert_eq!(detect_name("app.tsx"), "TSX");
     }

@@ -1,0 +1,138 @@
+%language XML
+
+# The declaration: `xml` is a keyword, its pseudo-attributes attributes,
+# each value one string with its quotes, either kind
+> <?xml version="1.0" encoding="UTF-8" standalone='yes'?><r/>
+    ^^^ keyword
+        ^^^^^^^ attribute
+                ^^^^^ string
+                      ^^^^^^^^ attribute
+                               ^^^^^^^ string
+                                       ^^^^^^^^^^ attribute
+                                                  ^^^^^ string
+                                                          ^ tag
+
+# Namespaces: a prefixed name is one token, so the whole of `xsl:stylesheet`
+# is the tag, and a declaration `xmlns:xsl` is an attribute as any other
+> <xsl:stylesheet xmlns:xsl="http://x" xmlns="urn:y" version="1.0"/>
+   ^^^^^^^^^^^^^^ tag
+                  ^^^^^^^^^ attribute
+                            ^^^^^^^^^^ string
+                                       ^^^^^ attribute
+                                             ^^^^^^^ string
+                                                     ^^^^^^^ attribute
+                                                             ^^^^^ string
+
+# Prefixed elements and attributes, in a closing tag too
+> <xsl:template match="/"><svg:rect xml:lang="en" xsi:nil='true'/></xsl:template>
+   ^^^^^^^^^^^^ tag
+                ^^^^^ attribute
+                      ^^^ string
+                           ^^^^^^^^ tag
+                                    ^^^^^^^^ attribute
+                                             ^^^^ string
+                                                  ^^^^^^^ attribute
+                                                          ^^^^^^ string
+                                                                    ^^^^^^^^^^^^ tag
+
+# Text is plain; a reference is an escape, named, numbered either way, or
+# to an entity of the document's own, inside an attribute's value as well
+> <a href="x?a=1&amp;b=2">Tom &amp; Jerry &#169; &#xA9; &w;</a>
+   ^ tag
+     ^^^^ attribute
+          ^^^^^^ string
+                ^^^^^ escape
+                     ^^^^ string
+                          ^^^ -
+                              ^^^^^ escape
+                                          ^^^^^^ escape
+                                                 ^^^^^^ escape
+                                                        ^^^ escape
+                                                             ^ tag
+
+# A CDATA section's ends are keywords and its text plain, tag-like or not;
+# a comment
+> <r><![CDATA[ <not> a tag ]]><!-- note --></r>
+     ^^^^^^^^^ keyword
+               ^^^^^ -
+                           ^^^ keyword
+                              ^^^^^^^^^^^^^ comment
+
+# A processing instruction's target is a keyword and the rest is its own.
+# The grammar's scanner (tree-sitter-xml 0.7.0, `scan_pi_content`) wants
+# a newline after the `?>` of an instruction with a body, so one in the
+# middle of a line is an error; here it ends its line
+> <r>
+>   <?php echo 1; ?>
+      ^^^ keyword
+          ^^^^^^^ -
+> </r>
+
+# The stylesheet instruction has pseudo-attributes of its own
+> <?xml-stylesheet type="text/xsl" href="s.xsl"?><r/>
+    ^^^^^^^^^^^^^^ keyword
+                   ^^^^ attribute
+                        ^^^^^^^^^^ string
+                                   ^^^^ attribute
+                                        ^^^^^^^ string
+                                                  ^ tag
+
+# The document type with an external identifier and an internal subset:
+# element names are tags there too, attribute names attributes, entities
+# and notations constants, the types and `#PCDATA` builtin types
+> <!DOCTYPE note PUBLIC "-//X//DTD//EN" "note.dtd" [
+    ^^^^^^^ keyword
+            ^^^^ tag
+                 ^^^^^^ keyword
+                        ^^^^^^^^^^^^^^^ string
+                                        ^^^^^^^^^^ string
+>   <!ENTITY writer "Donald">
+      ^^^^^^ keyword
+             ^^^^^^ constant
+                    ^^^^^^^^ string
+>   <!ENTITY % common SYSTEM "common.ent">
+      ^^^^^^ keyword
+             ^ operator
+               ^^^^^^ constant
+                      ^^^^^^ keyword
+                             ^^^^^^^^^^^^ string
+>   <!ELEMENT note (to, from, (b | i)*)>
+      ^^^^^^^ keyword
+              ^^^^ tag
+                    ^^ tag
+                      ^ punctuation.delimiter
+                        ^^^^ tag
+                            ^ punctuation.delimiter
+                               ^ tag
+                                 ^ punctuation.delimiter
+                                   ^ tag
+                                     ^ operator
+>   <!ELEMENT p (#PCDATA | b)*>
+      ^^^^^^^ keyword
+              ^ tag
+                 ^^^^^^^ type.builtin
+                           ^ tag
+                             ^ operator
+>   <!ATTLIST note id ID #REQUIRED lang CDATA "en" kind (a | b) #IMPLIED>
+      ^^^^^^^ keyword
+              ^^^^ tag
+                   ^^ attribute
+                      ^^ type.builtin
+                         ^^^^^^^^^ keyword
+                                   ^^^^ attribute
+                                        ^^^^^ type.builtin
+                                              ^^^^ string
+                                                   ^^^^ attribute
+                                                         ^ string
+                                                             ^ string
+                                                                ^^^^^^^^ keyword
+>   <!NOTATION gif SYSTEM "image/gif">
+      ^^^^^^^^ keyword
+               ^^^ constant
+                   ^^^^^^ keyword
+                          ^^^^^^^^^^^ string
+> ]>
+> <note>&writer;</note>
+   ^^^^ tag
+        ^^^^^^^^ escape
+
