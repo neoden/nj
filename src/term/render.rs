@@ -328,7 +328,7 @@ fn rule(grid: &mut Grid, x: usize, y: usize, width: usize) {
 /// the left is whatever is going on. The right takes what the left does not
 /// need, but never more than half the screen while the left has something to
 /// say, and what does not fit is cut from its start: a path loses its first
-/// directories, not the line number at the end (D11). A column at either
+/// directories, not the line number at the end. A column at either
 /// edge keeps both off the screen's edges, and one between them, while the
 /// left has something to say, keeps the two apart.
 fn status_line(left: &str, right: &str, width: usize) -> String {

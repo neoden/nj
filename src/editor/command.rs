@@ -149,7 +149,7 @@ pub enum PanelCommand {
     MoveChoice(isize),
 }
 
-/// What the palette lists (F2): every command worth asking for by name.
+/// What the palette lists: every command worth asking for by name.
 /// Movement is not — nobody opens a palette to go left — and neither is
 /// anything that only makes sense inside a panel.
 pub const PALETTE: &[(&str, Command)] = &[

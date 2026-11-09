@@ -20,7 +20,7 @@ const WATCH_INTERVAL: Duration = Duration::from_secs(1);
 
 impl Editor {
     /// Keeps an eye on the file behind a buffer, so that another writer is
-    /// noticed before `Ctrl+S` runs into them (F1). The worker only says
+    /// noticed before `Ctrl+S` runs into them (#12). The worker only says
     /// that the stamp moved; whether it matters is checked on arrival.
     pub(super) fn watch(&mut self, id: BufferId) {
         // Whatever file the buffer had before is no longer its concern.

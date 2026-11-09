@@ -17,7 +17,7 @@ use crate::text::selection::{Selection, SelectionSet};
 
 /// More cursors than this and every keystroke is an edit of that many
 /// places. A command that would put a cursor on every hit refuses past it,
-/// rather than quietly taking some of the hits (P10).
+/// rather than quietly taking some of the hits (#30).
 pub(super) const MAX_CURSORS: usize = 10_000;
 
 fn too_many_hits() -> String {

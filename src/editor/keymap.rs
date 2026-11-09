@@ -245,7 +245,7 @@ pub static KEYMAP: &[Binding] = &[
         Command::Panel(PanelCommand::MoveChoice(-(picker::VISIBLE as isize))),
     ),
     // A question is answered by a bare letter, which `resolve` handles; no
-    // binding is needed, and `Ctrl+Q` in particular must not match (D7).
+    // binding is needed, and `Ctrl+Q` in particular must not match.
     // The text.
     bind(Char('q'), CTRL, Text, Command::Quit),
     bind(Char('q'), CTRL_SHIFT, Text, Command::Abort),

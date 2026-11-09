@@ -1,8 +1,8 @@
 //! What is searched for and how a search in progress keeps its hits. The
 //! query is the editor's policy — word boundaries now, case and patterns
-//! later (F13) — laid over the buffer's literal `find`, which knows nothing
+//! later (#23) — laid over the buffer's literal `find`, which knows nothing
 //! of it. One engine serves the search field, `Ctrl+D` and `F3`; they differ only
-//! in the query they build (S2).
+//! in the query they build.
 
 use std::ops::Range;
 

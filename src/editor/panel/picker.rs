@@ -13,7 +13,7 @@ const BATCH: usize = 4096;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pick {
     Language,
-    /// The command palette (F2): every command that can be asked for by name.
+    /// The command palette: every command that can be asked for by name.
     Command,
 }
 
@@ -119,7 +119,7 @@ impl Picker {
 
     /// Takes a batch the worker reported. The batch is ranked on its own and
     /// merged into the ranking so far — one pass over each, with nothing
-    /// seen before scored again (P9). Among equals the earlier arrival
+    /// seen before scored again (#32). Among equals the earlier arrival
     /// stays ahead, which is the order a stable sort in `refilter` gives.
     pub fn accept(&mut self, batch: Vec<Candidate>) {
         let query = self.query.contents();
