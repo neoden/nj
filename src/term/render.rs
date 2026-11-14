@@ -15,7 +15,7 @@ use crate::editor::panel::Panel;
 use crate::editor::panel::field::Field;
 use crate::editor::panel::picker::Picker;
 use crate::editor::style::{CellStyle, Ink, Mark};
-use crate::editor::view::{LineHighlight, Row};
+use crate::editor::view::{LineHighlight, Window};
 use crate::text::layout::{self, Glyph};
 
 /// Panels and the status bar hold one-line strings rather than code, so a tab
@@ -79,21 +79,20 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
     let x = view.area.x;
     let width = view.area.width;
 
-    // The tokens of the lines on the screen, read once for the frame.
-    let rows: Vec<Row> = view.rows(buffer).collect();
-    let tokens = match (buffer.syntax(), rows.first(), rows.last()) {
-        (Some(syntax), Some(first), Some(last)) => {
-            let text = buffer.text();
-            let from = text.line_start(first.line);
-            let to = text.line_start(last.line) + text.line_len(last.line);
-            syntax.tokens(text, from..to)
-        }
-        _ => Vec::new(),
-    };
-
-    for (row, y) in rows.iter().zip(view.area.y..) {
-        let text = buffer.text().line_str(row.line);
-        let highlight = view.highlight_line(buffer, row.line, editor.matches(), &tokens);
+    for (row, y) in view.rows(buffer).zip(view.area.y..) {
+        let left = row.start_column + view.left_column;
+        let columns = left..left + view.width();
+        let window = Window::of(buffer, row.line, columns.clone());
+        // Only the tokens that show are read: a line may be far longer than
+        // the screen is wide. An empty range is not asked about, since to
+        // tree-sitter a range ending at zero has no end.
+        let tokens = match buffer.syntax() {
+            Some(syntax) if !window.bytes().is_empty() => {
+                syntax.tokens(buffer.text(), window.bytes())
+            }
+            _ => Vec::new(),
+        };
+        let highlight = view.highlight_line(buffer, &window, editor.matches(), &tokens);
         // Wrapped continuations leave the gutter empty: the number belongs to
         // the logical line, not to every row it spans.
         let number = match row.index {
@@ -108,14 +107,12 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
             },
         };
         grid.put_str(x, y, &number, gutter);
-        let left = row.start_column + view.left_column;
-        let columns = left..left + view.width();
         draw_row(
             grid,
             x + view.gutter,
             y,
             columns,
-            &text,
+            window.shown(),
             buffer.tab_width(),
             &highlight,
         );
@@ -204,13 +201,16 @@ fn status(editor: &Editor) -> (String, String) {
 
 /// The display `columns` of a line, drawn on one row of the grid starting at
 /// `x`, blank where the line has nothing. A cluster cut by either edge
-/// becomes blanks too, because half a character cannot be drawn.
+/// becomes blanks too, because half a character cannot be drawn. The line
+/// is given as `(part, column)`: from a cell at or before the left edge
+/// on, with the column that cell starts in — the whole line and zero, or
+/// less of it where the line is long.
 fn draw_row(
     grid: &mut Grid,
     x: usize,
     y: usize,
     columns: Range<usize>,
-    line: &str,
+    (part, from): (&str, usize),
     tab_width: usize,
     highlight: &LineHighlight,
 ) {
@@ -227,7 +227,7 @@ fn draw_row(
     };
     let mut column = left;
 
-    for cell in layout::cells(line, tab_width) {
+    for cell in layout::cells_from(part, from, tab_width) {
         if cell.end_column() <= left {
             continue;
         }
@@ -392,7 +392,7 @@ fn draw_field(grid: &mut Grid, x: usize, field: &Field, active: bool, y: usize, 
         x + offset,
         y,
         left..left + room,
-        &contents,
+        (&contents, 0),
         PANEL_TAB_WIDTH,
         &highlight,
     );
@@ -480,7 +480,8 @@ mod tests {
     /// The `columns` of `line` drawn on a row, as it reads on the grid.
     fn drawn(line: &str, columns: Range<usize>) -> String {
         let mut grid = Grid::new(columns.len(), 1);
-        draw_row(&mut grid, 0, 0, columns, line, 4, &LineHighlight::default());
+        let highlight = LineHighlight::default();
+        draw_row(&mut grid, 0, 0, columns, (line, 0), 4, &highlight);
         grid.row_text(0)
     }
 

@@ -1,6 +1,6 @@
 use super::language::Indent;
 use crate::text::Text;
-use crate::text::layout::indentation;
+use crate::text::layout::indentation_of;
 
 const SAMPLE: usize = 500;
 const WIDEST: usize = 8;
@@ -17,8 +17,7 @@ pub fn detect(text: &Text, fallback: Indent) -> Indent {
     let mut widths = Vec::new();
 
     for line in 0..text.line_count().min(SAMPLE) {
-        let content = text.line_str(line);
-        let lead = indentation(&content);
+        let lead = indentation_of(text, line);
         match lead.as_bytes().first() {
             Some(b'\t') => tabs += 1,
             Some(b' ') => widths.push(lead.bytes().take_while(|&c| c == b' ').count()),

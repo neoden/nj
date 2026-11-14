@@ -7,7 +7,7 @@ use std::ops::Range;
 
 use crate::buffer::language::Indent;
 use crate::text::Text;
-use crate::text::layout::{self, indentation};
+use crate::text::layout;
 use crate::text::movement::{Direction, Motion};
 use crate::text::selection::{Selection, SelectionSet};
 use crate::text::transaction::{self, Change, CursorAfter, Transaction};
@@ -21,12 +21,11 @@ pub fn newline(text: &Text, selections: &SelectionSet) -> Transaction {
     let changes = selections.iter().zip(leading).map(|(selection, first)| {
         let line = text.line_of(selection.min());
         let start = text.line_start(line);
-        let content = text.line_str(line);
         let local = selection.min() - start;
 
         // Only as much of the indentation as lies before the cursor; the
         // rest stays with the text that follows.
-        let lead = indentation(&content);
+        let lead = layout::indentation_of(text, line);
         let indent = &lead[..local.min(lead.len())];
 
         // What would stay behind on the old line is dropped when it is
@@ -110,8 +109,7 @@ pub fn outdent(text: &Text, selections: &SelectionSet, unit: Indent) -> Option<T
         .into_iter()
         .filter_map(|line| {
             let start = text.line_start(line);
-            let content = text.line_str(line);
-            let lead = indentation(&content);
+            let lead = layout::indentation_of(text, line);
             let removed = match unit {
                 Indent::Tabs => lead.starts_with('\t').then_some(1),
                 Indent::Spaces(width) => match lead.starts_with('\t') {
@@ -132,6 +130,15 @@ pub fn outdent(text: &Text, selections: &SelectionSet, unit: Indent) -> Option<T
     (!changes.is_empty()).then(|| over_lines(text, selections, changes))
 }
 
+/// Whether a line holds nothing but whitespace. Read piece by piece as the
+/// text is stored, stopping at the first piece that holds anything else, so
+/// that a very long line is not copied to look at its start.
+fn is_blank(text: &Text, line: usize) -> bool {
+    let start = text.line_start(line);
+    text.chunks_in(start..start + text.line_len(line))
+        .all(|chunk| chunk.trim().is_empty())
+}
+
 /// Comments the touched lines, or uncomments them when every one of them is
 /// already commented. Blank lines are left out either way; `None` when there
 /// is nothing but blank lines.
@@ -144,26 +151,32 @@ pub fn toggle_comment(
     let lines: Vec<usize> = selections
         .touched_lines(text)
         .into_iter()
-        .filter(|&line| !text.line_str(line).trim().is_empty())
+        .filter(|&line| !is_blank(text, line))
         .collect();
     if lines.is_empty() {
         return None;
     }
 
-    let commented = lines.iter().all(|&line| {
-        let content = text.line_str(line);
-        content[indentation(&content).len()..].starts_with(token)
-    });
+    // Where a line's indentation ends, and what follows it there: as much
+    // as a marker and the space after it take, which is all that is asked
+    // of the line.
+    let past_indent = |line: usize| {
+        let at = layout::indentation_of(text, line).len();
+        let head = text.line_prefix(line, at + token.len() + 1);
+        (at, head[at..].to_owned())
+    };
+
+    let commented = lines
+        .iter()
+        .all(|&line| past_indent(line).1.starts_with(token));
 
     let changes = match commented {
         true => lines
             .iter()
             .map(|&line| {
                 let start = text.line_start(line);
-                let content = text.line_str(line);
-                let at = indentation(&content).len();
-                let rest = &content[at + token.len()..];
-                let width = token.len() + usize::from(rest.starts_with(' '));
+                let (at, marked) = past_indent(line);
+                let width = token.len() + usize::from(marked[token.len()..].starts_with(' '));
                 Change {
                     range: start + at..start + at + width,
                     text: String::new(),
@@ -177,16 +190,16 @@ pub fn toggle_comment(
             // marker must not land inside another line's indentation.
             let column = lines
                 .iter()
-                .map(|&line| layout::line_width(indentation(&text.line_str(line)), tab_width))
+                .map(|&line| layout::line_width(&layout::indentation_of(text, line), tab_width))
                 .min()
                 .unwrap_or(0);
 
             lines
                 .iter()
                 .map(|&line| {
-                    let content = text.line_str(line);
-                    let at = text.line_start(line)
-                        + layout::byte_at_column(indentation(&content), column, tab_width);
+                    let lead = layout::indentation_of(text, line);
+                    let at =
+                        text.line_start(line) + layout::byte_at_column(&lead, column, tab_width);
                     Change {
                         range: at..at,
                         text: format!("{token} "),
@@ -248,9 +261,11 @@ pub fn deletion_to_tab_stop(
     let line = text.line_of(head);
     let start = text.line_start(line);
     let local = head - start;
-    let content = text.line_str(line);
-    let prefix = content.get(..local)?;
-    if prefix.is_empty() || !prefix.chars().all(|character| character == ' ') {
+    // What lies before the cursor is all spaces only if it is part of the
+    // line's indentation, so that is all of the line that is read.
+    let lead = layout::indentation_of(text, line);
+    let before = lead.get(..local)?;
+    if before.is_empty() || before.contains('\t') {
         return None;
     }
 

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ops::Range;
 
 use super::style::{Ink, Mark};
@@ -80,6 +81,76 @@ pub struct Row {
     pub index: usize,
     /// Display column of the line where this row begins.
     pub start_column: usize,
+}
+
+/// The part of one line that shows in a range of its display columns, laid
+/// out once: the line is walked from its start to the right edge of the
+/// range, and every offset asked about after that is looked up here.
+#[derive(Debug)]
+pub struct Window<'a> {
+    line: usize,
+    /// Where the line starts in the text.
+    line_start: usize,
+    /// The line from its start as far as it was read: to the right edge,
+    /// or to its end where that comes first.
+    content: Cow<'a, str>,
+    /// Where each cell in the columns starts, as (byte of the line,
+    /// column), and after them where the line goes on: the first cell past
+    /// the right edge, or the end of the line.
+    cells: Vec<(usize, usize)>,
+}
+
+impl<'a> Window<'a> {
+    pub fn of(buffer: &'a Buffer, line: usize, columns: Range<usize>) -> Self {
+        let text = buffer.text();
+        // Not the whole line: it may be far longer than what shows. Where
+        // no cell is past the right edge, this is the whole line after all,
+        // and its length is where the line ends.
+        let content = layout::line_until(text, line, columns.end, buffer.tab_width());
+        let mut cells = Vec::new();
+        let mut after = (content.len(), 0);
+        for cell in layout::cells(&content, buffer.tab_width()) {
+            if cell.column >= columns.end {
+                after = (cell.byte, cell.column);
+                break;
+            }
+            if cell.end_column() > columns.start {
+                cells.push((cell.byte, cell.column));
+            }
+            after.1 = cell.end_column();
+        }
+        cells.push(after);
+        Self {
+            line,
+            line_start: text.line_start(line),
+            content,
+            cells,
+        }
+    }
+
+    /// The line from the first cell that shows, at least as far as the
+    /// right edge, and the column that cell starts in: for drawing the
+    /// window without reading the line again or walking up to it. A cell
+    /// past the right edge is not for drawing.
+    pub fn shown(&self) -> (&str, usize) {
+        let (byte, column) = self.cells[0];
+        (&self.content[byte..], column)
+    }
+
+    /// The bytes of the text that show.
+    pub fn bytes(&self) -> Range<usize> {
+        let (first, after) = (self.cells[0], self.cells[self.cells.len() - 1]);
+        self.line_start + first.0..self.line_start + after.0
+    }
+
+    /// The display column of an offset in the text. An offset to either
+    /// side takes the column of the nearer edge, so a range reaching out of
+    /// the window is cut there.
+    fn column_of(&self, offset: usize) -> usize {
+        let shown = self.bytes();
+        let byte = offset.clamp(shown.start, shown.end) - self.line_start;
+        self.cells[self.cells.partition_point(|&(at, _)| at < byte)].1
+    }
 }
 
 /// A window onto a buffer: the cursors in it, which part of it is on screen,
@@ -203,9 +274,7 @@ impl View {
     pub fn row_of(&self, buffer: &Buffer, offset: usize) -> Row {
         let text = buffer.text();
         let line = text.line_of(offset);
-        let content = text.line_str(line);
-        let column =
-            layout::column_of_byte(&content, offset - text.line_start(line), buffer.tab_width());
+        let column = layout::column_at(text, offset, buffer.tab_width());
         let index = (0..self.rows_in_line(buffer, line))
             .rev()
             .find(|&index| self.row_start_column(buffer, line, index) <= column)
@@ -326,12 +395,7 @@ impl View {
     ) -> (usize, Option<usize>) {
         let text = buffer.text();
         let row = self.row_of(buffer, selection.head);
-        let content = text.line_str(row.line);
-        let column = layout::column_of_byte(
-            &content,
-            selection.head - text.line_start(row.line),
-            buffer.tab_width(),
-        );
+        let column = layout::column_at(text, selection.head, buffer.tab_width());
         let goal = selection.goal_column.unwrap_or(column - row.start_column);
 
         // Running out of rows on the way stops at the last one reached, in
@@ -354,9 +418,8 @@ impl View {
             }
         }
 
-        let content = text.line_str(target.line);
-        let head = text.line_start(target.line)
-            + layout::byte_at_column(&content, target.start_column + goal, buffer.tab_width());
+        let column = target.start_column + goal;
+        let head = layout::offset_at(text, target.line, column, buffer.tab_width());
         (head, Some(goal))
     }
 
@@ -392,17 +455,11 @@ impl View {
             return;
         };
 
-        let content = text.line_str(row.line);
-        let column = layout::column_of_byte(
-            &content,
-            edge.head - text.line_start(row.line),
-            buffer.tab_width(),
-        );
+        let column = layout::column_at(text, edge.head, buffer.tab_width());
         let goal = edge.goal_column.unwrap_or(column - row.start_column);
 
-        let content = text.line_str(target.line);
-        let head = text.line_start(target.line)
-            + layout::byte_at_column(&content, target.start_column + goal, buffer.tab_width());
+        let column = target.start_column + goal;
+        let head = layout::offset_at(text, target.line, column, buffer.tab_width());
 
         self.selections.push(Selection {
             anchor: head,
@@ -435,9 +492,7 @@ impl View {
         }
         self.top_line = self.top_line.min(self.max_top_line(buffer));
 
-        let content = text.line_str(line);
-        let column =
-            layout::column_of_byte(&content, head - text.line_start(line), buffer.tab_width());
+        let column = layout::column_at(text, head, buffer.tab_width());
         if column < self.left_column {
             self.left_column = column;
         }
@@ -446,24 +501,25 @@ impl View {
         }
     }
 
-    /// Selections, carets, search hits and tokens crossing `line`, in
-    /// display columns. A selection running past the end of a line
-    /// highlights one extra column, to show that the line break itself is
-    /// selected. `tokens` are sorted by start and may nest.
+    /// Selections, carets, search hits and tokens crossing the line of
+    /// `window`, in display columns, as far as they show in it: what lies
+    /// to either side is cut off or left out. A selection running past the
+    /// end of a line highlights one extra column, to show that the line
+    /// break itself is selected. `tokens` are sorted by start and may nest;
+    /// those touching the bytes of the window are all that is needed.
     pub fn highlight_line(
         &self,
         buffer: &Buffer,
-        line: usize,
+        window: &Window<'_>,
         matches: &[Range<usize>],
         tokens: &[Token<'_>],
     ) -> LineHighlight {
         let text = buffer.text();
-        let tab_width = buffer.tab_width();
-        let start = text.line_start(line);
-        let content = text.line_str(line);
-        let end = start + content.len();
-
-        let column_of = |offset: usize| layout::column_of_byte(&content, offset - start, tab_width);
+        let line = window.line;
+        let start = window.line_start;
+        let end = start + text.line_len(line);
+        let shown = window.bytes();
+        let column_of = |offset: usize| window.column_of(offset);
 
         let cursor = self.selections.primary();
         let mut highlight = LineHighlight {
@@ -472,40 +528,41 @@ impl View {
                 && text.line_of(cursor.head) == line,
             ..LineHighlight::default()
         };
-        // Sorted and disjoint, so the hits on this line are a run.
-        let first = matches.partition_point(|found| found.end < start);
+        // Sorted and disjoint, so the hits in the window are a run.
+        let first = matches.partition_point(|found| found.end < shown.start);
         for found in matches[first..]
             .iter()
-            .take_while(|found| found.start <= end)
+            .take_while(|found| found.start <= shown.end)
         {
-            let from = column_of(found.start.max(start));
-            let to = column_of(found.end.min(end));
-            highlight.matched.push(from..to);
+            highlight
+                .matched
+                .push(column_of(found.start)..column_of(found.end));
         }
 
         // Nested, so not sorted by end: the cut-off is by start, and a token
         // over by then is skipped rather than searched for.
         for token in tokens
             .iter()
-            .take_while(|token| token.range.start < end)
-            .filter(|token| token.range.end > start)
+            .take_while(|token| token.range.start < shown.end)
+            .filter(|token| token.range.end > shown.start)
         {
-            let from = column_of(token.range.start.max(start));
-            let to = column_of(token.range.end.min(end));
-            highlight.inks.push((from..to, Ink::named(token.name)));
+            let range = column_of(token.range.start)..column_of(token.range.end);
+            highlight.inks.push((range, Ink::named(token.name)));
         }
 
         for selection in self.selections.touching(start..end) {
             let range = selection.range();
             if !selection.is_empty() {
-                let from = column_of(range.start.max(start));
+                let from = column_of(range.start);
                 let to = match range.end > end {
-                    true => layout::line_width(&content, tab_width) + 1,
+                    true => column_of(end) + 1,
                     false => column_of(range.end),
                 };
                 highlight.selected.push(from..to);
             }
-            if (start..=end).contains(&selection.head) {
+            // A caret is a place, not a range: outside the window it is not
+            // moved to the edge but left out.
+            if (shown.start..=shown.end).contains(&selection.head) {
                 highlight.carets.push(column_of(selection.head));
             }
         }
@@ -520,9 +577,8 @@ impl View {
         let Some(row) = rows.get(row).or(rows.last()) else {
             return 0;
         };
-        let content = text.line_str(row.line);
         let column = row.start_column + self.left_column + column;
-        text.line_start(row.line) + layout::byte_at_column(&content, column, buffer.tab_width())
+        layout::offset_at(text, row.line, column, buffer.tab_width())
     }
 }
 
@@ -882,7 +938,8 @@ mod tests {
         }
         .into();
 
-        let highlight = view.highlight_line(&buffer, 0, &[], &[]);
+        let highlight =
+            view.highlight_line(&buffer, &Window::of(&buffer, 0, 0..view.width()), &[], &[]);
         let marks: Vec<_> = (0..5).map(|column| highlight.mark_at(column)).collect();
         assert_eq!(
             marks,
@@ -901,8 +958,15 @@ mod tests {
         let buffer = buf("one\ntwo\n");
         let mut view = view_of(&buffer, 0);
 
-        assert!(view.highlight_line(&buffer, 0, &[], &[]).current);
-        assert!(!view.highlight_line(&buffer, 1, &[], &[]).current);
+        assert!(
+            view.highlight_line(&buffer, &Window::of(&buffer, 0, 0..view.width()), &[], &[])
+                .current
+        );
+        assert!(
+            !view
+                .highlight_line(&buffer, &Window::of(&buffer, 1, 0..view.width()), &[], &[])
+                .current
+        );
 
         view.selections = Selection {
             anchor: 0,
@@ -910,11 +974,19 @@ mod tests {
             goal_column: None,
         }
         .into();
-        assert!(!view.highlight_line(&buffer, 0, &[], &[]).current);
+        assert!(
+            !view
+                .highlight_line(&buffer, &Window::of(&buffer, 0, 0..view.width()), &[], &[])
+                .current
+        );
 
         view.selections = SelectionSet::single(0);
         view.selections.push(Selection::cursor(4));
-        assert!(!view.highlight_line(&buffer, 0, &[], &[]).current);
+        assert!(
+            !view
+                .highlight_line(&buffer, &Window::of(&buffer, 0, 0..view.width()), &[], &[])
+                .current
+        );
     }
 
     #[test]
@@ -937,7 +1009,12 @@ mod tests {
             },
         ];
 
-        let highlight = view.highlight_line(&buffer, 0, &[], &tokens);
+        let highlight = view.highlight_line(
+            &buffer,
+            &Window::of(&buffer, 0, 0..view.width()),
+            &[],
+            &tokens,
+        );
         let inks: Vec<_> = (0..9).map(|column| highlight.ink_at(column)).collect();
         assert_eq!(
             inks,
@@ -955,13 +1032,42 @@ mod tests {
         );
     }
 
+    /// Scrolled sideways, the columns are still the line's own: what starts
+    /// left of the window is cut at its edge, and a caret left of it is not
+    /// drawn on it.
+    #[test]
+    fn a_window_scrolled_sideways_cuts_what_reaches_out_of_it() {
+        let buffer = buf("\tfoo!(x)\n");
+        let mut view = view_of(&buffer, 0);
+        view.selections.push(Selection {
+            anchor: 2,
+            head: 7,
+            goal_column: None,
+        });
+        let tokens = [Token {
+            range: 1..5,
+            name: "function.macro",
+        }];
+
+        // `oo!(` of the line: the tab and the `f` are off to the left.
+        let highlight = view.highlight_line(&buffer, &Window::of(&buffer, 0, 5..9), &[], &tokens);
+        let inks: Vec<_> = (5..9).map(|column| highlight.ink_at(column)).collect();
+        assert_eq!(
+            inks,
+            [Ink::Function, Ink::Function, Ink::Function, Ink::Text]
+        );
+        let marks: Vec<_> = (5..9).map(|column| highlight.mark_at(column)).collect();
+        assert_eq!(marks, [Mark::Selected; 4]);
+    }
+
     #[test]
     fn the_current_line_runs_to_the_edge_of_the_screen() {
         let buffer = buf("one\ntwo\n");
         let mut view = view_of(&buffer, 1);
         set_width(&mut view, 6);
 
-        let highlight = view.highlight_line(&buffer, 0, &[], &[]);
+        let highlight =
+            view.highlight_line(&buffer, &Window::of(&buffer, 0, 0..view.width()), &[], &[]);
         assert!((0..view.width()).all(|column| highlight.mark_at(column) != Mark::None));
     }
 
@@ -975,5 +1081,19 @@ mod tests {
         assert_eq!(view.offset_at_screen(&buffer, 1, 5), 6 + 1 + 2);
         // Clicking past the last row lands on the last row.
         assert_eq!(view.offset_at_screen(&buffer, 99, 0), 6);
+    }
+
+    #[test]
+    fn a_click_reads_a_long_line_only_as_far_as_its_column() {
+        // Wide characters of three bytes, far more of them than a click
+        // can reach: each takes columns 2n and 2n + 1.
+        let buffer = buf(&"日".repeat(1000));
+        let view = view(80, 25);
+
+        assert_eq!(view.offset_at_screen(&buffer, 0, 40), 20 * 3);
+        // The second half of a character is still that character.
+        assert_eq!(view.offset_at_screen(&buffer, 0, 41), 20 * 3);
+        // Past the end of a short line: the end of it.
+        assert_eq!(view.offset_at_screen(&buf("日本"), 0, 40), 6);
     }
 }

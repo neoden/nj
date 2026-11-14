@@ -150,7 +150,7 @@ pub fn line_edge(text: &Text, offset: usize, direction: Direction) -> usize {
 /// The first byte of a line past its indentation, or the line's end when it
 /// is nothing but.
 fn first_nonblank(text: &Text, line: usize) -> usize {
-    text.line_start(line) + layout::indentation(&text.line_str(line)).len()
+    text.line_start(line) + layout::indentation_of(text, line).len()
 }
 
 pub fn document_edge(text: &Text, direction: Direction) -> usize {
@@ -269,6 +269,14 @@ mod tests {
         assert_eq!(line_edge(&text, blank, Backward), blank + 2);
         assert_eq!(line_edge(&text, blank + 2, Backward), blank);
         assert_eq!(line_edge(&text, blank + 1, Backward), blank + 2);
+    }
+
+    #[test]
+    fn home_finds_the_end_of_an_indent_longer_than_the_first_read() {
+        let text = Text::from_str(&format!("{}code\n{}\n", " ".repeat(200), " ".repeat(200)));
+        assert_eq!(line_edge(&text, 204, Backward), 200);
+        // Nothing but indent, 200 bytes of it: the end of the line.
+        assert_eq!(line_edge(&text, 205, Backward), 405);
     }
 
     #[test]

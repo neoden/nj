@@ -1,5 +1,9 @@
+use std::borrow::Cow;
+
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+use super::Text;
 
 pub const DEFAULT_TAB_WIDTH: usize = 4;
 
@@ -38,15 +42,25 @@ impl Cell<'_> {
 
 /// Walks a line, assigning every grapheme cluster its display column.
 pub fn cells(line: &str, tab_width: usize) -> Cells<'_> {
+    cells_from(line, 0, tab_width)
+}
+
+/// Walks the part of a line that starts with a cell at `column`: the
+/// columns are the line's own, and a tab stops where it does in the line.
+/// The bytes are counted from the start of the part.
+pub fn cells_from(part: &str, column: usize, tab_width: usize) -> Cells<'_> {
     Cells {
-        graphemes: line.grapheme_indices(true),
-        column: 0,
+        line: part,
+        byte: 0,
+        column,
         tab_width,
     }
 }
 
 pub struct Cells<'a> {
-    graphemes: unicode_segmentation::GraphemeIndices<'a>,
+    line: &'a str,
+    /// Where the next cluster starts.
+    byte: usize,
     column: usize,
     tab_width: usize,
 }
@@ -55,8 +69,28 @@ impl<'a> Iterator for Cells<'a> {
     type Item = Cell<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (byte, grapheme) = self.graphemes.next()?;
+        let byte = self.byte;
         let column = self.column;
+        let bytes = self.line.as_bytes();
+        let first = *bytes.get(byte)?;
+
+        // A printable ASCII character before another ASCII character, or
+        // at the end, is a cluster of its own, one column wide: nothing
+        // that joins the cluster before it is ASCII. Most text is this, and
+        // it is told by two bytes, without asking where the cluster ends.
+        if (b' '..=b'~').contains(&first) && bytes.get(byte + 1).is_none_or(u8::is_ascii) {
+            self.byte += 1;
+            self.column += 1;
+            return Some(Cell {
+                byte,
+                column,
+                width: 1,
+                glyph: Glyph::Text(&self.line[byte..byte + 1]),
+            });
+        }
+
+        let grapheme = self.line[byte..].graphemes(true).next()?;
+        self.byte += grapheme.len();
 
         let (glyph, width) = if grapheme == "\t" {
             (Glyph::Tab, self.tab_width - column % self.tab_width)
@@ -80,6 +114,46 @@ impl<'a> Iterator for Cells<'a> {
     }
 }
 
+/// The start of a line, long enough to lay out every cell that starts
+/// before `column`: the whole line, or a part of it whose last cell starts
+/// at `column` or after it. That last cell may be a cluster cut short, so
+/// it marks where to stop and is not for drawing; the cells before it are
+/// what they are in the whole line, since where a cluster ends depends on
+/// nothing after the character that follows it.
+pub fn line_until(text: &Text, line: usize, column: usize, tab_width: usize) -> Cow<'_, str> {
+    // A byte a column and a little over: enough for ASCII in one read.
+    // Doubled until it is enough, as it is not for characters of several
+    // bytes.
+    let mut bytes = column + 64;
+    loop {
+        let head = text.line_prefix(line, bytes);
+        if head.len() == text.line_len(line)
+            || cells(&head, tab_width).any(|cell| cell.column >= column)
+        {
+            return head;
+        }
+        bytes *= 2;
+    }
+}
+
+/// The display column an offset of the text sits in on its line: the
+/// width of the line up to there, which is all of the line that is read.
+/// The offset is one a cursor can be at, between two clusters.
+pub fn column_at(text: &Text, offset: usize, tab_width: usize) -> usize {
+    let line = text.line_of(offset);
+    let before = text.line_prefix(line, offset - text.line_start(line));
+    line_width(&before, tab_width)
+}
+
+/// The offset in the text of the cell at a display column of a line, or of
+/// the line's end when the column lies past it. The line is read only as
+/// far as the column: the cell there starts at the column or before it, so
+/// it is whole even where the read ends.
+pub fn offset_at(text: &Text, line: usize, column: usize, tab_width: usize) -> usize {
+    let head = line_until(text, line, column, tab_width);
+    text.line_start(line) + byte_at_column(&head, column, tab_width)
+}
+
 /// The indentation of a line: its leading run of spaces and tabs, and
 /// nothing else — a no-break space is text. Everything that reasons about
 /// indentation reads it from here, so that they cannot disagree on what it
@@ -90,6 +164,27 @@ pub fn indentation(line: &str) -> &str {
         .position(|byte| byte != b' ' && byte != b'\t')
         .unwrap_or(line.len());
     &line[..end]
+}
+
+/// The indentation of a line of the text. Only the start of the line is
+/// read, since the line may be very long: a longer start each time, until
+/// the indentation ends inside it.
+pub fn indentation_of(text: &Text, line: usize) -> Cow<'_, str> {
+    let mut bytes = 64;
+    loop {
+        let head = text.line_prefix(line, bytes);
+        let indent = indentation(&head).len();
+        if indent < head.len() || head.len() == text.line_len(line) {
+            return match head {
+                Cow::Borrowed(head) => Cow::Borrowed(&head[..indent]),
+                Cow::Owned(mut head) => {
+                    head.truncate(indent);
+                    Cow::Owned(head)
+                }
+            };
+        }
+        bytes *= 2;
+    }
 }
 
 /// Display column at a byte offset, for placing the cursor.
@@ -115,12 +210,9 @@ pub fn line_width(line: &str, tab_width: usize) -> usize {
 
 /// The column reached by printing `text` from `column`.
 pub fn advance(column: usize, text: &str, tab_width: usize) -> usize {
-    let cells = Cells {
-        graphemes: text.grapheme_indices(true),
-        column,
-        tab_width,
-    };
-    cells.last().map_or(column, |cell| cell.end_column())
+    cells_from(text, column, tab_width)
+        .last()
+        .map_or(column, |cell| cell.end_column())
 }
 
 fn is_control(grapheme: &str) -> bool {
@@ -234,6 +326,49 @@ mod tests {
         assert_eq!(indentation("   "), "   ");
         assert_eq!(indentation("\u{a0}x"), "");
         assert_eq!(indentation(""), "");
+    }
+
+    #[test]
+    fn the_indentation_of_a_line_is_read_from_its_start() {
+        let deep = " ".repeat(200);
+        let text = Text::from_str(&format!("\t x\nx\n{deep}x\n{deep}\n"));
+        assert_eq!(indentation_of(&text, 0), "\t ");
+        assert_eq!(indentation_of(&text, 1), "");
+        // Longer than the first read, before text and as the whole line.
+        assert_eq!(indentation_of(&text, 2), deep);
+        assert_eq!(indentation_of(&text, 3), deep);
+    }
+
+    /// The cells before `column` and the first one at or after it, as
+    /// (byte, column): what a reader of `line_until` takes from it.
+    fn up_to(line: &str, column: usize) -> Vec<(usize, usize)> {
+        let mut found = Vec::new();
+        for cell in cells(line, TAB) {
+            found.push((cell.byte, cell.column));
+            if cell.column >= column {
+                break;
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn the_start_of_a_line_lays_out_as_the_whole_line_does() {
+        // Clusters of 41 bytes in one column each: more than the first
+        // guess reads, so the start is read again, longer.
+        let cluster = format!("e{}", "\u{301}".repeat(20));
+        let line = format!("\tдa日{}", cluster.repeat(200));
+        let text = Text::from_str(&format!("first\n{line}\nlast"));
+
+        for column in [0, 1, 4, 5, 7, 8, 9, 100, 207, 208, 500] {
+            let head = line_until(&text, 1, column, TAB);
+            assert!(line.starts_with(&*head));
+            assert_eq!(up_to(&head, column), up_to(&line, column), "{column}");
+        }
+        // Far less than the line where little of it is asked for, and all
+        // of it where the column lies past its end.
+        assert!(line_until(&text, 1, 8, TAB).len() < 200);
+        assert_eq!(line_until(&text, 1, 500, TAB), line);
     }
 
     #[test]

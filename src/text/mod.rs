@@ -68,9 +68,13 @@ impl Text {
         self.line(line).len()
     }
 
-    /// Borrows when the line lives in a single chunk, which is the common case.
-    pub fn line_str(&self, line: usize) -> Cow<'_, str> {
-        let slice = self.line(line);
+    /// The first `bytes` bytes of a line, fewer where that would cut a
+    /// character or run past the line's end. For a reader that needs only
+    /// the start of a line that may be very long.
+    pub fn line_prefix(&self, line: usize, bytes: usize) -> Cow<'_, str> {
+        let start = self.line_start(line);
+        let end = start + bytes.min(self.line_len(line));
+        let slice = self.rope.slice(start..self.rope.floor_char_boundary(end));
         match slice.as_str() {
             Some(text) => Cow::Borrowed(text),
             None => Cow::Owned(slice.to_string()),

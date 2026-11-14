@@ -23,7 +23,6 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use crate::buffer::language::{self, Language};
 use crate::buffer::{Buffer, EditKind};
-use crate::text::Text;
 use crate::text::layout;
 use crate::text::movement::{self, Class, Direction, Motion};
 use crate::text::search::{Query, Session};
@@ -784,7 +783,7 @@ impl Editor {
 
     pub fn cursor_column(&self) -> usize {
         let (view, buffer) = self.workspace.focus();
-        column_at(
+        layout::column_at(
             buffer.text(),
             view.selections().primary().head,
             buffer.tab_width(),
@@ -925,16 +924,6 @@ impl Editor {
         search.catch_up(buffer.text(), buffer.version());
         Some(search)
     }
-}
-
-/// The display column an offset sits in on its line.
-fn column_at(text: &Text, offset: usize, tab_width: usize) -> usize {
-    let line = text.line_of(offset);
-    layout::column_of_byte(
-        &text.line_str(line),
-        offset - text.line_start(line),
-        tab_width,
-    )
 }
 
 /// Columns of a query the status bar has room for; the count beside it and

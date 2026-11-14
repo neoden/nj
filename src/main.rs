@@ -40,5 +40,9 @@ fn main() -> Result<ExitCode> {
     drop(term);
     result?;
 
-    Ok(ExitCode::from(launch::conclude(&editor, &mut downstream)?))
+    let code = launch::conclude(&editor, &mut downstream)?;
+    // The process is ending and its memory goes with it. Freeing a large
+    // text and its syntax tree piece by piece first only delays the exit.
+    std::mem::forget(editor);
+    Ok(ExitCode::from(code))
 }
