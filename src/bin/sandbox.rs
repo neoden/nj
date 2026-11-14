@@ -266,6 +266,7 @@ mod live {
                 Instruction::File(name, text) => {
                     fs::write(&name, text).with_context(|| format!("cannot write {name}"))?;
                 }
+                Instruction::Shell(command) => self.workdir.shell(&command)?,
                 Instruction::Clipboard(text) => {
                     fs::write(CLIPBOARD, text).context("cannot write the clipboard")?;
                 }

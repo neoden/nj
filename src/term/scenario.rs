@@ -14,6 +14,10 @@
 //!   scroll up|down X Y [MODS]   the wheel. MODS is `Ctrl+Shift` and so on
 //!   wait           let every background job finish
 //!   %file NAME "TEXT"   a file in the scenario's directory
+//!   %shell COMMAND    COMMAND, the rest of the line, run by `sh` in the
+//!                  scenario's directory and waited for, five seconds at
+//!                  most; what it leaves running behind it is ended with
+//!                  the run
 //!   %clipboard "TEXT"   what the desktop clipboard holds, as if copied elsewhere
 //!   %stdin "TEXT"  what is piped into the editor; a terminal otherwise
 //!   %start ARGS    the editor, started with ARGS as its command line;
@@ -149,6 +153,8 @@ pub enum Instruction {
     Size(usize, usize),
     /// A file in the run's directory, with its text.
     File(String, String),
+    /// A command for the shell, run in the run's directory.
+    Shell(String),
     /// What the desktop clipboard holds.
     Clipboard(String),
     /// What is piped into the editor, to be read when it starts.
@@ -245,6 +251,8 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
                 .context("%file takes a name and its text")?;
             Instruction::File(name.to_owned(), quoted(text)?)
         }
+        "%shell" if rest.is_empty() => bail!("%shell takes a command"),
+        "%shell" => Instruction::Shell(rest.to_owned()),
         "%clipboard" => Instruction::Clipboard(quoted(rest)?),
         "%stdin" => Instruction::Stdin(quoted(rest)?),
         "%start" => Instruction::Start(launch::args(rest.split_whitespace().map(str::to_owned))?),
@@ -394,6 +402,17 @@ mod tests {
             stdout: Some("x\n".to_owned()),
         };
         assert_eq!(outcome(&piped), "exit 1\nstdout \"x\\n\"\n");
+    }
+
+    #[test]
+    fn a_shell_line_is_its_command_as_written() {
+        assert_eq!(
+            parse(r#"%shell mkfifo p; (printf "a b" > p &)"#).unwrap(),
+            Some(Instruction::Shell(
+                r#"mkfifo p; (printf "a b" > p &)"#.to_owned()
+            ))
+        );
+        assert!(parse("%shell").is_err());
     }
 
     #[test]

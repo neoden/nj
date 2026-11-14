@@ -73,6 +73,7 @@ The run's, around the editor:
 | line | does |
 | --- | --- |
 | `%file NAME "TEXT"` | a file in the scenario's directory |
+| `%shell COMMAND` | the rest of the line, run by `sh` in the scenario's directory and waited for, five seconds at most: a command still running then is ended and the line fails; what it leaves running in the background is ended with the run |
 | `%start ARGS` | start the editor with this command line; without it the editor starts as bare `nj` would, at the first line that is not a `%` line |
 | `%stdin "TEXT"` | what is piped into the editor; a terminal otherwise |
 | `%clipboard "TEXT"` | what the desktop clipboard holds |

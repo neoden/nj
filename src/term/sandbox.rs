@@ -10,11 +10,15 @@
 use std::cell::RefCell;
 use std::fs;
 use std::io::{self, Cursor};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use rustix::process::{Pid, Signal, kill_process_group, test_kill_process_group};
 
 use super::grid::Grid;
 use super::launch::{self, Args, Outcome};
@@ -218,6 +222,10 @@ pub fn run(script: &str) -> Result<Run> {
                     .with_context(at)?;
                 continue;
             }
+            Instruction::Shell(command) => {
+                workdir.shell(&command).with_context(at)?;
+                continue;
+            }
             Instruction::Clipboard(text) => {
                 sandbox.pasteboard.set(text);
                 continue;
@@ -297,6 +305,7 @@ pub fn run(script: &str) -> Result<Run> {
                 bail!("{}: the editor is already running", at())
             }
             Instruction::File(..)
+            | Instruction::Shell(_)
             | Instruction::Clipboard(..)
             | Instruction::Expect(..)
             | Instruction::Reset
@@ -334,10 +343,18 @@ impl Desktop for Pasteboard {
 /// tests here run in parallel with each other.
 pub struct Workdir {
     path: PathBuf,
+    /// The process groups of the `%shell` lines that left something
+    /// running in the background: it is in the line's group.
+    shells: RefCell<Vec<Pid>>,
     _turn: MutexGuard<'static, ()>,
 }
 
 static ONE_RUN_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+/// How long a `%shell` command may take. One that waits for what the
+/// scenario never gives, a reader at a named pipe say, is ended here
+/// instead of holding the run forever.
+const SHELL_LIMIT: Duration = Duration::from_secs(5);
 
 impl Workdir {
     /// The headless run's directory, under the project's `target`.
@@ -356,13 +373,70 @@ impl Workdir {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         fs::create_dir_all(&path)?;
         std::env::set_current_dir(&path)?;
-        Ok(Self { path, _turn: turn })
+        Ok(Self {
+            path,
+            shells: RefCell::default(),
+            _turn: turn,
+        })
+    }
+
+    /// `%shell`: `command` run by `sh` in the directory and waited for, up
+    /// to `SHELL_LIMIT`. It gets a process group of its own, so that what
+    /// it starts in the background, a writer waiting at a named pipe say,
+    /// can be ended with the run. Its output is not read: a background
+    /// process would hold the pipe open and the wait would never end. Its
+    /// errors go where the run's own do.
+    pub fn shell(&self, command: &str) -> Result<()> {
+        self.shell_within(command, SHELL_LIMIT)
+    }
+
+    /// `shell` with the limit given: the tests do not wait five seconds.
+    fn shell_within(&self, command: &str, limit: Duration) -> Result<()> {
+        let mut shell = Command::new("sh")
+            .args(["-c", command])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .context("cannot run sh")?;
+        let group = Pid::from_child(&shell);
+        let deadline = Instant::now() + limit;
+        let status = loop {
+            if let Some(status) = shell.try_wait().context("cannot wait for sh")? {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                // The whole group: what `sh` waits for is in it.
+                let _ = kill_process_group(group, Signal::KILL);
+                let _ = shell.wait();
+                bail!("the command did not end in {limit:?}");
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        // An empty group is gone and its number is free for another process
+        // to get: remembered, it would be killed later in place of ours.
+        if test_kill_process_group(group).is_ok() {
+            self.shells.borrow_mut().push(group);
+        }
+        if !status.success() {
+            bail!("the command failed: {status}");
+        }
+        Ok(())
+    }
+
+    /// Ends whatever the `%shell` lines left running.
+    fn end_shells(&self) {
+        for group in self.shells.borrow_mut().drain(..) {
+            // Nothing left in the group is the usual case and no error.
+            let _ = kill_process_group(group, Signal::KILL);
+        }
     }
 
     /// The directory taken down and made again, empty: for the next run in
     /// the same process to start where nothing has been, as a fresh
     /// `enter` would, without giving the turn up.
     pub fn renew(&self) -> Result<()> {
+        self.end_shells();
         std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"))?;
         fs::remove_dir_all(&self.path)?;
         fs::create_dir_all(&self.path)?;
@@ -373,6 +447,7 @@ impl Workdir {
 
 impl Drop for Workdir {
     fn drop(&mut self) {
+        self.end_shells();
         let _ = std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"));
         let _ = fs::remove_dir_all(&self.path);
     }
@@ -413,6 +488,80 @@ mod tests {
         fs::write("b.txt", "b").unwrap();
         assert!(fs::read_dir(".").unwrap().count() == 1);
         drop(workdir);
+    }
+
+    #[test]
+    fn shell_runs_a_command_in_the_directory() {
+        run("%shell printf made > a.txt\n?file a.txt \"made\"\n").unwrap();
+    }
+
+    #[test]
+    fn a_shell_command_that_fails_is_the_lines_error() {
+        let error = run("%shell exit 3\n").unwrap_err();
+        assert!(error.to_string().starts_with("line 1"), "{error:#}");
+    }
+
+    /// A named pipe with a writer left behind it opens as a file does:
+    /// text for the editor that is never on the disk.
+    #[test]
+    fn what_shell_left_at_a_pipe_is_there_for_the_editor() {
+        let shown = snapshots(
+            "%shell mkfifo p.txt; (printf piped > p.txt &)\n%start p.txt\nsize 30 2\n---\n",
+        );
+        assert!(shown[0].frame.contains("piped"), "{}", shown[0].frame);
+    }
+
+    /// A command that does not end is ended at the limit, with whatever it
+    /// was waiting for: here a writer in the foreground at a pipe that
+    /// nobody reads.
+    #[test]
+    fn a_shell_command_that_does_not_end_is_ended_at_the_limit() {
+        let workdir = Workdir::enter().unwrap();
+        let error = workdir
+            .shell_within(
+                "mkfifo p; echo $$ > pid; printf x > p",
+                Duration::from_millis(100),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("did not end"), "{error:#}");
+
+        // `sh` was collected by the wait, so it is gone at once.
+        let shell: i32 = fs::read_to_string("pid").unwrap().trim().parse().unwrap();
+        let shell = Pid::from_raw(shell).unwrap();
+        assert!(rustix::process::test_kill_process(shell).is_err());
+    }
+
+    /// Only a group with something left in it is remembered: the number of
+    /// an empty one may be another process's by the time the run ends.
+    #[test]
+    fn a_shell_group_is_remembered_only_while_it_has_members() {
+        let workdir = Workdir::enter().unwrap();
+        workdir.shell("printf made > a.txt").unwrap();
+        assert!(workdir.shells.borrow().is_empty());
+
+        workdir.shell("(sleep 600 &)").unwrap();
+        assert_eq!(workdir.shells.borrow().len(), 1);
+    }
+
+    /// What a command left running does not outlive the run: here a writer
+    /// at a pipe that nobody ever opens.
+    #[test]
+    fn what_shell_left_running_ends_with_the_run() {
+        let workdir = Workdir::enter().unwrap();
+        workdir
+            .shell("mkfifo p; (echo late > p &) ; (sleep 600 & echo $! > pid)")
+            .unwrap();
+        let sleeper: i32 = fs::read_to_string("pid").unwrap().trim().parse().unwrap();
+        let sleeper = Pid::from_raw(sleeper).unwrap();
+        assert!(rustix::process::test_kill_process(sleeper).is_ok());
+
+        drop(workdir);
+        // Killed at once, gone when whoever inherited it has collected it.
+        let gone = (0..200).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            rustix::process::test_kill_process(sleeper).is_err()
+        });
+        assert!(gone);
     }
 
     /// `start` is the command line, read by the same parser; what `stdin`
