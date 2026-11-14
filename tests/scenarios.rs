@@ -21,7 +21,12 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 
-use nj::term::{sandbox, scenario};
+use nj::term::{meter, sandbox, scenario};
+
+/// What `%allocated` and `?allocated` read: the editor's allocations are
+/// counted on their way to the system's allocator.
+#[global_allocator]
+static ALLOCATOR: meter::Counting = meter::Counting;
 
 fn main() -> Result<ExitCode> {
     let mut update = false;

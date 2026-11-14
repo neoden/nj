@@ -11,6 +11,12 @@
 // A test comparing hits to `[0..1]` means exactly that array.
 #![cfg_attr(test, allow(clippy::single_range_in_vec_init))]
 
+/// The unit tests count allocations as the scenario tests do, so that the
+/// sandbox's own tests can state a limit.
+#[cfg(all(test, debug_assertions))]
+#[global_allocator]
+static ALLOCATOR: term::meter::Counting = term::meter::Counting;
+
 pub mod buffer;
 pub mod editor;
 pub mod term;

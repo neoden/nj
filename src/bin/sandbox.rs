@@ -267,6 +267,14 @@ mod live {
                     fs::write(&name, text).with_context(|| format!("cannot write {name}"))?;
                 }
                 Instruction::Shell(command) => self.workdir.shell(&command)?,
+                // The editor here is a process of its own, on the allocator
+                // it ships with, so nothing is counted and no limit is
+                // checked. The lines are passed over with a note rather
+                // than refused, so that a scenario that has them can still
+                // be replayed to its end.
+                Instruction::Allocated(_) | Instruction::AllocatedWithin(..) => {
+                    return Ok("not counted in a live run\n".to_owned());
+                }
                 Instruction::Clipboard(text) => {
                     fs::write(CLIPBOARD, text).context("cannot write the clipboard")?;
                 }

@@ -79,6 +79,7 @@ The run's, around the editor:
 | `%clipboard "TEXT"` | what the desktop clipboard holds |
 | `%grammar NAME` | the scenario needs this grammar; a build without it skips the scenario |
 | `%reset` | end the editor, empty the directory, start over |
+| `%allocated NAME` | start counting the bytes the editor allocates, under NAME; said again with the same name, start afresh |
 
 The run's checks, of what the screen cannot show:
 
@@ -89,11 +90,40 @@ The run's checks, of what the screen cannot show:
 | `?file NAME "TEXT"` | the file holds TEXT |
 | `?nopath NAME` | nothing is there |
 | `?clipboard "TEXT"` | the desktop clipboard holds TEXT |
+| `?allocated NAME SIZE` | the editor has allocated no more than SIZE since `%allocated NAME`: bytes, or `4K`, `2M`, `1G` |
 
 A `?` line that does not hold is an error naming the line. Put `?` lines
 after the keys they check and before the next `---`. Once the editor has
 exited there is no screen, so a `---` or a key there is an error; `?exit`
 and `?stdout` say what became of it, and `%start` starts the next one.
+
+## Counting allocations
+
+`%allocated NAME` and `?allocated NAME SIZE` bracket some lines and put
+a limit on what the editor allocates while it carries them out:
+
+```text
+%allocated step
+key Right
+?allocated step 64K
+```
+
+What is counted:
+
+- Every byte asked for, freed since or not, so a copy made and dropped
+  shows. A block that is grown counts at its whole new size, since
+  growing it may copy all of it.
+- Handling a line and composing the frame after it, as the editor's loop
+  does after every event. A `---` adds nothing to the count.
+- The editor's background jobs, whenever they allocate. Where a line
+  starts one, a picker filling its list say, put `wait` before the
+  `?allocated`: without it the count is whatever the job had got to.
+
+What is not: the run's own work, reading the scenario and printing a
+frame.
+
+The live replay does not count. There the editor is another process, so
+the two lines are passed over with a note and no limit is checked.
 
 ## Frames
 

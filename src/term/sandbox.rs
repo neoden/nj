@@ -8,6 +8,7 @@
 //! from here.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Cursor};
 use std::os::unix::process::CommandExt;
@@ -24,7 +25,7 @@ use super::grid::Grid;
 use super::launch::{self, Args, Outcome};
 use super::scenario::{self, Expect, Instruction, Line};
 use super::screen::{Frames, Layer, Screen};
-use super::{app, render};
+use super::{app, meter, render};
 use crate::buffer::syntax;
 use crate::editor::Editor;
 use crate::editor::clipboard::Desktop;
@@ -91,12 +92,16 @@ struct Sandbox {
     pasteboard: Pasteboard,
     size: (usize, usize),
     frames: Frames,
+    /// What the editor had allocated when each `%allocated` was read, by
+    /// the name the line gave.
+    allocated: HashMap<String, u64>,
 }
 
 impl Sandbox {
     fn new() -> Self {
         Self {
             editor: None,
+            allocated: HashMap::new(),
             pasteboard: Pasteboard::default(),
             size: DEFAULT_SIZE,
             frames: Frames::default(),
@@ -108,13 +113,6 @@ impl Sandbox {
         self.editor
             .as_mut()
             .expect("the run starts the editor first")
-    }
-
-    /// `size`: the terminal is now this big, and the editor, which the
-    /// run has started, is told so.
-    fn size(&mut self, width: usize, height: usize) {
-        self.size = (width, height);
-        self.editor().resize(width, height);
     }
 
     /// Starts the editor as `args` would from the shell:`stdin`
@@ -135,24 +133,33 @@ impl Sandbox {
         Ok(())
     }
 
-    /// Input or `wait`, the editor's own lines. The outcome once the line
-    /// has made the editor exit.
+    /// One of the editor's own lines: input, `wait` or `size`. The outcome
+    /// once the line has made the editor exit.
+    ///
+    /// The only way from the run to a running editor, and so the one place
+    /// where its work is metered. The frame is composed after the line as
+    /// the loop composes it after every event (`app::run`) and dropped:
+    /// what a line costs is handling it and drawing what came of it,
+    /// whether or not the scenario looks at the screen next.
     fn send(&mut self, instruction: Instruction) -> Result<Option<Outcome>> {
-        let editor = self.editor();
-        match instruction {
-            Instruction::Input(events) => {
-                app::handle_all(events, editor)?;
-                match editor.exit() {
-                    None => Ok(None),
-                    Some(_) => Ok(Some(Outcome::of(editor)?)),
+        meter::editor(|| {
+            match instruction {
+                Instruction::Input(events) => {
+                    let editor = self.editor();
+                    app::handle_all(events, editor)?;
+                    if editor.exit().is_some() {
+                        return Ok(Some(Outcome::of(editor)?));
+                    }
                 }
+                Instruction::Wait => self.editor().finish_jobs(),
+                // The editor is told with the frame, below.
+                Instruction::Size(width, height) => self.size = (width, height),
+                other => unreachable!("not the editor's own: {other:?}"),
             }
-            Instruction::Wait => {
-                editor.finish_jobs();
-                Ok(None)
-            }
-            other => unreachable!("not the editor's own: {other:?}"),
-        }
+            let size = self.size;
+            grid(self.editor(), size);
+            Ok(None)
+        })
     }
 
     /// The frame of `layer`: what changed on the screen since the last
@@ -162,6 +169,8 @@ impl Sandbox {
             .editor
             .as_mut()
             .expect("the run starts the editor first");
+        // The run looking at the screen, and not metered: the frame that a
+        // line costs was composed when the line was sent.
         let screen = Screen::of(&grid(editor, self.size));
         self.frames.take(screen, layer)
     }
@@ -194,6 +203,9 @@ pub enum Run {
 /// Runs `script` against a fresh headless editor. An error names the line
 /// it happened on.
 pub fn run(script: &str) -> Result<Run> {
+    // This thread reads the scenario. From here its allocations are counted
+    // only inside `meter::editor`, which `start` and `send` are run in.
+    let _harness = meter::harness();
     let workdir = Workdir::enter()?;
     let mut sandbox = Sandbox::new();
     let mut stage = Stage::Before;
@@ -228,6 +240,27 @@ pub fn run(script: &str) -> Result<Run> {
             }
             Instruction::Clipboard(text) => {
                 sandbox.pasteboard.set(text);
+                continue;
+            }
+            Instruction::Allocated(name) => {
+                let now = meter::allocated()
+                    .context("nothing counts allocations in this binary")
+                    .with_context(at)?;
+                sandbox.allocated.insert(name, now);
+                continue;
+            }
+            Instruction::AllocatedWithin(name, limit) => {
+                let since = sandbox
+                    .allocated
+                    .get(&name)
+                    .with_context(|| format!("no `%allocated {name}` before this"))
+                    .with_context(at)?;
+                // The name is stored only when the allocator is installed,
+                // so the count is there now too.
+                let spent = meter::allocated().unwrap_or(0) - since;
+                if spent > limit {
+                    bail!("{}: {name} allocated {spent} bytes, over {limit}", at());
+                }
                 continue;
             }
             // Checked when read, whatever the stage: a `?exit` needs the
@@ -282,7 +315,8 @@ pub fn run(script: &str) -> Result<Run> {
                 Instruction::Start(args) => (args, None),
                 other => (Args::default(), Some(other)),
             };
-            sandbox.start(args, stdin.take()).with_context(at)?;
+            let stdin = stdin.take();
+            meter::editor(|| sandbox.start(args, stdin)).with_context(at)?;
             stage = Stage::Running;
             match rest {
                 Some(rest) => instruction = rest,
@@ -291,12 +325,11 @@ pub fn run(script: &str) -> Result<Run> {
         }
 
         match instruction {
-            Instruction::Input(_) | Instruction::Wait => {
+            Instruction::Input(_) | Instruction::Wait | Instruction::Size(..) => {
                 if let Some(outcome) = sandbox.send(instruction).with_context(at)? {
                     stage = Stage::Exited(outcome);
                 }
             }
-            Instruction::Size(width, height) => sandbox.size(width, height),
             Instruction::Snapshot(layer, caption) => snapshots.push(Snapshot {
                 frame: sandbox.frame(layer),
                 caption,
@@ -306,6 +339,8 @@ pub fn run(script: &str) -> Result<Run> {
             }
             Instruction::File(..)
             | Instruction::Shell(_)
+            | Instruction::Allocated(_)
+            | Instruction::AllocatedWithin(..)
             | Instruction::Clipboard(..)
             | Instruction::Expect(..)
             | Instruction::Reset
@@ -541,6 +576,24 @@ mod tests {
 
         workdir.shell("(sleep 600 &)").unwrap();
         assert_eq!(workdir.shells.borrow().len(), 1);
+    }
+
+    /// A limit the editor went over is the line's error, with what was
+    /// spent. Only the failure is tested here: the other tests of this
+    /// binary allocate on their own threads meanwhile, which can add to a
+    /// count but never take from it. Limits that hold are in the scenarios.
+    #[test]
+    fn allocations_over_the_limit_fail_the_line() {
+        let script = format!(
+            "%allocated paste\npaste \"{}\"\n?allocated paste 1K\n",
+            "x".repeat(100_000)
+        );
+        let error = run(&script).unwrap_err();
+        let said = error.to_string();
+        assert!(said.starts_with("line 3: paste allocated "), "{said}");
+
+        let error = run("type \"a\"\n?allocated never 1K\n").unwrap_err();
+        assert!(error.to_string().starts_with("line 2"), "{error:#}");
     }
 
     /// What a command left running does not outlive the run: here a writer

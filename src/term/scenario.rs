@@ -28,11 +28,15 @@
 //!   %grammar NAME  the scenario needs the grammar of the language NAME,
 //!                  which a build may leave out; without it the run stops
 //!                  there, and the headless run says it was skipped
+//!   %allocated NAME     from here the bytes the editor allocates are
+//!                  counted under NAME; said again, counted afresh
 //!   ?exit N        the editor has exited, with code N
 //!   ?stdout "TEXT" and, a pipeline, handed TEXT downstream
 //!   ?file NAME "TEXT"   the file in the scenario's directory holds TEXT
 //!   ?nopath NAME   nothing is there, neither a file nor a directory
 //!   ?clipboard "TEXT"   the desktop clipboard holds TEXT
+//!   ?allocated NAME SIZE   the editor has allocated no more than SIZE
+//!                  since `%allocated NAME`: bytes, or `4K`, `2M`, `1G`
 //!   --- CAPTION    a snapshot: the text on the screen and the marks under
 //!                  it. The first is whole, each later one is the rows that
 //!                  changed since the snapshot before, or `same` when none
@@ -155,6 +159,12 @@ pub enum Instruction {
     File(String, String),
     /// A command for the shell, run in the run's directory.
     Shell(String),
+    /// The start of a count of the editor's allocations, under this name.
+    Allocated(String),
+    /// Since the count of this name began the editor has allocated no more
+    /// than this many bytes. A `?` line, but not an `Expect`: only the
+    /// headless run can tell, from the counts it keeps.
+    AllocatedWithin(String, u64),
     /// What the desktop clipboard holds.
     Clipboard(String),
     /// What is piped into the editor, to be read when it starts.
@@ -276,9 +286,35 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
             _ => bail!("?nopath takes one name"),
         },
         "?clipboard" => Instruction::Expect(Expect::Clipboard(quoted(rest)?)),
+        "%allocated" => match rest.split_whitespace().collect::<Vec<_>>()[..] {
+            [name] => Instruction::Allocated(name.to_owned()),
+            _ => bail!("%allocated takes one name"),
+        },
+        "?allocated" => match rest.split_whitespace().collect::<Vec<_>>()[..] {
+            [name, size] => Instruction::AllocatedWithin(name.to_owned(), bytes(size)?),
+            _ => bail!("?allocated takes a name and a size"),
+        },
         other => bail!("unknown instruction `{other}`"),
     };
     Ok(Some(instruction))
+}
+
+/// A size: bytes when it is a bare number, and `K`, `M` or `G` after it
+/// for units of 1024.
+fn bytes(size: &str) -> Result<u64> {
+    let (number, unit) = match size.strip_suffix(['K', 'M', 'G']) {
+        Some(number) => (
+            number,
+            1 << (10 * (1 + "KMG".find(&size[number.len()..]).unwrap())),
+        ),
+        None => (size, 1),
+    };
+    // A number too large for the unit is as much not a size as a word is.
+    number
+        .parse::<u64>()
+        .ok()
+        .and_then(|number| number.checked_mul(unit))
+        .with_context(|| format!("a size is a number of bytes, or `4K`, `2M`, `1G`: {size}"))
 }
 
 /// `X Y` and, after them, modifiers if any.
@@ -402,6 +438,33 @@ mod tests {
             stdout: Some("x\n".to_owned()),
         };
         assert_eq!(outcome(&piped), "exit 1\nstdout \"x\\n\"\n");
+    }
+
+    #[test]
+    fn a_count_of_allocations_is_named_and_its_limit_is_a_size() {
+        assert_eq!(
+            parse("%allocated step").unwrap(),
+            Some(Instruction::Allocated("step".to_owned()))
+        );
+        let limit = |line: &str| match parse(line).unwrap() {
+            Some(Instruction::AllocatedWithin(_, limit)) => limit,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(limit("?allocated step 300"), 300);
+        assert_eq!(limit("?allocated step 4K"), 4096);
+        assert_eq!(limit("?allocated step 2M"), 2 << 20);
+        assert_eq!(limit("?allocated step 1G"), 1 << 30);
+        for bad in [
+            "%allocated",
+            "%allocated a b",
+            "?allocated step",
+            "?allocated step 4k",
+            "?allocated step K",
+            "?allocated step 1.5M",
+            "?allocated step 17179869184G",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
