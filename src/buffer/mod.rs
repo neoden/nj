@@ -212,7 +212,8 @@ impl Buffer {
         let splices = transaction.splices();
         let inverse = transaction.apply(&mut self.text);
         if let Some(syntax) = &mut self.syntax {
-            syntax.update(&self.text, inverse.changes());
+            syntax.edit(&self.text, inverse.changes());
+            syntax.reparse(&self.text);
         }
         self.journal.push_back(splices);
         if self.journal.len() > JOURNAL_LIMIT {

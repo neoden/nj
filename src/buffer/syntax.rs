@@ -153,13 +153,17 @@ impl Syntax {
         tokens
     }
 
-    /// Brings the tree up to `text` once an edit has been applied to it,
-    /// given the inverse of that edit: where the new text lies and what
-    /// was there. Both are in the coordinates of the new text, front to
-    /// back, which is also how the tree takes them one after another —
-    /// when a change is reached, the ones before it are already in the
-    /// tree and the ones after it lie beyond its reach.
-    pub fn update(&mut self, text: &Text, inverse: &[Change]) {
+    /// Tells the tree of an edit that has been applied to `text`, given
+    /// the inverse of that edit: where the new text lies and what was
+    /// there. The text is not read: every node is moved to where it lies
+    /// now, and those the edit touched are marked as changed. The tree
+    /// still has the structure of the old text until `reparse`.
+    ///
+    /// The changes are in the coordinates of the new text, front to back,
+    /// which is also how the tree takes them one after another — when a
+    /// change is reached, the ones before it are already in the tree and
+    /// the ones after it lie beyond its reach.
+    pub fn edit(&mut self, text: &Text, inverse: &[Change]) {
         for change in inverse {
             let start = point(text, change.range.start);
             self.tree.edit(&InputEdit {
@@ -171,6 +175,12 @@ impl Syntax {
                 new_end_position: point(text, change.range.end),
             });
         }
+    }
+
+    /// Reads `text` and builds the tree of it, taking from the old tree
+    /// the nodes no edit has marked. The old tree must have been told of
+    /// every edit since it was built, by `edit`.
+    pub fn reparse(&mut self, text: &Text) {
         self.tree = parse(&mut self.parser, text, Some(&self.tree));
         self.injected.get_mut().clear();
         *self.combined.get_mut() = None;

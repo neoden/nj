@@ -6,8 +6,9 @@
 # tree the text is kept in. A copy of the text, or a walk over it, grows
 # as the size and fails.
 #
-# Plain text only: a file with a grammar is parsed again after every
-# edit, and that is not what this checks.
+# Plain text only: the syntax tree of a file with a grammar is brought up
+# to date after every edit, which costs as the size of the file, and that
+# is not what this checks.
 #
 # The text comes through a named pipe, so that nothing of that size is
 # written to the disk.
