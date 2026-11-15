@@ -28,15 +28,29 @@
 //!   %grammar NAME  the scenario needs the grammar of the language NAME,
 //!                  which a build may leave out; without it the run stops
 //!                  there, and the headless run says it was skipped
-//!   %allocated NAME     from here the bytes the editor allocates are
+//!   %for NAME VALUES   the scenario is run once for each of VALUES, three
+//!                  or more sizes going up, as `200K 2M 20M`; the `%shell`
+//!                  commands of a pass find its value in the environment
+//!                  variable NAME. One to a scenario, and no snapshots
+//!                  with it: the screen differs from pass to pass
+//!   %measure NAME  from here the editor's memory and processor time are
 //!                  counted under NAME; said again, counted afresh
 //!   ?exit N        the editor has exited, with code N
 //!   ?stdout "TEXT" and, a pipeline, handed TEXT downstream
 //!   ?file NAME "TEXT"   the file in the scenario's directory holds TEXT
 //!   ?nopath NAME   nothing is there, neither a file nor a directory
 //!   ?clipboard "TEXT"   the desktop clipboard holds TEXT
-//!   ?allocated NAME SIZE   the editor has allocated no more than SIZE
-//!                  since `%allocated NAME`: bytes, or `4K`, `2M`, `1G`
+//!   ?requested NAME GROWTH   over the passes of `%for`, the bytes the
+//!                  editor asked for since `%measure NAME`, freed or not,
+//!                  grow with the value no faster than GROWTH: `constant`,
+//!                  `log` or `linear`
+//!   ?retained NAME GROWTH   the same for what it holds now over what it
+//!                  held at `%measure NAME`
+//!   ?peak NAME GROWTH   the same for the most it held at any moment since
+//!                  `%measure NAME`, over what it held there
+//!   ?memory NAME GROWTH   the three above in one line
+//!   ?time NAME GROWTH   the same for the processor time since
+//!                  `%measure NAME`
 //!   --- CAPTION    a snapshot: the text on the screen and the marks under
 //!                  it. The first is whole, each later one is the rows that
 //!                  changed since the snapshot before, or `same` when none
@@ -159,12 +173,18 @@ pub enum Instruction {
     File(String, String),
     /// A command for the shell, run in the run's directory.
     Shell(String),
-    /// The start of a count of the editor's allocations, under this name.
-    Allocated(String),
-    /// Since the count of this name began the editor has allocated no more
-    /// than this many bytes. A `?` line, but not an `Expect`: only the
-    /// headless run can tell, from the counts it keeps.
-    AllocatedWithin(String, u64),
+    /// The scenario is run once for each value, with the value in the
+    /// environment variable of this name. A value is kept as it is written,
+    /// for the shell, and as the number it means.
+    For(String, Vec<(String, u64)>),
+    /// `%measure`: the start of a count of the editor's memory and time,
+    /// under this name.
+    Count(String),
+    /// Over the passes of `For`, each of these measures of the count of
+    /// this name grows no faster than this. A `?` line, but not an
+    /// `Expect`: only the headless run can tell, from the counts it keeps,
+    /// and only after the last pass.
+    Grows(&'static [Measure], String, Growth),
     /// What the desktop clipboard holds.
     Clipboard(String),
     /// What is piped into the editor, to be read when it starts.
@@ -199,6 +219,54 @@ pub enum Expect {
     NoPath(String),
     /// The desktop clipboard holds this text.
     Clipboard(String),
+}
+
+/// What a `?` line reads of the count that `%measure` began.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Measure {
+    /// `?requested`: every byte asked for since, freed or not.
+    Requested,
+    /// `?retained`: the bytes held now over the bytes held then.
+    Retained,
+    /// `?peak`: the most bytes held at any moment since, over the bytes
+    /// held then.
+    Peak,
+    /// `?time`: the processor time taken since.
+    Time,
+}
+
+impl Measure {
+    /// What it is called in the error of a line that fails.
+    pub fn name(self) -> &'static str {
+        match self {
+            Measure::Requested => "the memory requested",
+            Measure::Retained => "the memory retained",
+            Measure::Peak => "the peak of memory",
+            Measure::Time => "the time",
+        }
+    }
+}
+
+/// How fast a cost may grow with the value of `%for`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Growth {
+    /// Not at all.
+    Constant,
+    /// As the logarithm of the value.
+    Log,
+    /// As the value.
+    Linear,
+}
+
+impl Growth {
+    /// The word a scenario writes for it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Growth::Constant => "constant",
+            Growth::Log => "log",
+            Growth::Linear => "linear",
+        }
+    }
 }
 
 /// Whether `line` is the run's rather than the editor's: a `%` line sets
@@ -286,17 +354,58 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
             _ => bail!("?nopath takes one name"),
         },
         "?clipboard" => Instruction::Expect(Expect::Clipboard(quoted(rest)?)),
-        "%allocated" => match rest.split_whitespace().collect::<Vec<_>>()[..] {
-            [name] => Instruction::Allocated(name.to_owned()),
-            _ => bail!("%allocated takes one name"),
+        "%for" => match rest.split_whitespace().collect::<Vec<_>>()[..] {
+            // Two points are on any formula of two unknowns: the third
+            // is what tells one growth from another.
+            [name, ref values @ ..] if values.len() >= 3 => {
+                // The name of an environment variable.
+                if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    bail!("%for takes a name of letters, digits and `_`: {name}");
+                }
+                let values = values
+                    .iter()
+                    .map(|value| Ok(((*value).to_owned(), bytes(value)?)))
+                    .collect::<Result<Vec<_>>>()?;
+                // Growth is read off the values, so they are told apart and
+                // none is nothing.
+                if values[0].1 == 0 || values.windows(2).any(|pair| pair[0].1 >= pair[1].1) {
+                    bail!("the values of %for go up from above zero");
+                }
+                Instruction::For(name.to_owned(), values)
+            }
+            _ => bail!("%for takes a name and three values or more"),
         },
-        "?allocated" => match rest.split_whitespace().collect::<Vec<_>>()[..] {
-            [name, size] => Instruction::AllocatedWithin(name.to_owned(), bytes(size)?),
-            _ => bail!("?allocated takes a name and a size"),
+        "%measure" => match rest.split_whitespace().collect::<Vec<_>>()[..] {
+            [name] => Instruction::Count(name.to_owned()),
+            _ => bail!("%measure takes one name"),
         },
+        "?requested" => grows(&[Measure::Requested], verb, rest)?,
+        "?retained" => grows(&[Measure::Retained], verb, rest)?,
+        "?peak" => grows(&[Measure::Peak], verb, rest)?,
+        "?memory" => grows(
+            &[Measure::Requested, Measure::Retained, Measure::Peak],
+            verb,
+            rest,
+        )?,
+        "?time" => grows(&[Measure::Time], verb, rest)?,
         other => bail!("unknown instruction `{other}`"),
     };
     Ok(Some(instruction))
+}
+
+/// The rest of a `?` line about a count: its name and a growth.
+fn grows(measures: &'static [Measure], verb: &str, rest: &str) -> Result<Instruction> {
+    match rest.split_whitespace().collect::<Vec<_>>()[..] {
+        [name, word] => Ok(Instruction::Grows(measures, name.to_owned(), growth(word)?)),
+        _ => bail!("{verb} takes a name and a growth"),
+    }
+}
+
+fn growth(word: &str) -> Result<Growth> {
+    [Growth::Constant, Growth::Log, Growth::Linear]
+        .into_iter()
+        .find(|growth| growth.name() == word)
+        .with_context(|| format!("a growth is `constant`, `log` or `linear`: {word}"))
 }
 
 /// A size: bytes when it is a bare number, and `K`, `M` or `G` after it
@@ -441,27 +550,81 @@ mod tests {
     }
 
     #[test]
-    fn a_count_of_allocations_is_named_and_its_limit_is_a_size() {
+    fn for_takes_a_name_and_sizes_going_up() {
         assert_eq!(
-            parse("%allocated step").unwrap(),
-            Some(Instruction::Allocated("step".to_owned()))
+            parse("%for SIZE 300 4K 2M 1G").unwrap(),
+            Some(Instruction::For(
+                "SIZE".to_owned(),
+                vec![
+                    ("300".to_owned(), 300),
+                    ("4K".to_owned(), 4096),
+                    ("2M".to_owned(), 2 << 20),
+                    ("1G".to_owned(), 1 << 30),
+                ]
+            ))
         );
-        let limit = |line: &str| match parse(line).unwrap() {
-            Some(Instruction::AllocatedWithin(_, limit)) => limit,
-            other => panic!("{other:?}"),
-        };
-        assert_eq!(limit("?allocated step 300"), 300);
-        assert_eq!(limit("?allocated step 4K"), 4096);
-        assert_eq!(limit("?allocated step 2M"), 2 << 20);
-        assert_eq!(limit("?allocated step 1G"), 1 << 30);
         for bad in [
-            "%allocated",
-            "%allocated a b",
-            "?allocated step",
-            "?allocated step 4k",
-            "?allocated step K",
-            "?allocated step 1.5M",
-            "?allocated step 17179869184G",
+            "%for",
+            "%for SIZE",
+            "%for SIZE 1K",
+            "%for SIZE 1K 2K",
+            "%for SIZE 0 1K 2K",
+            "%for SIZE 1K 4K 2K",
+            "%for SIZE 1K 2K 2K",
+            "%for SIZE 1K 2K 4k",
+            "%for SIZE 1K 2K 1.5M",
+            "%for SIZE 1K 2K 17179869184G",
+            "%for a-b 1K 2K 4K",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_count_is_named_and_its_check_names_a_growth() {
+        assert_eq!(
+            parse("%measure step").unwrap(),
+            Some(Instruction::Count("step".to_owned()))
+        );
+        let grows = |measures: &'static [Measure], growth| {
+            Some(Instruction::Grows(measures, "step".to_owned(), growth))
+        };
+        assert_eq!(
+            parse("?requested step constant").unwrap(),
+            grows(&[Measure::Requested], Growth::Constant)
+        );
+        assert_eq!(
+            parse("?retained step linear").unwrap(),
+            grows(&[Measure::Retained], Growth::Linear)
+        );
+        assert_eq!(
+            parse("?peak step constant").unwrap(),
+            grows(&[Measure::Peak], Growth::Constant)
+        );
+        assert_eq!(
+            parse("?memory step linear").unwrap(),
+            grows(
+                &[Measure::Requested, Measure::Retained, Measure::Peak],
+                Growth::Linear
+            )
+        );
+        assert_eq!(
+            parse("?time step log").unwrap(),
+            grows(&[Measure::Time], Growth::Log)
+        );
+        for bad in [
+            "?retained step",
+            "?peak step 4K",
+            "%measure",
+            "%measure a b",
+            "?requested step",
+            "?memory step 4K",
+            "%allocated step",
+            "%time step",
+            "?allocated step constant",
+            "?time step",
+            "?time step fast",
+            "?time step 20ms",
         ] {
             assert!(parse(bad).is_err(), "{bad}");
         }

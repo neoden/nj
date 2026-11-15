@@ -79,7 +79,8 @@ The run's, around the editor:
 | `%clipboard "TEXT"` | what the desktop clipboard holds |
 | `%grammar NAME` | the scenario needs this grammar; a build without it skips the scenario |
 | `%reset` | end the editor, empty the directory, start over |
-| `%allocated NAME` | start counting the bytes the editor allocates, under NAME; said again with the same name, start afresh |
+| `%for NAME VALUES` | run the scenario once for each of VALUES, three or more sizes going up, as `200K 2M 20M`; a `%shell` command finds the value of its pass in the environment variable NAME |
+| `%measure NAME` | start counting the editor's memory and processor time, under NAME; said again with the same name, start afresh |
 
 The run's checks, of what the screen cannot show:
 
@@ -90,40 +91,143 @@ The run's checks, of what the screen cannot show:
 | `?file NAME "TEXT"` | the file holds TEXT |
 | `?nopath NAME` | nothing is there |
 | `?clipboard "TEXT"` | the desktop clipboard holds TEXT |
-| `?allocated NAME SIZE` | the editor has allocated no more than SIZE since `%allocated NAME`: bytes, or `4K`, `2M`, `1G` |
+| `?requested NAME GROWTH` | over the values of `%for`, the bytes the editor asked for since `%measure NAME` have a shape of growth no faster than GROWTH: `constant`, `log` or `linear` |
+| `?retained NAME GROWTH` | the same for what the editor holds now over what it held at `%measure NAME` |
+| `?peak NAME GROWTH` | the same for the most it held at any moment since `%measure NAME`, over what it held there |
+| `?memory NAME GROWTH` | the three above in one line |
+| `?time NAME GROWTH` | the same for the processor time since `%measure NAME` |
 
 A `?` line that does not hold is an error naming the line. Put `?` lines
 after the keys they check and before the next `---`. Once the editor has
 exited there is no screen, so a `---` or a key there is an error; `?exit`
 and `?stdout` say what became of it, and `%start` starts the next one.
 
-## Counting allocations
+## How a cost grows
 
-`%allocated NAME` and `?allocated NAME SIZE` bracket some lines and put
-a limit on what the editor allocates while it carries them out:
+A scenario can check how the memory and the time of some lines grow with
+the size of the input:
 
 ```text
-%allocated step
-key Right
-?allocated step 64K
+%for SIZE 200K 2M 20M
+%shell mkfifo big.txt; (yes 'some text' | head -c $SIZE > big.txt &)
+%start big.txt
+
+%measure move
+key PageDown
+key Ctrl+End
+?memory move constant
+?time move log
 ```
 
-What is counted:
+`%for` runs the whole scenario once for each value, every time from an
+empty directory. The value reaches only the `%shell` commands, as an
+environment variable; what it is the size of, a file, a line, the number
+of matches, is up to the command. Anything else the input depends on is
+written in the command as it is. One `%for` to a scenario, with one
+variable.
 
-- Every byte asked for, freed since or not, so a copy made and dropped
-  shows. A block that is grown counts at its whole new size, since
-  growing it may copy all of it.
+`%measure NAME` begins a count of the editor's memory and time. A `?`
+line reads one number off the count:
+
+| line | reads, since the count began |
+| --- | --- |
+| `?requested NAME` | every byte the editor asked for, freed since or not: the work done on memory |
+| `?retained NAME` | the bytes it holds now over the bytes it held then: what the lines left behind |
+| `?peak NAME` | the most bytes it held at any moment, over the bytes it held then: what the lines needed |
+| `?time NAME` | the processor time it took |
+
+`?memory NAME GROWTH` is `?requested`, `?retained` and `?peak` with the
+same growth, which is the usual case. A copy made and dropped shows in
+`?requested` and `?peak` and not in `?retained`. A cache that keeps
+growing shows in all three. One count can be read by several lines.
+
+After the last pass each `?` line has one cost for every value. The run
+finds which shape of growth the costs have, and the line fails when that
+shape is faster than the one it names:
+
+| growth | the cost is | |
+| --- | --- | --- |
+| `constant` | `a` | the same at every value |
+| `log` | `a + b · log(value)` | more by the same amount each time the value is ten times more |
+| `linear` | `a + b · value` | more in proportion to the value |
+
+Each shape is a formula with a part `a` that does not depend on the
+value. The run fits every formula to the costs by least squares, and
+also one for a square, `a + b · value²`, so that a cost growing faster
+than `linear` has something to fit. The shape of the cost is the slowest
+formula that the costs are on. Because `a` is in every formula, a cost
+that is mostly constant still shows how the rest of it grows.
+
+The failure names the shape found, and gives the cost at each value,
+how much it varied between the passes, and how far the costs are from
+each formula:
+
+```text
+line 12: the time of move is log in SIZE, not constant
+  SIZE=200K  625.15µs, within 1.622µs from pass to pass
+  SIZE=2M  659.195µs, within 3.193µs from pass to pass
+  SIZE=20M  693.627µs, within 4.57µs from pass to pass
+  the furthest point from each formula: constant 5.3%, log 0.0%, linear 2.4%, quadratic 2.7%
+```
+
+A cost is on a formula when it is within a hundredth of itself of it,
+or within three times what it varied by between the passes. So a change
+of a few bytes is no growth, and on a machine where time varies more the
+check lets more pass instead of failing by chance. Where no formula is
+that near, a buffer that grows by doubling say, the slowest of those
+about as near as the nearest is the shape.
+
+What to know when writing one:
+
+- Three values at least: two points are on every formula. Five is what
+  the scenarios here take, a thousandfold or more from the first to the
+  last. With three, a time that grows a little read as `log` on one run
+  and `linear` on another; with five it read the same every time.
+- Widen the range downwards. A small input costs nothing to run, and
+  the part of the cost that does not grow is in every formula, so it
+  does not hide the growth as it would hide it from a ratio.
+- The growing part has to show. Where it is under a hundredth of the
+  cost at every value, or under the noise, the cost reads as `constant`.
+  Take values large enough.
+- For time, a growth of some percent over the whole range reads as
+  `log` on one run and `constant` on another, as the noise happens to
+  be. A line that says `log` passes both ways. Say `constant` for time
+  only where nothing at all depends on the value.
+- A logarithm and a small power of the value are not told apart.
+- A scenario with `%for` has no `---`: the screen differs from pass to
+  pass. The other `?` lines work, and are checked in every pass.
+- Each value is run five times and the least cost is taken, so a
+  scenario with five values is twenty-five runs.
+
+Memory, what is counted:
+
+- A block that is grown counts in `?requested` at its whole new size,
+  since growing it may copy all of it, and in `?peak` as the new block
+  and the old one held together for that moment.
 - Handling a line and composing the frame after it, as the editor's loop
   does after every event. A `---` adds nothing to the count.
 - The editor's background jobs, whenever they allocate. Where a line
   starts one, a picker filling its list say, put `wait` before the
-  `?allocated`: without it the count is whatever the job had got to.
+  `?` line: without it the count is whatever the job had got to.
 
 What is not: the run's own work, reading the scenario and printing a
-frame.
+frame. A block that the run takes and the editor frees, or the other
+way round, is counted on one side only. Those are small and the same at
+every value, the events of a key say, so they do not change a growth;
+they are why `?retained` is read as a change and not as a total.
 
-The live replay does not count. There the editor is another process, so
-the two lines are passed over with a note and no limit is checked.
+Time is the processor time the process used while the editor handled
+the lines and composed the frame after each. It is not the time on the
+clock: a machine busy with something else makes that longer, and this
+no longer. The run's own work between the lines is left out. A background
+job is in it while a line is being handled, `wait` included, so put
+`wait` before the `?time` as before the lines about memory. Waiting
+itself, for the disk or for a lock, takes no processor time and does
+not show.
+
+The live replay checks no growth. There the editor is another process
+and the run is one pass, with the first value of `%for`; `%measure`
+and the `?` lines that read it are passed over with a note.
 
 ## Frames
 

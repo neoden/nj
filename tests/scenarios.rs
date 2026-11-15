@@ -23,8 +23,8 @@ use anyhow::Result;
 
 use nj::term::{meter, sandbox, scenario};
 
-/// What `%allocated` and `?allocated` read: the editor's allocations are
-/// counted on their way to the system's allocator.
+/// What `%measure` and the `?` lines about memory read: the editor's
+/// allocations are counted on their way to the system's allocator.
 #[global_allocator]
 static ALLOCATOR: meter::Counting = meter::Counting;
 

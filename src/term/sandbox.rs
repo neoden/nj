@@ -23,9 +23,9 @@ use rustix::process::{Pid, Signal, kill_process_group, test_kill_process_group};
 
 use super::grid::Grid;
 use super::launch::{self, Args, Outcome};
-use super::scenario::{self, Expect, Instruction, Line};
+use super::scenario::{self, Expect, Growth, Instruction, Line, Measure};
 use super::screen::{Frames, Layer, Screen};
-use super::{app, meter, render};
+use super::{app, growth, meter, render};
 use crate::buffer::syntax;
 use crate::editor::Editor;
 use crate::editor::clipboard::Desktop;
@@ -92,16 +92,38 @@ struct Sandbox {
     pasteboard: Pasteboard,
     size: (usize, usize),
     frames: Frames,
-    /// What the editor had allocated when each `%allocated` was read, by
-    /// the name the line gave.
-    allocated: HashMap<String, u64>,
+    /// The counts that `%measure` lines began, by the name each gave.
+    counts: HashMap<String, Count>,
+}
+
+/// What the editor had used at a `%measure` line, and the most memory it
+/// has held since.
+struct Count {
+    /// The bytes it had asked for by then, freed or not.
+    requested: u64,
+    /// The bytes it held then.
+    held: i64,
+    /// The most bytes it has held at any moment since.
+    highest: i64,
+    /// The processor time it had taken by then.
+    spent: Duration,
 }
 
 impl Sandbox {
+    /// Brings the most each count has held up to now. `meter` keeps one
+    /// such mark for the process and starts it afresh when asked, so every
+    /// count that is open takes it before another begins or one is read.
+    fn note_highest(&mut self) {
+        let highest = meter::highest();
+        for count in self.counts.values_mut() {
+            count.highest = count.highest.max(highest);
+        }
+    }
+
     fn new() -> Self {
         Self {
             editor: None,
-            allocated: HashMap::new(),
+            counts: HashMap::new(),
             pasteboard: Pasteboard::default(),
             size: DEFAULT_SIZE,
             frames: Frames::default(),
@@ -200,13 +222,146 @@ pub enum Run {
     Skipped(&'static str),
 }
 
+/// One measure that a `?` line about a count read in one pass. `?memory`
+/// reads three.
+struct Reading {
+    /// The line of the `?`, from 1.
+    line: usize,
+    name: String,
+    measure: Measure,
+    /// How fast the line lets the cost grow.
+    growth: Growth,
+    /// Bytes or nanoseconds.
+    cost: u64,
+}
+
+/// How many times the scenario is run for each value of `%for`. The least
+/// cost of them is the value's: the editor does the same work every time,
+/// and whatever a pass took over the least was the machine's, a cold cache
+/// or a core shared with another process. How far the passes are apart is
+/// the noise of the value, which `growth` allows for.
+const PASSES: usize = 5;
+
 /// Runs `script` against a fresh headless editor. An error names the line
 /// it happened on.
+///
+/// A scenario with `%for` is run for each value in turn, and its `?`
+/// lines about a count are checked after the last: each
+/// compares what one pair measured over all the values.
 pub fn run(script: &str) -> Result<Run> {
     // This thread reads the scenario. From here its allocations are counted
     // only inside `meter::editor`, which `start` and `send` are run in.
     let _harness = meter::harness();
     let workdir = Workdir::enter()?;
+    let Some((variable, values)) = values(script)? else {
+        return pass(script, &workdir, None, &mut Vec::new());
+    };
+
+    // For each value, the readings of each of its passes: the same lines in
+    // the same order every pass.
+    let mut measured: Vec<Vec<Vec<Reading>>> = Vec::new();
+    for (written, _) in &values {
+        let variable = (variable.as_str(), written.as_str());
+        let mut passes = Vec::new();
+        for _ in 0..PASSES {
+            workdir.renew()?;
+            let mut readings = Vec::new();
+            if let Run::Skipped(name) = pass(script, &workdir, Some(variable), &mut readings)? {
+                return Ok(Run::Skipped(name));
+            }
+            passes.push(readings);
+        }
+        measured.push(passes);
+    }
+
+    // Every line that fails, not the first: they are measured already, and
+    // which of them fail together says where the cost is.
+    let mut failed = Vec::new();
+    for (index, reading) in measured[0][0].iter().enumerate() {
+        let points: Vec<growth::Point> = values
+            .iter()
+            .zip(&measured)
+            .map(|((_, value), passes)| {
+                let mut costs: Vec<u64> = passes.iter().map(|pass| pass[index].cost).collect();
+                costs.sort();
+                growth::Point {
+                    value: *value as f64,
+                    cost: costs[0] as f64,
+                    // Half of the passes were within this of the least.
+                    noise: (costs[costs.len() / 2] - costs[0]) as f64,
+                }
+            })
+            .collect();
+        let fit = growth::fit(&points);
+        if !fit.shape.within(reading.growth) {
+            let amount = |amount: f64| match reading.measure {
+                Measure::Time => format!("{:?}", Duration::from_nanos(amount as u64)),
+                _ => format!("{amount} bytes"),
+            };
+            let mut said = format!(
+                "line {}: {} of {} is {} in {variable}, not {}",
+                reading.line,
+                reading.measure.name(),
+                reading.name,
+                fit.shape.name(),
+                reading.growth.name()
+            );
+            for ((written, _), point) in values.iter().zip(&points) {
+                said.push_str(&format!(
+                    "\n  {variable}={written}  {}, within {} from pass to pass",
+                    amount(point.cost),
+                    amount(point.noise)
+                ));
+            }
+            let off: Vec<String> = fit
+                .off
+                .iter()
+                .map(|(shape, off)| format!("{} {:.1}%", shape.name(), off * 100.0))
+                .collect();
+            said.push_str(&format!(
+                "\n  the furthest point from each formula: {}",
+                off.join(", ")
+            ));
+            failed.push(said);
+        }
+    }
+    if !failed.is_empty() {
+        bail!(failed.join("\n"));
+    }
+    // A scenario with `%for` has no snapshots.
+    Ok(Run::Done(Vec::new()))
+}
+
+/// The values of a `%for`, each as it is written and as a number.
+type Values = Vec<(String, u64)>;
+
+/// The variable and the values of the scenario's `%for`, if it has one.
+fn values(script: &str) -> Result<Option<(String, Values)>> {
+    let mut found = None;
+    for (index, line) in scenario::lines(script).enumerate() {
+        let Line::Text(text) = line else { continue };
+        // A line that cannot be read is the error of the pass that gets
+        // to it.
+        if let Ok(Some(Instruction::For(variable, values))) = scenario::parse(text) {
+            if found.is_some() {
+                bail!("line {}: a scenario has one `%for`", index + 1);
+            }
+            found = Some((variable, values));
+        }
+    }
+    Ok(found)
+}
+
+/// Runs `script` once, from an empty directory to its last line. `value`
+/// is the variable of `%for` and its value in this pass, for the `%shell`
+/// commands. What the `?` lines about a count measured is added to
+/// `readings`.
+fn pass(
+    script: &str,
+    workdir: &Workdir,
+    value: Option<(&str, &str)>,
+    readings: &mut Vec<Reading>,
+) -> Result<Run> {
     let mut sandbox = Sandbox::new();
     let mut stage = Stage::Before;
     // What `%stdin` gave, until the editor starts and reads it.
@@ -235,31 +390,60 @@ pub fn run(script: &str) -> Result<Run> {
                 continue;
             }
             Instruction::Shell(command) => {
-                workdir.shell(&command).with_context(at)?;
+                workdir.shell(&command, value).with_context(at)?;
                 continue;
             }
             Instruction::Clipboard(text) => {
                 sandbox.pasteboard.set(text);
                 continue;
             }
-            Instruction::Allocated(name) => {
-                let now = meter::allocated()
+            // Read by `run` before the first pass.
+            Instruction::For(..) => continue,
+            Instruction::Count(name) => {
+                let requested = meter::allocated()
                     .context("nothing counts allocations in this binary")
                     .with_context(at)?;
-                sandbox.allocated.insert(name, now);
+                sandbox.note_highest();
+                let held = meter::held();
+                let count = Count {
+                    requested,
+                    held,
+                    highest: held,
+                    spent: meter::spent(),
+                };
+                sandbox.counts.insert(name, count);
                 continue;
             }
-            Instruction::AllocatedWithin(name, limit) => {
+            Instruction::Grows(measures, name, growth) => {
+                sandbox.note_highest();
                 let since = sandbox
-                    .allocated
+                    .counts
                     .get(&name)
-                    .with_context(|| format!("no `%allocated {name}` before this"))
+                    .with_context(|| format!("no `%measure {name}` before this"))
                     .with_context(at)?;
-                // The name is stored only when the allocator is installed,
-                // so the count is there now too.
-                let spent = meter::allocated().unwrap_or(0) - since;
-                if spent > limit {
-                    bail!("{}: {name} allocated {spent} bytes, over {limit}", at());
+                if value.is_none() {
+                    bail!(
+                        "{}: a growth is over the values of a `%for`, and the scenario has none",
+                        at()
+                    );
+                }
+                for &measure in measures {
+                    let cost = match measure {
+                        // The name is stored only when the allocator is
+                        // installed, so the count is there now too.
+                        Measure::Requested => meter::allocated().unwrap_or(0) - since.requested,
+                        // Less held than at the start is nothing retained.
+                        Measure::Retained => (meter::held() - since.held).max(0) as u64,
+                        Measure::Peak => (since.highest - since.held) as u64,
+                        Measure::Time => (meter::spent() - since.spent).as_nanos() as u64,
+                    };
+                    readings.push(Reading {
+                        line: index + 1,
+                        name: name.clone(),
+                        measure,
+                        growth,
+                        cost,
+                    });
                 }
                 continue;
             }
@@ -330,6 +514,10 @@ pub fn run(script: &str) -> Result<Run> {
                     stage = Stage::Exited(outcome);
                 }
             }
+            // One frame cannot be the screen of every pass.
+            Instruction::Snapshot(..) if value.is_some() => {
+                bail!("{}: a scenario with `%for` has no snapshots", at())
+            }
             Instruction::Snapshot(layer, caption) => snapshots.push(Snapshot {
                 frame: sandbox.frame(layer),
                 caption,
@@ -339,8 +527,9 @@ pub fn run(script: &str) -> Result<Run> {
             }
             Instruction::File(..)
             | Instruction::Shell(_)
-            | Instruction::Allocated(_)
-            | Instruction::AllocatedWithin(..)
+            | Instruction::For(..)
+            | Instruction::Count(_)
+            | Instruction::Grows(..)
             | Instruction::Clipboard(..)
             | Instruction::Expect(..)
             | Instruction::Reset
@@ -420,15 +609,22 @@ impl Workdir {
     /// it starts in the background, a writer waiting at a named pipe say,
     /// can be ended with the run. Its output is not read: a background
     /// process would hold the pipe open and the wait would never end. Its
-    /// errors go where the run's own do.
-    pub fn shell(&self, command: &str) -> Result<()> {
-        self.shell_within(command, SHELL_LIMIT)
+    /// errors go where the run's own do. `variable` is a name and a value
+    /// put into its environment: the value of `%for` in this pass.
+    pub fn shell(&self, command: &str, variable: Option<(&str, &str)>) -> Result<()> {
+        self.shell_within(command, variable, SHELL_LIMIT)
     }
 
     /// `shell` with the limit given: the tests do not wait five seconds.
-    fn shell_within(&self, command: &str, limit: Duration) -> Result<()> {
+    fn shell_within(
+        &self,
+        command: &str,
+        variable: Option<(&str, &str)>,
+        limit: Duration,
+    ) -> Result<()> {
         let mut shell = Command::new("sh")
             .args(["-c", command])
+            .envs(variable)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .process_group(0)
@@ -555,6 +751,7 @@ mod tests {
         let error = workdir
             .shell_within(
                 "mkfifo p; echo $$ > pid; printf x > p",
+                None,
                 Duration::from_millis(100),
             )
             .unwrap_err();
@@ -571,28 +768,89 @@ mod tests {
     #[test]
     fn a_shell_group_is_remembered_only_while_it_has_members() {
         let workdir = Workdir::enter().unwrap();
-        workdir.shell("printf made > a.txt").unwrap();
+        workdir.shell("printf made > a.txt", None).unwrap();
         assert!(workdir.shells.borrow().is_empty());
 
-        workdir.shell("(sleep 600 &)").unwrap();
+        workdir.shell("(sleep 600 &)", None).unwrap();
         assert_eq!(workdir.shells.borrow().len(), 1);
     }
 
-    /// A limit the editor went over is the line's error, with what was
-    /// spent. Only the failure is tested here: the other tests of this
-    /// binary allocate on their own threads meanwhile, which can add to a
-    /// count but never take from it. Limits that hold are in the scenarios.
+    /// Every pass starts in an empty directory and finds its own value in
+    /// the shell's environment: a file left by the pass before would fail
+    /// the `?nopath`, a value other than the three the `test`.
     #[test]
-    fn allocations_over_the_limit_fail_the_line() {
-        let script = format!(
-            "%allocated paste\npaste \"{}\"\n?allocated paste 1K\n",
-            "x".repeat(100_000)
-        );
-        let error = run(&script).unwrap_err();
-        let said = error.to_string();
-        assert!(said.starts_with("line 3: paste allocated "), "{said}");
+    fn for_runs_the_scenario_with_each_value_in_the_shells_environment() {
+        run(concat!(
+            "%for SIZE 1K 2K 4K\n",
+            "?nopath seen\n",
+            "%shell test $SIZE = 1K -o $SIZE = 2K -o $SIZE = 4K\n",
+            "%shell touch seen\n",
+        ))
+        .unwrap();
+    }
 
-        let error = run("type \"a\"\n?allocated never 1K\n").unwrap_err();
+    #[test]
+    fn a_scenario_with_for_takes_no_snapshots() {
+        let error = run("%for SIZE 1K 2K 4K\ntype \"a\"\n---\n").unwrap_err();
+        assert!(error.to_string().starts_with("line 3"), "{error:#}");
+    }
+
+    /// The text opened is the value's size, and copying all of it
+    /// allocates as much: a cost that grows as the value, which is over
+    /// `constant` and within `linear`. The error has the line, the power
+    /// and the cost at each value.
+    ///
+    /// Only a growth this plain is tested here. The other tests of this
+    /// binary run on their own threads meanwhile: what they allocate is
+    /// counted with the editor's, and their time is the process's too. A
+    /// megabyte copied stands out of that in what is requested and in the
+    /// peak; a finer growth would not, and neither does what is retained,
+    /// which the other threads take up and down by megabytes. Those are in
+    /// the scenarios, which run alone.
+    #[test]
+    fn a_cost_that_grows_faster_than_the_line_says_fails_it() {
+        let copy = |growth: &str| {
+            format!(
+                concat!(
+                    "%for SIZE 10K 100K 1M\n",
+                    "%shell head -c $SIZE /dev/zero | tr '\\0' x > a.txt\n",
+                    "%start a.txt\n",
+                    "%measure copy\n",
+                    "key Ctrl+A\n",
+                    "key Ctrl+C\n",
+                    "?requested copy {0}\n",
+                    "?peak copy {0}\n",
+                ),
+                growth
+            )
+        };
+        let error = run(&copy("constant")).unwrap_err();
+        let said = error.to_string();
+        assert!(
+            said.starts_with(
+                "line 7: the memory requested of copy is linear in SIZE, not constant"
+            ),
+            "{said}"
+        );
+        assert!(said.contains("\n  SIZE=1M  "), "{said}");
+        // Every failed line is in the error.
+        assert!(
+            said.contains("\nline 8: the peak of memory of copy is"),
+            "{said}"
+        );
+
+        run(&copy("linear")).unwrap();
+    }
+
+    #[test]
+    fn a_growth_needs_a_for_and_a_count_begun() {
+        let error = run("%measure a\ntype \"a\"\n?memory a constant\n").unwrap_err();
+        assert!(error.to_string().starts_with("line 3"), "{error:#}");
+
+        let error = run("%for SIZE 1K 2K 4K\ntype \"a\"\n?time never constant\n").unwrap_err();
+        assert!(error.to_string().starts_with("line 3"), "{error:#}");
+
+        let error = run("%for SIZE 1K 2K 4K\n%for SIZE 1K 2K 4K\n").unwrap_err();
         assert!(error.to_string().starts_with("line 2"), "{error:#}");
     }
 
@@ -602,7 +860,10 @@ mod tests {
     fn what_shell_left_running_ends_with_the_run() {
         let workdir = Workdir::enter().unwrap();
         workdir
-            .shell("mkfifo p; (echo late > p &) ; (sleep 600 & echo $! > pid)")
+            .shell(
+                "mkfifo p; (echo late > p &) ; (sleep 600 & echo $! > pid)",
+                None,
+            )
             .unwrap();
         let sleeper: i32 = fs::read_to_string("pid").unwrap().trim().parse().unwrap();
         let sleeper = Pid::from_raw(sleeper).unwrap();

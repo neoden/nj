@@ -3,6 +3,8 @@
 
 pub mod app;
 pub mod grid;
+#[cfg(debug_assertions)]
+pub mod growth;
 pub mod input;
 pub mod launch;
 #[cfg(debug_assertions)]

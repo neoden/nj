@@ -203,6 +203,11 @@ mod live {
         stage: Stage,
         /// What `%stdin` gave, until the editor starts and reads it.
         stdin: Option<String>,
+        /// The variable of the last `%for` and the first of its values,
+        /// for the `%shell` commands. Kept over a `%reset`, which may be
+        /// in the middle of the scenario; a scenario without a `%for`
+        /// replayed next finds a variable it does not read.
+        value: Option<(String, String)>,
     }
 
     impl Sandbox {
@@ -213,6 +218,7 @@ mod live {
                 workdir,
                 stage: Stage::Before,
                 stdin: None,
+                value: None,
             };
             sandbox.prepare()?;
             Ok(sandbox)
@@ -266,13 +272,25 @@ mod live {
                 Instruction::File(name, text) => {
                     fs::write(&name, text).with_context(|| format!("cannot write {name}"))?;
                 }
-                Instruction::Shell(command) => self.workdir.shell(&command)?,
+                Instruction::Shell(command) => {
+                    let value = self.value.as_ref();
+                    let value = value.map(|(name, value)| (name.as_str(), value.as_str()));
+                    self.workdir.shell(&command, value)?
+                }
+                // A live run is one pass, with the first value.
+                Instruction::For(name, values) => {
+                    let (first, _) = values.into_iter().next().expect("three values or more");
+                    let note = format!("a live run is one pass: {name}={first}\n");
+                    self.value = Some((name, first));
+                    return Ok(note);
+                }
                 // The editor here is a process of its own, on the allocator
-                // it ships with, so nothing is counted and no limit is
-                // checked. The lines are passed over with a note rather
+                // it ships with and paced by whoever sends the lines, and
+                // the run is one pass, so nothing is counted and no growth
+                // is checked. The lines are passed over with a note rather
                 // than refused, so that a scenario that has them can still
                 // be replayed to its end.
-                Instruction::Allocated(_) | Instruction::AllocatedWithin(..) => {
+                Instruction::Count(_) | Instruction::Grows(..) => {
                     return Ok("not counted in a live run\n".to_owned());
                 }
                 Instruction::Clipboard(text) => {
