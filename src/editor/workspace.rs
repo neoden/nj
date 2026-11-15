@@ -108,6 +108,12 @@ impl Workspace {
         self.buffers.get_mut(&id).expect("no such buffer")
     }
 
+    /// The buffer of this id if it is still open: for a report about a
+    /// buffer, which may arrive after another file has taken its place.
+    pub fn buffer_if_open(&mut self, id: BufferId) -> Option<&mut Buffer> {
+        self.buffers.get_mut(&id)
+    }
+
     pub fn view(&self, id: ViewId) -> &View {
         &self.views[&id]
     }

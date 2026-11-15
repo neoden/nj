@@ -107,6 +107,8 @@ struct Count {
     highest: i64,
     /// The processor time it had taken by then.
     spent: Duration,
+    /// The part of it the editor's own thread had taken.
+    blocked: Duration,
 }
 
 impl Sandbox {
@@ -295,7 +297,9 @@ pub fn run(script: &str) -> Result<Run> {
         let fit = growth::fit(&points);
         if !fit.shape.within(reading.growth) {
             let amount = |amount: f64| match reading.measure {
-                Measure::Time => format!("{:?}", Duration::from_nanos(amount as u64)),
+                Measure::Time | Measure::Blocked => {
+                    format!("{:?}", Duration::from_nanos(amount as u64))
+                }
                 _ => format!("{amount} bytes"),
             };
             let mut said = format!(
@@ -410,6 +414,7 @@ fn pass(
                     held,
                     highest: held,
                     spent: meter::spent(),
+                    blocked: meter::blocked(),
                 };
                 sandbox.counts.insert(name, count);
                 continue;
@@ -436,6 +441,9 @@ fn pass(
                         Measure::Retained => (meter::held() - since.held).max(0) as u64,
                         Measure::Peak => (since.highest - since.held) as u64,
                         Measure::Time => (meter::spent() - since.spent).as_nanos() as u64,
+                        Measure::Blocked => {
+                            (meter::blocked() - since.blocked).as_nanos() as u64
+                        }
                     };
                     readings.push(Reading {
                         line: index + 1,

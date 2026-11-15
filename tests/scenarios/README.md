@@ -96,6 +96,7 @@ The run's checks, of what the screen cannot show:
 | `?peak NAME GROWTH` | the same for the most it held at any moment since `%measure NAME`, over what it held there |
 | `?memory NAME GROWTH` | the three above in one line |
 | `?time NAME GROWTH` | the same for the processor time since `%measure NAME` |
+| `?blocked NAME GROWTH` | the same for the part of that time the editor's own thread took, without its background jobs |
 
 A `?` line that does not hold is an error naming the line. Put `?` lines
 after the keys they check and before the next `---`. Once the editor has
@@ -134,7 +135,8 @@ line reads one number off the count:
 | `?requested NAME` | every byte the editor asked for, freed since or not: the work done on memory |
 | `?retained NAME` | the bytes it holds now over the bytes it held then: what the lines left behind |
 | `?peak NAME` | the most bytes it held at any moment, over the bytes it held then: what the lines needed |
-| `?time NAME` | the processor time it took |
+| `?time NAME` | the processor time it took, on all its threads |
+| `?blocked NAME` | the processor time its own thread took: how long it could not take the next key |
 
 `?memory NAME GROWTH` is `?requested`, `?retained` and `?peak` with the
 same growth, which is the usual case. A copy made and dropped shows in
@@ -224,6 +226,14 @@ job is in it while a line is being handled, `wait` included, so put
 `wait` before the `?time` as before the lines about memory. Waiting
 itself, for the disk or for a lock, takes no processor time and does
 not show.
+
+`?blocked` is the part of that time spent on the editor's own thread,
+the one that handles the keys and composes the frames. Work that the
+editor gives to a background job is in `?time` and not in `?blocked`.
+The two together say where a cost is: a line whose `?blocked` does not
+grow and whose `?time`, after `wait`, does, has its growing work in a
+job, where it does not hold up the next key. `?blocked` needs no `wait`:
+what a job has got to does not change it.
 
 The live replay checks no growth. There the editor is another process
 and the run is one pass, with the first value of `%for`; `%measure`

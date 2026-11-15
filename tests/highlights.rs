@@ -273,7 +273,9 @@ fn check(file: &File) -> Vec<String> {
         let mut builder = TextBuilder::default();
         builder.append(&code);
         let text = builder.finish();
-        let syntax = Syntax::new(file.language, &text).expect("the grammar is in this build");
+        let mut syntax = Syntax::new(file.language).expect("the grammar is in this build");
+        let work = syntax.hand_out(&text).expect("a new syntax is not parsed yet");
+        syntax.take(work.run());
         let tokens = syntax.tokens(&text, 0..text.len());
 
         let title = match &example.title {

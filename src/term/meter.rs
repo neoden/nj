@@ -49,6 +49,11 @@ static INSTALLED: AtomicBool = AtomicBool::new(false);
 /// The nanoseconds of processor time spent inside `editor(..)` so far.
 static NANOS: AtomicU64 = AtomicU64::new(0);
 
+/// The nanoseconds of processor time the calling thread alone spent
+/// inside `editor(..)` so far: the part of `NANOS` that the editor's own
+/// thread took, without its background jobs.
+static BLOCKED: AtomicU64 = AtomicU64::new(0);
+
 thread_local! {
     /// True while this thread's allocations are not counted: on the thread
     /// that reads the scenario, outside `editor(..)`. False on every other
@@ -153,9 +158,10 @@ pub fn editor<T>(work: impl FnOnce() -> T) -> T {
     let _restore = Restore {
         before: APART.replace(false),
     };
-    let started = processor_time();
+    let started = (processor_time(), thread_time());
     let done = work();
-    NANOS.fetch_add(processor_time().saturating_sub(started), Relaxed);
+    NANOS.fetch_add(processor_time().saturating_sub(started.0), Relaxed);
+    BLOCKED.fetch_add(thread_time().saturating_sub(started.1), Relaxed);
     done
 }
 
@@ -163,6 +169,19 @@ pub fn editor<T>(work: impl FnOnce() -> T) -> T {
 /// between two lines is not in it.
 pub fn spent() -> Duration {
     Duration::from_nanos(NANOS.load(Relaxed))
+}
+
+/// The processor time the thread that called `editor(..)` spent inside it
+/// so far. This is how long the editor was busy and could not take the
+/// next key: a background job works on another thread and is not in it.
+pub fn blocked() -> Duration {
+    Duration::from_nanos(BLOCKED.load(Relaxed))
+}
+
+/// The nanoseconds of processor time this thread has used.
+fn thread_time() -> u64 {
+    let now = clock_gettime(ClockId::ThreadCPUTime);
+    now.tv_sec as u64 * 1_000_000_000 + now.tv_nsec as u64
 }
 
 /// The nanoseconds of processor time this process has used, on all of its

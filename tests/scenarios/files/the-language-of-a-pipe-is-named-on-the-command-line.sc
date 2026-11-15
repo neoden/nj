@@ -6,6 +6,7 @@
 %stdin "fn main() {}"
 %start --language Rust
 size 40 3
+wait
 
 ---ink the pipe is Rust
 0|1 fn main() {}
@@ -17,6 +18,7 @@ size 40 3
 %file notes.txt "fn main() {}"
 %start --language Rust notes.txt
 size 40 3
+wait
 
 ---ink a .txt file is Rust when told so
 0|1 fn main() {}

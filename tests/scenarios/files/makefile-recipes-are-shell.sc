@@ -10,6 +10,7 @@
 %file Makefile "build: $(OBJS)\n\t$(CC) -o app $^ && echo \"done $$USER\"\n\t@rm -f *.tmp\n"
 %start Makefile
 size 60 5
+wait
 
 ---ink a recipe is Shell, what make expands in it is make's
 0|1 build: $(OBJS)

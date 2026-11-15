@@ -444,6 +444,8 @@ mod tests {
             "x.rs",
         )));
         let mut editor = Editor::new(buffer);
+        // The tree is parsed by a job.
+        editor.finish_jobs();
         editor.resize(80, 3);
         let grid = composed(&editor, 80, 3);
         let gutter = editor.view().gutter;

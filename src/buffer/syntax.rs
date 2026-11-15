@@ -1,8 +1,11 @@
-//! The syntax tree of a buffer, kept in step with its text, and the
-//! tokens the highlight query reads off it. The tree is parsed once when
-//! the language is set and then edited along with the text: tree-sitter is
-//! told what was replaced by how much, in the same terms as the journal,
-//! and reparses only what that touched.
+//! The syntax tree of a buffer and the tokens the highlight query reads
+//! off it. Parsing takes as long as the text is large, so it is never
+//! done where the text is edited: a `Syntax` hands out a parse as a
+//! `Work`, which whoever holds the buffer runs elsewhere, and takes the
+//! tree it built back. There is no tree until the first one is back.
+//! An edit tells the tree what was replaced by how much, in the same
+//! terms as the journal, which moves its nodes to where they lie now;
+//! the next parse reads only what the edit touched.
 //!
 //! Some pieces of the text are another grammar's: the text inside a
 //! Markdown block. Each is parsed whole, on its own, the first time it is
@@ -14,6 +17,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
+use std::sync::{Arc, Weak};
 
 use tree_sitter::{InputEdit, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
@@ -39,8 +43,22 @@ pub struct Token<'a> {
 
 pub struct Syntax {
     grammar: &'static Grammar,
-    parser: Parser,
-    tree: Tree,
+    /// `None` until the first parse comes back: the text is drawn without
+    /// colours until then.
+    tree: Option<Tree>,
+    /// True while the tree is not of the text as it is: before the first
+    /// parse, and from an edit to the parse after it, when the tree has
+    /// been told of the edit and still has the structure of the text
+    /// before it.
+    behind: bool,
+    /// The ticket of the parse handed out. The parse is out while its
+    /// ticket is alive, in the `Work` or in the `Fresh` it built. One at a
+    /// time: the next is handed out when this one is gone, taken back
+    /// here or lost with a worker that died.
+    awaited: Weak<()>,
+    /// An edit has come since the last parse was handed out: the tree it
+    /// brings is of a text that is no more.
+    outdated: bool,
     /// The pieces another grammar reads, by where they lie, parsed when
     /// first drawn. An edit drops them all: those it did not touch would
     /// still do, but telling them from the rest is following the edit
@@ -51,6 +69,40 @@ pub struct Syntax {
     /// text: what the first frame after an edit reads, all frames up to
     /// the next edit draw from. `None` until then.
     combined: RefCell<Option<Vec<Parsed>>>,
+}
+
+/// A parse to be done: the text as it was when this was handed out, and
+/// the tree to take the unmarked nodes from, if there is one yet. It
+/// holds all it needs, so it can be run on any thread while the buffer
+/// goes on being edited.
+///
+/// The ticket is how the `Syntax` knows its parse is out: it has a weak
+/// reference to it, and the parse is out while the ticket exists. Nobody
+/// has to say that a parse has ended. A work that is dropped, by a worker
+/// that panics say, takes its ticket with it.
+pub struct Work {
+    ticket: Arc<()>,
+    grammar: &'static Grammar,
+    text: Text,
+    tree: Option<Tree>,
+}
+
+impl Work {
+    /// Parses the text. This is the part that takes time.
+    pub fn run(self) -> Fresh {
+        Fresh {
+            tree: parse_whole(self.grammar, &self.text, self.tree.as_ref()),
+            ticket: self.ticket,
+        }
+    }
+}
+
+/// The tree a `Work` built, to be given back to the `Syntax` that handed
+/// the work out. It carries the ticket of the work on.
+#[derive(Debug)]
+pub struct Fresh {
+    ticket: Arc<()>,
+    tree: Tree,
 }
 
 /// A piece as its grammar read it.
@@ -77,25 +129,24 @@ struct Piece {
 }
 
 impl Syntax {
-    /// `None` for a language without a grammar.
-    pub fn new(language: &Language, text: &Text) -> Option<Self> {
+    /// `None` for a language without a grammar. The text is not parsed
+    /// here: there is no tree until a parse handed out by `hand_out` is
+    /// run and its tree given to `take`.
+    pub fn new(language: &Language) -> Option<Self> {
         let grammar = grammar::by_name(language.name)?;
-        let mut parser = Parser::new();
-        parser
-            .set_language(&grammar.language)
-            .expect("a grammar linked in matches the runtime it is linked with");
-        let tree = parse(&mut parser, text, None);
         Some(Self {
             grammar,
-            parser,
-            tree,
+            tree: None,
+            behind: true,
+            awaited: Weak::new(),
+            outdated: false,
             injected: RefCell::default(),
             combined: RefCell::default(),
         })
     }
 
-    pub fn tree(&self) -> &Tree {
-        &self.tree
+    pub fn tree(&self) -> Option<&Tree> {
+        self.tree.as_ref()
     }
 
     /// The tokens touching `range`, in order of their start; those starting
@@ -112,13 +163,18 @@ impl Syntax {
     /// grammar's that start where they do: they are the inner ones. They
     /// lie only on the bytes of the piece the grammar read, cut in parts
     /// where they would cover the outer grammar's.
+    ///
+    /// None before the first parse has come back.
     pub fn tokens(&self, text: &Text, range: Range<usize>) -> Vec<Token<'_>> {
-        let mut tokens = highlight(self.grammar, &self.tree, text, range.clone());
+        let Some(tree) = &self.tree else {
+            return Vec::new();
+        };
+        let mut tokens = highlight(self.grammar, tree, text, range.clone());
         let Some(injections) = &self.grammar.injections else {
             return tokens;
         };
         let mut injected = self.injected.borrow_mut();
-        for piece in pieces(injections, &self.tree, text, range.clone(), false) {
+        for piece in pieces(injections, tree, text, range.clone(), false) {
             let parsed = injected
                 .entry((piece.range.start, piece.range.end))
                 .or_insert_with(|| Parsed {
@@ -135,7 +191,7 @@ impl Syntax {
             if !combines(injections) {
                 return Vec::new();
             }
-            pieces(injections, &self.tree, text, 0..text.len(), true)
+            pieces(injections, tree, text, 0..text.len(), true)
                 .into_iter()
                 .map(|piece| Parsed {
                     grammar: piece.grammar,
@@ -157,16 +213,23 @@ impl Syntax {
     /// the inverse of that edit: where the new text lies and what was
     /// there. The text is not read: every node is moved to where it lies
     /// now, and those the edit touched are marked as changed. The tree
-    /// still has the structure of the old text until `reparse`.
+    /// still has the structure of the old text until a parse of the new
+    /// one is handed out by `hand_out` and its tree given to `take`.
     ///
     /// The changes are in the coordinates of the new text, front to back,
     /// which is also how the tree takes them one after another — when a
     /// change is reached, the ones before it are already in the tree and
     /// the ones after it lie beyond its reach.
+    ///
+    /// Before the first parse there is no tree to tell. The edit is still
+    /// noted: the parse that is out is of the text before it.
     pub fn edit(&mut self, text: &Text, inverse: &[Change]) {
         for change in inverse {
+            let Some(tree) = &mut self.tree else {
+                break;
+            };
             let start = point(text, change.range.start);
-            self.tree.edit(&InputEdit {
+            tree.edit(&InputEdit {
                 start_byte: change.range.start,
                 old_end_byte: change.range.start + change.text.len(),
                 new_end_byte: change.range.end,
@@ -175,13 +238,53 @@ impl Syntax {
                 new_end_position: point(text, change.range.end),
             });
         }
+        self.behind = true;
+        self.outdated = true;
+        self.drop_pieces();
     }
 
-    /// Reads `text` and builds the tree of it, taking from the old tree
-    /// the nodes no edit has marked. The old tree must have been told of
-    /// every edit since it was built, by `edit`.
-    pub fn reparse(&mut self, text: &Text) {
-        self.tree = parse(&mut self.parser, text, Some(&self.tree));
+    /// A parse of `text` to be done, when the tree is behind the text and
+    /// no parse is out already. `text` is the text the tree has been told
+    /// of every edit to. Whoever takes the work runs it, here or on
+    /// another thread, and gives what it built to `take`.
+    pub fn hand_out(&mut self, text: &Text) -> Option<Work> {
+        if !self.behind || self.awaited.strong_count() > 0 {
+            return None;
+        }
+        let ticket = Arc::new(());
+        self.awaited = Arc::downgrade(&ticket);
+        self.outdated = false;
+        Some(Work {
+            ticket,
+            grammar: self.grammar,
+            text: text.clone(),
+            tree: self.tree.clone(),
+        })
+    }
+
+    /// Takes the tree of the parse handed out. A tree that this `Syntax`
+    /// is not waiting for is left alone. One that an edit has outdated is
+    /// dropped: its nodes are where they were in the text before that
+    /// edit. The tree stays behind then, and `hand_out` gives the next
+    /// parse.
+    pub fn take(&mut self, fresh: Fresh) {
+        // Its ticket is the one this `Syntax` gave out, or it is another's.
+        // The ticket ends with `fresh` when this returns, either way, and
+        // with it the parse is no longer out.
+        if self.awaited.as_ptr() != Arc::as_ptr(&fresh.ticket) {
+            return;
+        }
+        if self.outdated {
+            return;
+        }
+        self.tree = Some(fresh.tree);
+        self.behind = false;
+        self.drop_pieces();
+    }
+
+    /// The pieces were read off the tree as it was and lie where the text
+    /// was: a change to either leaves them wrong.
+    fn drop_pieces(&mut self) {
         self.injected.get_mut().clear();
         *self.combined.get_mut() = None;
     }
@@ -381,6 +484,18 @@ fn spans(node: Node, children: bool) -> Vec<tree_sitter::Range> {
     spans
 }
 
+/// The tree of all of `text` as `grammar` reads it. With `old`, the tree
+/// of the text before, told of every edit since: its unmarked nodes are
+/// taken as they are. The parser is made here and dropped, so this needs
+/// nothing that a `Syntax` holds but what it is handed.
+fn parse_whole(grammar: &'static Grammar, text: &Text, old: Option<&Tree>) -> Tree {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&grammar.language)
+        .expect("a grammar linked in matches the runtime it is linked with");
+    parse(&mut parser, text, old)
+}
+
 /// A piece parsed on its own, in the coordinates of the whole text, so
 /// that its tokens need no shifting.
 fn parse_piece(piece: &Piece, text: &Text) -> Tree {
@@ -426,7 +541,10 @@ fn advance(start: Point, text: &str) -> Point {
 impl fmt::Debug for Syntax {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Syntax")
-            .field("tree", &self.tree.root_node().to_sexp())
+            .field(
+                "tree",
+                &self.tree.as_ref().map(|tree| tree.root_node().to_sexp()),
+            )
             .finish()
     }
 }
@@ -465,6 +583,7 @@ mod rust_tests {
     fn rust_buffer(content: &str) -> Buffer {
         let mut buffer = Buffer::from_text(Text::from_str(content));
         buffer.set_language(language::detect(Path::new("x.rs")));
+        buffer.reparse();
         buffer
     }
 
@@ -497,10 +616,12 @@ mod rust_tests {
     }
 
     fn assert_fresh(buffer: &Buffer) {
-        let fresh = Syntax::new(buffer.language(), buffer.text()).unwrap();
+        let mut fresh = Syntax::new(buffer.language()).unwrap();
+        let work = fresh.hand_out(buffer.text()).unwrap();
+        fresh.take(work.run());
         assert_eq!(
-            nodes(buffer.syntax().unwrap().tree()),
-            nodes(fresh.tree()),
+            nodes(buffer.syntax().unwrap().tree().unwrap()),
+            nodes(fresh.tree().unwrap()),
             "{:?}",
             buffer.text().to_string()
         );
@@ -515,12 +636,14 @@ mod rust_tests {
                 (at..at, "\n    let x = 1;\n".to_owned())
             });
         buffer.apply(transaction, EditKind::Other);
+        buffer.reparse();
 
         assert_eq!(
             buffer.text().to_string(),
             "fn main() {\n    let x = 1;\n}\n"
         );
-        assert!(!buffer.syntax().unwrap().tree().root_node().has_error());
+        let tree = buffer.syntax().unwrap().tree().unwrap();
+        assert!(!tree.root_node().has_error());
         assert_fresh(&buffer);
     }
 
@@ -543,6 +666,7 @@ mod rust_tests {
             (selection.range(), "longer".to_owned())
         });
         buffer.apply(transaction, EditKind::Other);
+        buffer.reparse();
 
         assert_eq!(
             buffer.text().to_string(),
@@ -560,8 +684,82 @@ mod rust_tests {
             });
         buffer.apply(transaction, EditKind::Other);
         buffer.undo();
+        buffer.reparse();
 
         assert_eq!(buffer.text().to_string(), "fn a() {}\n");
+        assert_fresh(&buffer);
+    }
+
+    fn insert(buffer: &mut Buffer, at: usize, text: &str) {
+        let transaction =
+            Transaction::edit(&SelectionSet::single(at), CursorAfter::EndOfChange, |_| {
+                (at..at, text.to_owned())
+            });
+        buffer.apply(transaction, EditKind::Other);
+    }
+
+    #[test]
+    fn a_parse_handed_out_is_taken_back_and_one_is_out_at_a_time() {
+        let mut buffer = rust_buffer("fn a() {}\n");
+        assert!(buffer.syntax_work().is_none(), "nothing was edited");
+
+        insert(&mut buffer, 9, "\nfn b() {}");
+        let work = buffer.syntax_work().expect("the tree is behind");
+        assert!(buffer.syntax_work().is_none(), "one is out already");
+
+        buffer.take_syntax(work.run());
+        assert_fresh(&buffer);
+        assert!(buffer.syntax_work().is_none(), "the tree is up to date");
+    }
+
+    /// The tree a parse brings is of the text as it was handed out. After
+    /// an edit its nodes are not where the text is, so it is dropped, and
+    /// the next parse is of the text as it is now.
+    #[test]
+    fn a_parse_that_an_edit_outdated_is_dropped_and_the_next_is_handed_out() {
+        let mut buffer = rust_buffer("fn a() {}\n");
+        insert(&mut buffer, 9, "\nfn b() {}");
+        let work = buffer.syntax_work().unwrap();
+        insert(&mut buffer, 0, "struct S;\n");
+
+        buffer.take_syntax(work.run());
+        let again = buffer.syntax_work().expect("the tree is still behind");
+        buffer.take_syntax(again.run());
+        assert_fresh(&buffer);
+    }
+
+    /// A work that is never run to the end, as on a worker that panics,
+    /// does not leave the buffer waiting for it: the parse is out only
+    /// while the work exists.
+    #[test]
+    fn a_parse_that_is_lost_is_handed_out_again() {
+        let mut buffer = rust_buffer("fn a() {}\n");
+        insert(&mut buffer, 9, "\nfn b() {}");
+        let work = buffer.syntax_work().unwrap();
+        assert!(buffer.syntax_work().is_none(), "one is out already");
+
+        drop(work);
+        let again = buffer.syntax_work().expect("nothing is out any more");
+        buffer.take_syntax(again.run());
+        assert_fresh(&buffer);
+    }
+
+    /// A tree is told from another's by the ticket of its parse: one that
+    /// this buffer did not ask for changes nothing, and the one it did ask
+    /// for is still awaited.
+    #[test]
+    fn a_tree_that_another_buffer_asked_for_is_not_taken() {
+        let mut other = rust_buffer("fn a() {}\n");
+        insert(&mut other, 0, "struct S;\n");
+        let foreign = other.syntax_work().unwrap().run();
+
+        let mut buffer = rust_buffer("let x = 1;\n");
+        insert(&mut buffer, 4, "y");
+        let work = buffer.syntax_work().unwrap();
+
+        buffer.take_syntax(foreign);
+        assert!(buffer.syntax_work().is_none(), "its own is still out");
+        buffer.take_syntax(work.run());
         assert_fresh(&buffer);
     }
 
@@ -638,6 +836,7 @@ mod markdown_tests {
     fn an_edit_drops_the_pieces_read_before_it() {
         let mut buffer = Buffer::from_text(Text::from_str("a `b` c\n"));
         buffer.set_language(language::detect(Path::new("x.md")));
+        buffer.reparse();
         assert_eq!(names_at(&buffer, 3), ["markup.raw.inline"]);
 
         // The closing backtick becomes an `x`: the text is as long as it
@@ -648,6 +847,7 @@ mod markdown_tests {
                 (4..5, "x".to_owned())
             });
         buffer.apply(transaction, EditKind::Other);
+        buffer.reparse();
         assert_eq!(buffer.text().to_string(), "a `bx c\n");
         assert!(names_at(&buffer, 3).is_empty());
     }
@@ -659,6 +859,7 @@ mod markdown_tests {
         // on it.
         let mut buffer = Buffer::from_text(Text::from_str("> > `one\n> > two`\n"));
         buffer.set_language(language::detect(Path::new("x.md")));
+        buffer.reparse();
         let marker = "> > `one\n> ".len();
         assert_eq!(names_at(&buffer, marker), ["markup.quote.marker"]);
         assert_eq!(names_at(&buffer, "> > `o".len()), ["markup.raw.inline"]);

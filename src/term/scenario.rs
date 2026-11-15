@@ -51,6 +51,8 @@
 //!   ?memory NAME GROWTH   the three above in one line
 //!   ?time NAME GROWTH   the same for the processor time since
 //!                  `%measure NAME`
+//!   ?blocked NAME GROWTH   the same for the part of that time the
+//!                  editor's own thread took, without its background jobs
 //!   --- CAPTION    a snapshot: the text on the screen and the marks under
 //!                  it. The first is whole, each later one is the rows that
 //!                  changed since the snapshot before, or `same` when none
@@ -233,6 +235,9 @@ pub enum Measure {
     Peak,
     /// `?time`: the processor time taken since.
     Time,
+    /// `?blocked`: the part of that time the editor's own thread took,
+    /// without its background jobs.
+    Blocked,
 }
 
 impl Measure {
@@ -243,6 +248,7 @@ impl Measure {
             Measure::Retained => "the memory retained",
             Measure::Peak => "the peak of memory",
             Measure::Time => "the time",
+            Measure::Blocked => "the time blocked",
         }
     }
 }
@@ -388,6 +394,7 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
             rest,
         )?,
         "?time" => grows(&[Measure::Time], verb, rest)?,
+        "?blocked" => grows(&[Measure::Blocked], verb, rest)?,
         other => bail!("unknown instruction `{other}`"),
     };
     Ok(Some(instruction))
@@ -611,6 +618,10 @@ mod tests {
         assert_eq!(
             parse("?time step log").unwrap(),
             grows(&[Measure::Time], Growth::Log)
+        );
+        assert_eq!(
+            parse("?blocked step log").unwrap(),
+            grows(&[Measure::Blocked], Growth::Log)
         );
         for bad in [
             "?retained step",

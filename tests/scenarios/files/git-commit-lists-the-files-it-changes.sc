@@ -10,6 +10,7 @@
 %file COMMIT_EDITMSG "Fix the parse of a deleted SQL comment\n# Please enter the commit message for your changes. Lines starting\n# with '#' will be ignored, and an empty message aborts the commit.\n#\n# On branch master\n# Changes to be committed:\n#\tmodified:   Cargo.toml\n#\tnew file:   queries/diff/highlights.scm\n#\tdeleted:    old.txt\n#\trenamed:    a.rs -> b.rs\n#\n"
 %start COMMIT_EDITMSG
 size 60 13
+wait
 
 ---ink the files a commit changes, coloured by how
  0| 1 Fix the parse of a deleted SQL comment
@@ -41,6 +42,7 @@ size 60 13
 %file COMMIT_EDITMSG "\n# Please enter the commit message for your changes. Lines starting\n# with '#' will be ignored.\n#\n# Текущая ветка: master\n# Изменения, которые будут включены в коммит:\n#\tизменено:      a.txt\n#\tновый файл:    q.txt\n#\tудалено:       s.txt\n#\n# Изменения, которые не в индексе для коммита:\n#\tизменено:      c.txt\n#\n"
 %start COMMIT_EDITMSG
 size 60 14
+wait
 
 ---ink the same in Russian
  0| 1

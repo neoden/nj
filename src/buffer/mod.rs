@@ -112,7 +112,8 @@ pub struct Buffer {
     /// written separately.
     indent: Indent,
     /// Likewise from `language`, and `None` for one without a grammar.
-    /// Edited by `splice` alongside the text.
+    /// Told of every edit by `splice`; parsed by whoever takes the work
+    /// of `syntax_work`, the first time as after an edit.
     syntax: Option<Syntax>,
     /// Bounded, so the oldest step falls off the front.
     undo_stack: VecDeque<Group>,
@@ -213,7 +214,6 @@ impl Buffer {
         let inverse = transaction.apply(&mut self.text);
         if let Some(syntax) = &mut self.syntax {
             syntax.edit(&self.text, inverse.changes());
-            syntax.reparse(&self.text);
         }
         self.journal.push_back(splices);
         if self.journal.len() > JOURNAL_LIMIT {
@@ -289,7 +289,33 @@ impl Buffer {
     pub fn set_language(&mut self, language: &'static Language) {
         self.language = language;
         self.indent = indent::detect(&self.text, language.indent);
-        self.syntax = Syntax::new(language, &self.text);
+        self.syntax = Syntax::new(language);
+    }
+
+    /// A parse of the text to be done, when it was not parsed yet or was
+    /// edited since the last parse, and no parse is out already. An edit
+    /// only tells the tree
+    /// where things have moved to; until the work is run and its tree
+    /// given to `take_syntax`, the tree has the structure of the text
+    /// before the edit.
+    pub fn syntax_work(&mut self) -> Option<syntax::Work> {
+        self.syntax.as_mut()?.hand_out(&self.text)
+    }
+
+    /// Takes the tree a work of `syntax_work` built.
+    pub fn take_syntax(&mut self, fresh: syntax::Fresh) {
+        if let Some(syntax) = &mut self.syntax {
+            syntax.take(fresh);
+        }
+    }
+
+    /// Parses the text again in place, if there is a parse to be done.
+    /// For the tests of the tree: the editor runs the work as a job.
+    #[cfg(test)]
+    pub fn reparse(&mut self) {
+        if let Some(work) = self.syntax_work() {
+            self.take_syntax(work.run());
+        }
     }
 
     /// The syntax tree, for languages that have a grammar.

@@ -109,6 +109,9 @@ impl Editor {
             inbox,
         };
         editor.watch(editor.workspace.focused_buffer());
+        // The buffer comes unparsed. Later ones are opened by a command,
+        // and `execute` starts their parse.
+        editor.parse(editor.workspace.focused_buffer());
         editor
     }
 
@@ -143,6 +146,14 @@ impl Editor {
             Report::FileChanged(id) => {
                 if self.workspace.buffer(id).changed_on_disk() {
                     self.message = Some("File changed on disk".to_owned());
+                }
+            }
+            Report::Parsed { buffer, fresh } => {
+                if let Some(open) = self.workspace.buffer_if_open(buffer) {
+                    open.take_syntax(fresh);
+                    // An edit made meanwhile has left the tree behind
+                    // again: the next parse starts now.
+                    self.parse(buffer);
                 }
             }
             Report::Ended(job) => self.jobs.ended(job),
@@ -349,6 +360,25 @@ impl Editor {
         // catch them up itself, so they are caught up here, whatever the
         // command did to the text.
         self.session();
+        // The syntax tree is not caught up here: an edit left it with the
+        // structure of the text before, the frame draws from it as it is,
+        // and the parse that brings it up to the text is a job.
+        self.parse(self.workspace.focused_buffer());
+    }
+
+    /// Starts the parse of a buffer's text on a worker, if the text was
+    /// edited since the last parse and no parse of it is running. The tree
+    /// comes back as a report.
+    fn parse(&mut self, buffer: BufferId) {
+        let Some(work) = self.workspace.buffer_mut(buffer).syntax_work() else {
+            return;
+        };
+        self.jobs.spawn(move |worker| {
+            worker.report(Report::Parsed {
+                buffer,
+                fresh: work.run(),
+            });
+        });
     }
 
     /// Runs a command where the keyboard is: on an open panel's field, on

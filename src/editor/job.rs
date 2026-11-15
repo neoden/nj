@@ -12,6 +12,7 @@ use std::thread;
 use super::input::Input;
 use super::panel::picker::Candidate;
 use super::workspace::BufferId;
+use crate::buffer::syntax::Fresh;
 
 /// What the main loop wakes up for: a keystroke or the like from the
 /// terminal, something a worker has to say, a line from the socket, or
@@ -38,10 +39,13 @@ pub struct Remote {
 
 /// The editor's own work coming back to it. Not a command: nobody asks for
 /// a report, it is not nameable, and it may be stale by the time it arrives.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Report {
     /// A batch of a picker's candidates.
     Candidates { job: JobId, batch: Vec<Candidate> },
+    /// The syntax tree of a buffer's text, parsed again after an edit. The
+    /// buffer checks for itself whether it still wants this tree.
+    Parsed { buffer: BufferId, fresh: Fresh },
     /// The file behind a buffer is not what it was; the editor checks for
     /// itself whether that matters.
     FileChanged(BufferId),
@@ -200,21 +204,19 @@ mod tests {
             });
         });
 
-        assert_eq!(
+        assert!(matches!(
             next_report(&rx),
-            Report::Candidates {
-                job: id,
-                batch: vec![Candidate::plain("one")]
-            }
-        );
-        assert_eq!(next_report(&rx), Report::Ended(id));
+            Report::Candidates { job, batch }
+                if job == id && batch == [Candidate::plain("one")]
+        ));
+        assert!(matches!(next_report(&rx), Report::Ended(job) if job == id));
     }
 
     #[test]
     fn a_worker_that_panics_still_ends() {
         let (mut jobs, rx) = Jobs::new();
         let id = jobs.spawn(|_| panic!("worker down"));
-        assert_eq!(next_report(&rx), Report::Ended(id));
+        assert!(matches!(next_report(&rx), Report::Ended(job) if job == id));
     }
 
     #[test]
@@ -232,6 +234,6 @@ mod tests {
 
         jobs.cancel(id);
         assert!(!jobs.is_live(id));
-        assert_eq!(next_report(&rx), Report::Ended(id));
+        assert!(matches!(next_report(&rx), Report::Ended(job) if job == id));
     }
 }

@@ -62,6 +62,7 @@ key Enter
 11-14|
 15|     [scratch]* · Rust · 1 lines · 1:13
 
+wait
 ---ink and the text is coloured as Rust
  0|1 fn main() {}
   |  kk ffff
@@ -75,6 +76,7 @@ key Ctrl+/
   |-----------------^----------------------
 15|     [scratch]* · Rust · 1 lines · 1:16
 
+wait
 ---ink the whole line is a comment now
  0|1 // fn main() {}
   |  ccccccccccccccc
