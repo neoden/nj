@@ -97,6 +97,7 @@ The run's checks, of what the screen cannot show:
 | `?memory NAME GROWTH` | the three above in one line |
 | `?time NAME GROWTH` | the same for the processor time since `%measure NAME` |
 | `?blocked NAME GROWTH` | the same for the part of that time the editor's own thread took, without its background jobs |
+| `?... NAME GROWTH over OTHER` | any of the lines above, for what the cost is over the cost of the count OTHER |
 
 A `?` line that does not hold is an error naming the line. Put `?` lines
 after the keys they check and before the next `---`. Once the editor has
@@ -234,6 +235,30 @@ The two together say where a cost is: a line whose `?blocked` does not
 grow and whose `?time`, after `wait`, does, has its growing work in a
 job, where it does not hold up the next key. `?blocked` needs no `wait`:
 what a job has got to does not change it.
+
+Two costs that both grow can be compared by how their difference
+grows:
+
+```text
+%measure plain
+%start big.txt
+?blocked plain linear
+
+%reset
+%shell mkfifo big.rs; (... > big.rs &)
+%measure rust
+%start big.rs
+?blocked rust constant over plain
+```
+
+Opening reads the file either way, so both costs grow as its size. The
+last line says that what opening it as Rust costs over opening it as
+plain text does not grow. `over OTHER` takes off what the last `?` line
+of the same measure read of the count OTHER, in the same pass, so that
+line has to come first. A cost below the other's counts as nothing over
+it. The difference of two large costs is known no better than their
+noise, so this tells a difference that grows well from one that does
+not, and does not tell a small one.
 
 The live replay checks no growth. There the editor is another process
 and the run is one pass, with the first value of `%for`; `%measure`

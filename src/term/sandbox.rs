@@ -233,6 +233,9 @@ struct Reading {
     measure: Measure,
     /// How fast the line lets the cost grow.
     growth: Growth,
+    /// The count after `over`, when the cost is what is over that
+    /// count's.
+    over: Option<String>,
     /// Bytes or nanoseconds.
     cost: u64,
 }
@@ -302,8 +305,12 @@ pub fn run(script: &str) -> Result<Run> {
                 }
                 _ => format!("{amount} bytes"),
             };
+            let over = match &reading.over {
+                Some(other) => format!(" over {other}"),
+                None => String::new(),
+            };
             let mut said = format!(
-                "line {}: {} of {} is {} in {variable}, not {}",
+                "line {}: {} of {}{over} is {} in {variable}, not {}",
                 reading.line,
                 reading.measure.name(),
                 reading.name,
@@ -419,7 +426,7 @@ fn pass(
                 sandbox.counts.insert(name, count);
                 continue;
             }
-            Instruction::Grows(measures, name, growth) => {
+            Instruction::Grows(measures, name, growth, over) => {
                 sandbox.note_highest();
                 let since = sandbox
                     .counts
@@ -445,11 +452,31 @@ fn pass(
                             (meter::blocked() - since.blocked).as_nanos() as u64
                         }
                     };
+                    // What the other count's line read is taken off, in
+                    // this pass, where the two were measured one after
+                    // the other. Not what that count has come to by now:
+                    // it goes on counting, this count's work with it. A
+                    // cost below the other's is nothing over it.
+                    let cost = match &over {
+                        None => cost,
+                        Some(other) => {
+                            let base = readings
+                                .iter()
+                                .rev()
+                                .find(|read| read.name == *other && read.measure == measure)
+                                .with_context(|| {
+                                    format!("no `?` line has read this of `{other}` before")
+                                })
+                                .with_context(at)?;
+                            cost.saturating_sub(base.cost)
+                        }
+                    };
                     readings.push(Reading {
                         line: index + 1,
                         name: name.clone(),
                         measure,
                         growth,
+                        over: over.clone(),
                         cost,
                     });
                 }

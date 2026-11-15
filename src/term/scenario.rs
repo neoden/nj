@@ -53,6 +53,9 @@
 //!                  `%measure NAME`
 //!   ?blocked NAME GROWTH   the same for the part of that time the
 //!                  editor's own thread took, without its background jobs
+//!   ?... NAME GROWTH over OTHER   any of the six above, for what the cost
+//!                  is over the cost that the last such line of the count
+//!                  OTHER read: how the difference of the two grows
 //!   --- CAPTION    a snapshot: the text on the screen and the marks under
 //!                  it. The first is whole, each later one is the rows that
 //!                  changed since the snapshot before, or `same` when none
@@ -185,8 +188,10 @@ pub enum Instruction {
     /// Over the passes of `For`, each of these measures of the count of
     /// this name grows no faster than this. A `?` line, but not an
     /// `Expect`: only the headless run can tell, from the counts it keeps,
-    /// and only after the last pass.
-    Grows(&'static [Measure], String, Growth),
+    /// and only after the last pass. With another name after `over`, what
+    /// grows no faster is the cost over the one the last `?` line of
+    /// that count read, for the same measure.
+    Grows(&'static [Measure], String, Growth, Option<String>),
     /// What the desktop clipboard holds.
     Clipboard(String),
     /// What is piped into the editor, to be read when it starts.
@@ -400,12 +405,20 @@ pub fn parse(line: &str) -> Result<Option<Instruction>> {
     Ok(Some(instruction))
 }
 
-/// The rest of a `?` line about a count: its name and a growth.
+/// The rest of a `?` line about a count: its name and a growth, and after
+/// `over` the name of the count it is compared with.
 fn grows(measures: &'static [Measure], verb: &str, rest: &str) -> Result<Instruction> {
-    match rest.split_whitespace().collect::<Vec<_>>()[..] {
-        [name, word] => Ok(Instruction::Grows(measures, name.to_owned(), growth(word)?)),
-        _ => bail!("{verb} takes a name and a growth"),
-    }
+    let (name, word, over) = match rest.split_whitespace().collect::<Vec<_>>()[..] {
+        [name, word] => (name, word, None),
+        [name, word, "over", other] => (name, word, Some(other.to_owned())),
+        _ => bail!("{verb} takes a name and a growth, and `over` and a name after them"),
+    };
+    Ok(Instruction::Grows(
+        measures,
+        name.to_owned(),
+        growth(word)?,
+        over,
+    ))
 }
 
 fn growth(word: &str) -> Result<Growth> {
@@ -594,7 +607,7 @@ mod tests {
             Some(Instruction::Count("step".to_owned()))
         );
         let grows = |measures: &'static [Measure], growth| {
-            Some(Instruction::Grows(measures, "step".to_owned(), growth))
+            Some(Instruction::Grows(measures, "step".to_owned(), growth, None))
         };
         assert_eq!(
             parse("?requested step constant").unwrap(),
@@ -623,6 +636,17 @@ mod tests {
             parse("?blocked step log").unwrap(),
             grows(&[Measure::Blocked], Growth::Log)
         );
+        assert_eq!(
+            parse("?blocked step constant over base").unwrap(),
+            Some(Instruction::Grows(
+                &[Measure::Blocked],
+                "step".to_owned(),
+                Growth::Constant,
+                Some("base".to_owned())
+            ))
+        );
+        assert!(parse("?blocked step constant over").is_err());
+        assert!(parse("?blocked step constant under base").is_err());
         for bad in [
             "?retained step",
             "?peak step 4K",
