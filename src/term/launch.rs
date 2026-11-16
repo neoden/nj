@@ -82,15 +82,19 @@ pub fn start(args: &Args, pipe: Option<impl Read>) -> Result<Start> {
 impl Start {
     /// The editor, on a screen of `size`, columns and rows. Sized before
     /// the cursor is put in its place: placing it brings it on screen, and
-    /// a view that has no size yet has no screen.
+    /// a view that has no size yet has no screen. The place is then shown
+    /// in the middle of the screen, with what is around it on both sides.
     pub fn editor(self, size: (usize, usize)) -> Editor {
         let mut editor = Editor::new(self.buffer);
         editor.resize(size.0, size.1);
-        match self.place {
-            Some(Place::At { line, column }) => editor.go_to(line, column),
-            Some(Place::Lines { first, last }) => editor.select_lines(first, last),
-            None => {}
+        let Some(place) = self.place else {
+            return editor;
+        };
+        match place {
+            Place::At { line, column } => editor.go_to(line, column),
+            Place::Lines { first, last } => editor.select_lines(first, last),
         }
+        editor.center();
         editor
     }
 }

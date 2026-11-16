@@ -315,6 +315,20 @@ impl View {
             .min(self.max_top_line(buffer));
     }
 
+    /// Scrolls so that lines `first` to `last` are in the middle of the
+    /// screen, top to bottom, as far as the text allows: no empty space is
+    /// shown past either end of it. Lines taller than the screen are shown
+    /// from the first, under the margin.
+    pub fn center(&mut self, buffer: &Buffer, first: usize, last: usize) {
+        let height = self.height();
+        let lines = last - first + 1;
+        let above = match lines > height {
+            true => SCROLL_MARGIN.min(height.saturating_sub(1) / 2),
+            false => (height - lines) / 2,
+        };
+        self.top_line = first.saturating_sub(above).min(self.max_top_line(buffer));
+    }
+
     pub fn selections(&self) -> &SelectionSet {
         &self.selections
     }

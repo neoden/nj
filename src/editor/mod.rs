@@ -731,6 +731,24 @@ impl Editor {
         view.place(buffer, lines.into());
     }
 
+    /// Scrolls so that the lines of the selection are in the middle of the
+    /// screen, top to bottom. For a file opened at a place: moving there
+    /// from the top would leave it at the bottom edge.
+    pub fn center(&mut self) {
+        let (view, buffer) = self.workspace.focus_mut();
+        let text = buffer.text();
+        let selection = view.selections().primary();
+        let (start, end) = (selection.min(), selection.max());
+        let first = text.line_of(start);
+        let mut last = text.line_of(end);
+        // Whole lines selected end where the next line starts, and that
+        // line is not one of them.
+        if last > first && text.line_start(last) == end {
+            last -= 1;
+        }
+        view.center(buffer, first, last);
+    }
+
     fn set_language(&mut self, language: &'static Language) {
         self.buffer_mut().set_language(language);
     }
