@@ -3,7 +3,6 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 
-use nj::editor::Editor;
 use nj::term::socket::{self, Server};
 use nj::term::system_clipboard::SystemClipboard;
 use nj::term::terminal::{self, Terminal};
@@ -16,15 +15,16 @@ fn main() -> Result<ExitCode> {
     let signals = app::signals()?;
     let args = launch::args(std::env::args().skip(1))?;
     let pipe = (!io::stdin().is_terminal()).then(|| io::stdin().lock());
-    let buffer = launch::buffer(&args, pipe)?;
+    let start = launch::start(&args, pipe)?;
 
     let mut downstream: Box<dyn Write> = match terminal::claim_stdout()? {
         Some(pipe) => Box::new(pipe),
         None => Box::new(io::sink()),
     };
     let term = Terminal::enter()?;
-    let mut editor = Editor::new(buffer).with_desktop(SystemClipboard::new());
     let mut server = Server::new();
+    let size = server.frame_size(app::terminal_size()?);
+    let mut editor = start.editor(size).with_desktop(SystemClipboard::new());
     if !term.keyboard_enhanced {
         editor.say("Legacy keyboard: some combinations are unavailable");
     }

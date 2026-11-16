@@ -23,6 +23,12 @@ pub fn signals() -> Result<Signals> {
     Ok(Signals::new([SIGTERM, SIGHUP, SIGINT])?)
 }
 
+/// The terminal's size, columns and rows.
+pub fn terminal_size() -> Result<(usize, usize)> {
+    let (width, height) = crossterm::terminal::size()?;
+    Ok((width as usize, height as usize))
+}
+
 /// One queue, one thread that owns the editor. The terminal is read
 /// on a thread of its own, because `event::read` blocks and the queue is
 /// what the loop has to wait on.
@@ -59,8 +65,7 @@ pub fn run(
     });
 
     loop {
-        let (width, height) = crossterm::terminal::size()?;
-        let terminal = (width as usize, height as usize);
+        let terminal = terminal_size()?;
         let size = server.frame_size(terminal);
         editor.resize(size.0, size.1);
         renderer.draw(out, editor, size)?;

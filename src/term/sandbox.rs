@@ -148,12 +148,10 @@ impl Sandbox {
         if args.socket.is_some() {
             bail!("--socket: a run has no socket");
         }
-        let buffer = launch::buffer(&args, stdin.map(Cursor::new))?;
-        let mut editor = Editor::new(buffer).with_desktop(self.pasteboard.clone());
+        let start = launch::start(&args, stdin.map(Cursor::new))?;
         self.size = DEFAULT_SIZE;
         self.frames = Frames::default();
-        editor.resize(self.size.0, self.size.1);
-        self.editor = Some(editor);
+        self.editor = Some(start.editor(self.size).with_desktop(self.pasteboard.clone()));
         Ok(())
     }
 

@@ -23,6 +23,7 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use crate::buffer::language::{self, Language};
 use crate::buffer::{Buffer, EditKind};
+use crate::text::Text;
 use crate::text::layout;
 use crate::text::movement::{self, Class, Direction, Motion};
 use crate::text::search::{Query, Session};
@@ -548,8 +549,8 @@ impl Editor {
         };
         let typed = goto_line.line.contents();
         self.close_panel();
-        match parse_line_number(&typed) {
-            Some(line) => self.goto_line(line),
+        match line_number(typed.trim()) {
+            Some(line) => self.go_to(line, 0),
             None => self.message = Some("Not a line number".to_owned()),
         }
     }
@@ -690,11 +691,44 @@ impl Editor {
         self.panel = None;
     }
 
-    fn goto_line(&mut self, line: usize) {
+    /// Puts the cursor at a line and a column of it, both counted from
+    /// zero. The column is in characters, as a compiler counts them, not in
+    /// cells: a tab is one. Past the end of the text is its last line, and
+    /// past the end of a line is that end.
+    pub fn go_to(&mut self, line: usize, column: usize) {
         let (view, buffer) = self.workspace.focus_mut();
         let text = buffer.text();
         let line = line.min(text.line_count().saturating_sub(1));
-        view.place(buffer, Selection::cursor(text.line_start(line)).into());
+        let start = text.line_start(line);
+        let end = start + text.line_len(line);
+        let bytes: usize = text
+            .chunks_in(start..end)
+            .flat_map(str::chars)
+            .take(column)
+            .map(char::len_utf8)
+            .sum();
+        view.place(buffer, Selection::cursor(start + bytes).into());
+    }
+
+    /// Selects whole lines, `first` to `last` counted from zero, with
+    /// their breaks, as `select_line` takes them. The cursor is at the
+    /// start of the first, so that lines taller than the screen are shown
+    /// from where they begin. Lines past the end of the text are left out;
+    /// with all of them past it nothing is selected, and the cursor is at
+    /// the end of the text.
+    pub fn select_lines(&mut self, first: usize, last: usize) {
+        let (view, buffer) = self.workspace.focus_mut();
+        let text = buffer.text();
+        let count = text.line_count();
+        let lines = match first < count {
+            true => Selection {
+                anchor: after_line(text, last.min(count - 1)),
+                head: text.line_start(first),
+                goal_column: None,
+            },
+            false => Selection::cursor(text.len()),
+        };
+        view.place(buffer, lines.into());
     }
 
     fn set_language(&mut self, language: &'static Language) {
@@ -879,13 +913,9 @@ impl Editor {
         let (view, buffer) = self.workspace.focus_mut();
         let text = buffer.text();
         let lines = view.selections().mapped(|selection| {
-            let last = text.line_of(selection.max());
             Selection {
                 anchor: text.line_start(text.line_of(selection.min())),
-                head: match last + 1 < text.line_count() {
-                    true => text.line_start(last + 1),
-                    false => text.len(),
-                },
+                head: after_line(text, text.line_of(selection.max())),
                 goal_column: None,
             }
         });
@@ -972,10 +1002,24 @@ fn quoted(needle: &str) -> String {
     format!("\"{}…\"", &needle[..end])
 }
 
-/// Line numbers are what people count from one.
-fn parse_line_number(input: &str) -> Option<usize> {
-    let line = input.trim().parse::<usize>().ok()?;
-    Some(line.saturating_sub(1))
+/// A line or a column as a person writes it, counting from one, turned
+/// into one counted from zero. Digits and nothing else: `parse` alone would
+/// take `+42` too. A number too large to hold is the largest there is, and
+/// so past the end of any text, like any other number that is.
+pub fn line_number(typed: &str) -> Option<usize> {
+    if typed.is_empty() || !typed.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some(typed.parse::<usize>().unwrap_or(usize::MAX).saturating_sub(1))
+}
+
+/// Where a line ends, its break included: where the next one starts, or
+/// the end of the text.
+fn after_line(text: &Text, line: usize) -> usize {
+    match line + 1 < text.line_count() {
+        true => text.line_start(line + 1),
+        false => text.len(),
+    }
 }
 
 /// Only single characters join a group; a paste or a line break stands alone.
