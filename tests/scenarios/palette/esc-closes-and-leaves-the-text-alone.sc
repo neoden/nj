@@ -23,7 +23,7 @@ type "sa"
 5| > sa
  |     ^
 6|────────────────────────────────────────
-7| 6/25 [scratch]* · Text · 1 lines · 1:4
+7| 7/26 [scratch]* · Text · 1 lines · 1:4
 
 key Esc
 

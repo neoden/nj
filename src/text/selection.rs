@@ -8,8 +8,11 @@ use super::Text;
 pub struct Selection {
     pub anchor: usize,
     pub head: usize,
-    /// Column the cursor wants to be in while moving vertically, so that
-    /// crossing a short line does not lose its horizontal position.
+    /// The display column of its line the cursor wants to be in while
+    /// moving vertically, so that crossing a short line does not lose its
+    /// horizontal position. It may lie past the end of the line the cursor
+    /// is on. Always a column of the line, never a cell of a wrapped row:
+    /// rows change with the width of the view, and the line does not.
     pub goal_column: Option<usize>,
 }
 

@@ -32,7 +32,7 @@ wait
 13| >
   |   ^
 14|────────────────────────────────────────
-15| 25/25 …cratch]* · Text · 3 lines · 1:1
+15| 26/26 …cratch]* · Text · 3 lines · 1:1
 
 type "sel"
 
@@ -49,7 +49,7 @@ type "sel"
   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 13| > sel
   |      ^
-15| 6/25 [scratch]* · Text · 3 lines · 1:1
+15| 6/26 [scratch]* · Text · 3 lines · 1:1
 
 key Up
 

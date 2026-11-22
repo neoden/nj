@@ -80,8 +80,7 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
     let width = view.area.width;
 
     for (row, y) in view.rows(buffer).zip(view.area.y..) {
-        let left = row.start_column + view.left_column;
-        let columns = left..left + view.width();
+        let columns = view.columns(buffer, row);
         let window = Window::of(buffer, row.line, columns.clone());
         // Only the tokens that show are read: a line may be far longer than
         // the screen is wide. An empty range is not asked about, since to
@@ -107,6 +106,20 @@ pub fn compose(grid: &mut Grid, editor: &Editor) {
             },
         };
         grid.put_str(x, y, &number, gutter);
+        // A wrapped row may end short of the width, where a wide cell did
+        // not fit. What is left is no column of the line, so it has no
+        // mark of its own, only that of the line.
+        let shown = columns.len();
+        let spare = view.width().saturating_sub(shown);
+        grid.put_str(
+            x + view.gutter + shown,
+            y,
+            &" ".repeat(spare),
+            CellStyle {
+                ink: Ink::Text,
+                ..gutter
+            },
+        );
         draw_row(
             grid,
             x + view.gutter,

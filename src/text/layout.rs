@@ -215,6 +215,29 @@ pub fn advance(column: usize, text: &str, tab_width: usize) -> usize {
         .map_or(column, |cell| cell.end_column())
 }
 
+/// The display columns where the rows of a line start when it is wrapped
+/// to `width` columns; the first is always zero. A cell that would end past
+/// the edge starts the next row whole, so a row may be narrower than
+/// `width`; a cell wider than `width` gets a row to itself. The end of the
+/// line takes a column too, since the caret stands there: a line that fills
+/// its last row exactly has an empty row after it.
+pub fn row_starts(line: &str, width: usize, tab_width: usize) -> Vec<usize> {
+    let mut starts = vec![0];
+    let mut start = 0;
+    let mut end = 0;
+    for cell in cells(line, tab_width) {
+        if cell.end_column() > start + width && cell.column > start {
+            start = cell.column;
+            starts.push(start);
+        }
+        end = cell.end_column();
+    }
+    if end >= start + width && end > start {
+        starts.push(end);
+    }
+    starts
+}
+
 fn is_control(grapheme: &str) -> bool {
     let mut chars = grapheme.chars();
     matches!((chars.next(), chars.next()), (Some(c), None) if c.is_control())
@@ -369,6 +392,20 @@ mod tests {
         // of it where the column lies past its end.
         assert!(line_until(&text, 1, 8, TAB).len() < 200);
         assert_eq!(line_until(&text, 1, 500, TAB), line);
+    }
+
+    #[test]
+    fn a_cell_that_does_not_fit_moves_to_the_next_row_whole() {
+        // The wide character would take columns 4 and 5 of a row of five.
+        assert_eq!(row_starts("abcd日x", 5, TAB), [0, 4]);
+        // The tab at column 4 reaches to 8, past a row of six.
+        assert_eq!(row_starts("abcd\tx", 6, TAB), [0, 4]);
+    }
+
+    #[test]
+    fn a_cell_wider_than_the_row_has_a_row_to_itself() {
+        assert_eq!(row_starts("日本", 1, TAB), [0, 2, 4]);
+        assert_eq!(row_starts("ab", 0, TAB), [0, 1, 2]);
     }
 
     #[test]

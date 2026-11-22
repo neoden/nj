@@ -299,6 +299,10 @@ impl Editor {
 
             Command::EndSearch => self.end_search(),
             Command::Scroll(rows) => self.scroll(rows),
+            Command::ToggleWrap => {
+                let (view, buffer) = self.workspace.focus_mut();
+                view.toggle_wrap(buffer);
+            }
             Command::Quit => self.request_quit(),
             Command::Abort => self.request_abort(),
 
@@ -740,13 +744,15 @@ impl Editor {
         let selection = view.selections().primary();
         let (start, end) = (selection.min(), selection.max());
         let first = text.line_of(start);
-        let mut last = text.line_of(end);
+        let last = text.line_of(end);
         // Whole lines selected end where the next line starts, and that
-        // line is not one of them.
-        if last > first && text.line_start(last) == end {
-            last -= 1;
-        }
-        view.center(buffer, first, last);
+        // line is not one of them: the last of them ends a byte earlier,
+        // at its line break.
+        let end = match last > first && text.line_start(last) == end {
+            true => end - 1,
+            false => end,
+        };
+        view.center(buffer, start, end);
     }
 
     fn set_language(&mut self, language: &'static Language) {
@@ -956,7 +962,7 @@ impl Editor {
     /// screen until something moves them again.
     fn scroll(&mut self, delta: isize) {
         let (view, buffer) = self.workspace.focus_mut();
-        view.scroll_lines(delta, buffer);
+        view.scroll_rows(delta, buffer);
     }
 
     fn add_cursor(&mut self, direction: Direction) {

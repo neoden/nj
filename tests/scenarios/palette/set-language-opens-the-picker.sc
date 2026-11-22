@@ -23,7 +23,7 @@ type "lang"
 13| > lang
   |       ^
 14|────────────────────────────────────────
-15| 1/25 …cratch]* · Text · 1 lines · 1:13
+15| 1/26 …cratch]* · Text · 1 lines · 1:13
 
 key Enter
 wait

@@ -125,6 +125,7 @@ const NONE: Mods = Mods::empty();
 const CTRL: Mods = Mods::CTRL;
 const SHIFT: Mods = Mods::SHIFT;
 const CTRL_SHIFT: Mods = Mods::CTRL.union(Mods::SHIFT);
+const ALT: Mods = Mods::ALT;
 const SHIFT_ALT: Mods = Mods::SHIFT.union(Mods::ALT);
 
 const fn bind(code: KeyCode, mods: Mods, context: Context, command: Command) -> Binding {
@@ -319,6 +320,7 @@ pub static KEYMAP: &[Binding] = &[
     ),
     bind(Up, CTRL, Text, Command::Scroll(-1)),
     bind(Down, CTRL, Text, Command::Scroll(1)),
+    bind(Char('z'), ALT, Text, Command::ToggleWrap),
     // Wherever the keyboard is: the field of a panel, or the text.
     bind(F(3), SHIFT, Any, Command::FindNext(Backward)),
     bind(F(3), NONE, Any, Command::FindNext(Forward)),

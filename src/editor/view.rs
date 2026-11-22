@@ -72,9 +72,10 @@ impl LineHighlight {
 /// One row of the screen: the part of a logical line drawn on it.
 ///
 /// Without soft wrap every line is exactly one row. With it, a long line
-/// yields several rows, and only `rows_in_line` and `row_start_column` need to
-/// learn about that — everything downstream already speaks rows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// yields several rows.
+///
+/// Rows compare in the order they go down the document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Row {
     pub line: usize,
     /// Which row of that line this is; zero for the first.
@@ -166,8 +167,13 @@ pub struct View {
     /// is kept current by the editor; any other is brought up to date when it
     /// is next looked at.
     seen: Version,
-    pub top_line: usize,
+    top_line: usize,
+    /// Which row of `top_line` is the first on screen; zero without soft
+    /// wrap. Read through `top`, since the line may have lost rows since.
+    top_index: usize,
     pub left_column: usize,
+    /// Soft wrap: a line wider than the view takes several rows.
+    wrap: bool,
     /// Assigned from outside; the gutter is carved out of it.
     pub area: Area,
     pub gutter: usize,
@@ -187,7 +193,9 @@ impl View {
             selections: SelectionSet::single(0),
             seen: buffer.version(),
             top_line: 0,
+            top_index: 0,
             left_column: 0,
+            wrap: false,
             area: Area::default(),
             gutter: gutter_width(buffer.text().line_count()),
         }
@@ -249,14 +257,82 @@ impl View {
 
     /// Rows filling the screen, top to bottom.
     pub fn rows<'a>(&'a self, buffer: &'a Buffer) -> impl Iterator<Item = Row> + 'a {
-        let text = buffer.text();
-        let first = (self.top_line < text.line_count()).then(|| self.row(buffer, self.top_line, 0));
-        std::iter::successors(first, move |row| self.next_row(buffer, *row)).take(self.height())
+        std::iter::successors(self.top(buffer), move |row| self.next_row(buffer, *row))
+            .take(self.height())
+    }
+
+    /// The display columns of its line that a row shows. Without soft wrap
+    /// that is the width of the view from where it is scrolled to. With
+    /// it, a row ends where the next row of the line starts, which may be
+    /// short of the width; the last row has the whole width.
+    pub fn columns(&self, buffer: &Buffer, row: Row) -> Range<usize> {
+        if !self.wrap {
+            return self.left_column..self.left_column + self.width();
+        }
+        let end = self.row_end(buffer, row);
+        row.start_column..end.unwrap_or(row.start_column + self.width())
+    }
+
+    /// The column of its line where a row stops and the next row of the
+    /// line starts. None for the last row of a line, which goes on to the
+    /// end of the line: without soft wrap that is every row.
+    fn row_end(&self, buffer: &Buffer, row: Row) -> Option<usize> {
+        if !self.wrap {
+            return None;
+        }
+        self.row_starts(buffer, row.line).get(row.index + 1).copied()
+    }
+
+    /// The place in a row nearest to a column of its line. Where the row
+    /// stops before that column, that is its last cell and not the column,
+    /// which is on a later row of the line; on the last row of a line it is
+    /// the end of the line.
+    fn offset_in_row(&self, buffer: &Buffer, row: Row, column: usize) -> usize {
+        let column = match self.row_end(buffer, row) {
+            Some(end) => column.min(end - 1),
+            None => column,
+        };
+        layout::offset_at(buffer.text(), row.line, column, buffer.tab_width())
+    }
+
+    /// The first row on screen, or none when the document ends above it.
+    fn top(&self, buffer: &Buffer) -> Option<Row> {
+        (self.top_line < buffer.text().line_count())
+            .then(|| self.row(buffer, self.top_line, self.top_index))
+    }
+
+    fn set_top(&mut self, row: Row) {
+        self.top_line = row.line;
+        self.top_index = row.index;
+    }
+
+    /// The row `count` rows above `row`, or the first row of the document
+    /// when there are not that many.
+    fn rows_before(&self, buffer: &Buffer, row: Row, count: usize) -> Row {
+        let mut row = row;
+        for _ in 0..count {
+            match self.previous_row(buffer, row) {
+                Some(previous) => row = previous,
+                None => break,
+            }
+        }
+        row
+    }
+
+    /// The top row that puts the last row of the document at the bottom of
+    /// the screen: scrolling stops there, so there is no empty space past
+    /// the end of the document.
+    fn max_top(&self, buffer: &Buffer) -> Row {
+        let line = buffer.text().line_count() - 1;
+        let last = self.row(buffer, line, usize::MAX);
+        self.rows_before(buffer, last, self.height().saturating_sub(1))
     }
 
     pub fn next_row(&self, buffer: &Buffer, row: Row) -> Option<Row> {
-        if row.index + 1 < self.rows_in_line(buffer, row.line) {
-            return Some(self.row(buffer, row.line, row.index + 1));
+        // The line's last row again when there is none after it.
+        let next = self.row(buffer, row.line, row.index + 1);
+        if next.index > row.index {
+            return Some(next);
         }
         let line = row.line + 1;
         (line < buffer.text().line_count()).then(|| self.row(buffer, line, 0))
@@ -267,66 +343,101 @@ impl View {
             return Some(self.row(buffer, row.line, row.index - 1));
         }
         let line = row.line.checked_sub(1)?;
-        Some(self.row(buffer, line, self.rows_in_line(buffer, line) - 1))
+        Some(self.row(buffer, line, usize::MAX))
     }
 
-    /// The row an offset falls on.
+    /// The row an offset falls on: the last one that starts at its column
+    /// or before it.
     pub fn row_of(&self, buffer: &Buffer, offset: usize) -> Row {
         let text = buffer.text();
         let line = text.line_of(offset);
+        if !self.wrap {
+            return self.row(buffer, line, 0);
+        }
         let column = layout::column_at(text, offset, buffer.tab_width());
-        let index = (0..self.rows_in_line(buffer, line))
-            .rev()
-            .find(|&index| self.row_start_column(buffer, line, index) <= column)
-            .unwrap_or(0);
-        self.row(buffer, line, index)
-    }
-
-    fn row(&self, buffer: &Buffer, line: usize, index: usize) -> Row {
+        let starts = self.row_starts(buffer, line);
+        let index = starts.partition_point(|&start| start <= column) - 1;
         Row {
             line,
             index,
-            start_column: self.row_start_column(buffer, line, index),
+            start_column: starts[index],
         }
     }
 
-    /// Soft wrap will make this depend on the line and the width. Until then,
-    /// one line is one row.
-    fn rows_in_line(&self, _buffer: &Buffer, _line: usize) -> usize {
-        1
+    /// Row `index` of a line, or its last row when it has fewer: the only
+    /// row without soft wrap. The first row starts at column zero whatever
+    /// the line holds, so the line is laid out only for a later one.
+    /// Horizontal scrolling is deliberately kept out of this: it belongs
+    /// to the window, not to the layout of the line.
+    fn row(&self, buffer: &Buffer, line: usize, index: usize) -> Row {
+        if !self.wrap || index == 0 {
+            return Row {
+                line,
+                index: 0,
+                start_column: 0,
+            };
+        }
+        let starts = self.row_starts(buffer, line);
+        let index = index.min(starts.len() - 1);
+        Row {
+            line,
+            index,
+            start_column: starts[index],
+        }
     }
 
-    /// Zero without soft wrap. Horizontal scrolling is deliberately kept out
-    /// of this: it belongs to the window, not to the layout of the line.
-    fn row_start_column(&self, _buffer: &Buffer, _line: usize, _index: usize) -> usize {
-        0
+    /// The columns where the rows of a wrapped line start. The whole line
+    /// is read and laid out on every call.
+    fn row_starts(&self, buffer: &Buffer, line: usize) -> Vec<usize> {
+        let text = buffer.text();
+        let content = text.line_prefix(line, text.line_len(line));
+        layout::row_starts(&content, self.width(), buffer.tab_width())
     }
 
-    /// Scrolling stops with the last line at the bottom of the screen; there
-    /// is no empty space past the end of the document.
-    pub fn max_top_line(&self, buffer: &Buffer) -> usize {
-        buffer.text().line_count().saturating_sub(self.height())
+    /// Moves the screen `delta` rows down the document, or up it when
+    /// negative, as far as there are rows to go.
+    pub fn scroll_rows(&mut self, delta: isize, buffer: &Buffer) {
+        let max = self.max_top(buffer);
+        let mut top = self.top(buffer).map_or(max, |top| top.min(max));
+        if delta < 0 {
+            top = self.rows_before(buffer, top, delta.unsigned_abs());
+        }
+        for _ in 0..delta {
+            match self.next_row(buffer, top) {
+                Some(next) if next <= max => top = next,
+                _ => break,
+            }
+        }
+        self.set_top(top);
     }
 
-    pub fn scroll_lines(&mut self, delta: isize, buffer: &Buffer) {
-        self.top_line = self
-            .top_line
-            .saturating_add_signed(delta)
-            .min(self.max_top_line(buffer));
-    }
-
-    /// Scrolls so that lines `first` to `last` are in the middle of the
-    /// screen, top to bottom, as far as the text allows: no empty space is
-    /// shown past either end of it. Lines taller than the screen are shown
-    /// from the first, under the margin.
-    pub fn center(&mut self, buffer: &Buffer, first: usize, last: usize) {
+    /// Scrolls so that the rows from the one `start` is on to the one `end`
+    /// is on are in the middle of the screen, top to bottom, as far as the
+    /// text allows: no empty space is shown past either end of it. Rows
+    /// that do not fit on the screen are shown from the first, under the
+    /// margin.
+    pub fn center(&mut self, buffer: &Buffer, start: usize, end: usize) {
         let height = self.height();
-        let lines = last - first + 1;
-        let above = match lines > height {
+        let first = self.row_of(buffer, start);
+        let last = self.row_of(buffer, end);
+        // Counted no further than it takes to see that they do not fit.
+        let rows = std::iter::successors(Some(first), |row| self.next_row(buffer, *row))
+            .take_while(|row| *row <= last)
+            .take(height + 1)
+            .count();
+        let above = match rows > height {
             true => SCROLL_MARGIN.min(height.saturating_sub(1) / 2),
-            false => (height - lines) / 2,
+            false => (height - rows) / 2,
         };
-        self.top_line = first.saturating_sub(above).min(self.max_top_line(buffer));
+        let top = self.rows_before(buffer, first, above);
+        self.set_top(top.min(self.max_top(buffer)));
+    }
+
+    /// Turns soft wrap on or off. The rows are other rows now, so the
+    /// screen is scrolled to the cursor again.
+    pub fn toggle_wrap(&mut self, buffer: &Buffer) {
+        self.wrap = !self.wrap;
+        self.scroll_to_cursor(buffer);
     }
 
     pub fn selections(&self) -> &SelectionSet {
@@ -409,8 +520,22 @@ impl View {
     ) -> (usize, Option<usize>) {
         let text = buffer.text();
         let row = self.row_of(buffer, selection.head);
-        let column = layout::column_at(text, selection.head, buffer.tab_width());
-        let goal = selection.goal_column.unwrap_or(column - row.start_column);
+        let goal = selection
+            .goal_column
+            .unwrap_or_else(|| layout::column_at(text, selection.head, buffer.tab_width()));
+        // How far into its row the cursor wants to be. The goal is never
+        // left of the row the cursor is on, since the cursor is put at the
+        // goal or short of it; only a selection set from outside could say
+        // otherwise, and then it is the first cell.
+        let cell = goal.saturating_sub(row.start_column);
+        // A goal further on than a wrapped row is wide lies past the end
+        // of the line. Its cell is the one it would be in were the line
+        // that long, wrapping at every width of the view on the way: a
+        // guess, a cell off for every row above that ended short.
+        let cell = match self.wrap {
+            true => cell.checked_rem(self.width()).unwrap_or(0),
+            false => cell,
+        };
 
         // Running out of rows on the way stops at the last one reached, in
         // the goal column: a page from near the end lands on the last line.
@@ -432,12 +557,14 @@ impl View {
             }
         }
 
-        let column = target.start_column + goal;
-        let head = layout::offset_at(text, target.line, column, buffer.tab_width());
-        (head, Some(goal))
+        // The same cell of the row arrived at, and the goal from now on is
+        // that column of the line the cursor is now in.
+        let goal = target.start_column + cell;
+        (self.offset_in_row(buffer, target, goal), Some(goal))
     }
 
-    /// Grows the column of cursors from the primary in `direction` — or,
+    /// Grows the column of cursors from the primary in `direction`, a line
+    /// at a time whether the lines are wrapped or not — or,
     /// when the column has grown the other way, shrinks it from that end:
     /// `Up` after three `Down`s takes the lowest cursor back rather than
     /// adding a fourth above, as every editor with this binding does.
@@ -460,25 +587,28 @@ impl View {
             return;
         };
 
-        let row = self.row_of(buffer, edge.head);
+        // The next line, not the next row: the cursors are a column in the
+        // text, and stay one when soft wrap is turned off.
+        let line = text.line_of(edge.head);
         let target = match direction {
-            Direction::Backward => self.previous_row(buffer, row),
-            Direction::Forward => self.next_row(buffer, row),
+            Direction::Backward => line.checked_sub(1),
+            Direction::Forward => Some(line + 1).filter(|&next| next < text.line_count()),
         };
         let Some(target) = target else {
             return;
         };
 
-        let column = layout::column_at(text, edge.head, buffer.tab_width());
-        let goal = edge.goal_column.unwrap_or(column - row.start_column);
-
-        let column = target.start_column + goal;
-        let head = layout::offset_at(text, target.line, column, buffer.tab_width());
+        // The same column of the next line, and the new cursor wants it
+        // too, so that a short line on the way does not lose it.
+        let column = edge
+            .goal_column
+            .unwrap_or_else(|| layout::column_at(text, edge.head, buffer.tab_width()));
+        let head = layout::offset_at(text, target, column, buffer.tab_width());
 
         self.selections.push(Selection {
             anchor: head,
             head,
-            goal_column: Some(goal),
+            goal_column: Some(column),
         });
         self.reveal(buffer, head);
     }
@@ -493,20 +623,25 @@ impl View {
     /// margin. The primary is not the only thing worth showing: a cursor
     /// just added below the screen is, too.
     pub fn reveal(&mut self, buffer: &Buffer, offset: usize) {
-        let text = buffer.text();
-        let head = offset;
-        let line = text.line_of(head);
+        let row = self.row_of(buffer, offset);
         let margin = SCROLL_MARGIN.min(self.height().saturating_sub(1) / 2);
 
-        if line < self.top_line + margin {
-            self.top_line = line.saturating_sub(margin);
-        }
-        if line + margin >= self.top_line + self.height() {
-            self.top_line = (line + margin + 1).saturating_sub(self.height());
-        }
-        self.top_line = self.top_line.min(self.max_top_line(buffer));
+        // The top row that leaves the row at the bottom with the margin
+        // under it, and the one that leaves it at the top with the margin
+        // over it. Any top row between the two shows the row.
+        let earliest = self.rows_before(buffer, row, self.height().saturating_sub(1 + margin));
+        let latest = self.rows_before(buffer, row, margin);
+        let top = self
+            .top(buffer)
+            .map_or(latest, |top| top.clamp(earliest, latest));
+        self.set_top(top.min(self.max_top(buffer)));
 
-        let column = layout::column_at(text, head, buffer.tab_width());
+        // A wrapped line has nothing to the side of the screen.
+        if self.wrap {
+            self.left_column = 0;
+            return;
+        }
+        let column = layout::column_at(buffer.text(), offset, buffer.tab_width());
         if column < self.left_column {
             self.left_column = column;
         }
@@ -586,13 +721,12 @@ impl View {
     /// Translates a click into a byte offset. Rows past the last one land on
     /// the last row, as they do in any editor.
     pub fn offset_at_screen(&self, buffer: &Buffer, row: usize, column: usize) -> usize {
-        let text = buffer.text();
         let rows: Vec<Row> = self.rows(buffer).collect();
         let Some(row) = rows.get(row).or(rows.last()) else {
             return 0;
         };
         let column = row.start_column + self.left_column + column;
-        layout::offset_at(text, row.line, column, buffer.tab_width())
+        self.offset_in_row(buffer, *row, column)
     }
 }
 
@@ -657,12 +791,12 @@ mod tests {
         assert!(view.top_line + view.height() > 40);
         assert!(view.top_line <= 40);
 
-        view.scroll_lines(-10, &buffer);
+        view.scroll_rows(-10, &buffer);
         let scrolled = view.top_line;
         fit(&mut view, 80, 10, &buffer);
         assert_eq!(view.top_line, scrolled);
 
-        view.scroll_lines(99, &buffer);
+        view.scroll_rows(99, &buffer);
         fit(&mut view, 80, 200, &buffer);
         assert_eq!(view.top_line, 0);
     }
@@ -694,10 +828,10 @@ mod tests {
         let mut view = view(80, 5);
         assert_eq!(view.height(), 4);
 
-        view.scroll_lines(-1, &buffer);
+        view.scroll_rows(-1, &buffer);
         assert_eq!(view.top_line, 0);
 
-        view.scroll_lines(99, &buffer);
+        view.scroll_rows(99, &buffer);
         assert_eq!(view.top_line, 6);
         assert_eq!(visible_lines(&view, &buffer), 6..10);
     }
@@ -707,7 +841,7 @@ mod tests {
         let buffer = buf("1\n2\n3");
         let mut view = view(80, 25);
 
-        view.scroll_lines(99, &buffer);
+        view.scroll_rows(99, &buffer);
         assert_eq!(view.top_line, 0);
     }
 
@@ -736,6 +870,25 @@ mod tests {
             rows.iter()
                 .all(|row| row.index == 0 && row.start_column == 0)
         );
+    }
+
+    #[test]
+    fn centering_puts_the_row_of_a_wrapped_line_in_the_middle() {
+        // Thirteen rows of five columns, the last for the caret alone.
+        let buffer = buf(&"0123456789".repeat(6));
+        let mut view = view_of(&buffer, 0);
+        view.area.height = 4;
+        set_width(&mut view, 5);
+        view.wrap = true;
+        let shown = |view: &View| view.rows(&buffer).map(|row| row.index).collect::<Vec<_>>();
+
+        // Offset 32 is on row 6: one row over it, two under.
+        view.center(&buffer, 32, 32);
+        assert_eq!(shown(&view), [5, 6, 7, 8]);
+
+        // Rows 2 to 9 do not fit: from the first, under the margin.
+        view.center(&buffer, 10, 49);
+        assert_eq!(shown(&view), [1, 2, 3, 4]);
     }
 
     #[test]

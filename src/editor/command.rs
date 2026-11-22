@@ -23,6 +23,8 @@ pub enum Command {
     },
     /// Rows; the cursors stay where they are.
     Scroll(isize),
+    /// Soft wrap of the view in focus, on or off.
+    ToggleWrap,
     /// The next hit of the search going on, or of the last one, brought
     /// back. A command of the text: an open panel does not take it.
     FindNext(Direction),
@@ -189,6 +191,7 @@ pub const PALETTE: &[(&str, Command)] = &[
         "Add cursor below",
         Command::Select(Select::AddCursor(Direction::Forward)),
     ),
+    ("Toggle soft wrap", Command::ToggleWrap),
     (
         "Set language",
         Command::Panel(PanelCommand::Picker(Pick::Language)),

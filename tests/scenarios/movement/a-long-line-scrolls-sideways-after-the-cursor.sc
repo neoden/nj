@@ -1,5 +1,5 @@
-# Lines are not wrapped yet: what does not fit the width is off the right
-# edge, and the view scrolls sideways to keep the cursor in it, by as much
+# Without soft wrap, what does not fit the width is off the right edge,
+# and the view scrolls sideways to keep the cursor in it, by as much
 # as it has to and no more, in either direction. The gutter stays put; only
 # the text moves, every line by the same amount, so a short line may show
 # nothing at all.
