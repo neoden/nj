@@ -4,6 +4,8 @@ Yeah, in 2026 world probably doesn't need another text editor. Yet I decided to 
 2. Is non-modal and has vscode-like key bindings
 3. Reasonably simple but powerful enough for my daily use as a text/code editor
 
+And I wanted to have a playground to test some of my ideas about what a post-post-modern text editor could look like.
+
 It is inspired by Zed, Helix and micro and has the following features/traits so far:
 - Multiple cursors
 - Infinite undo
