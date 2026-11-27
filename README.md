@@ -7,11 +7,12 @@ Yeah, in 2026 world probably doesn't need another text editor. Yet I decided to 
 And I wanted to have a playground to test some of my ideas about what a post-post-modern text editor could look like.
 
 It is inspired by Zed, Helix and micro and has the following features/traits so far:
+- Expects a modern terminal emulator that supports kitty protocol
 - Multiple cursors
 - Infinite undo
 - Text editing behaviour and key bindings as close as possible to VS Code and Zed
-- Syntax hightlight using tree-sitter for some common languages
+- Syntax highlight using tree-sitter for some common languages
 - Zero customizability
 - Underlying text buffer data structure is rope
 
-Testing is done with a custom mini-framework of test scenarios. More on that [here](tests/scenarios/README.md).
+Testing is done with a custom mini-framework of test scenarios. More on that [here](tests/scenarios/README.md). Testing is important to be done properly, because the code is of course written by AI. So this framework tries to make it convenient to create and run end-to-end testing scenarios against a live instance of the editor. Also, in attempt to address the way AI agents are so bad in writing maintainable and performant code, these scenarios allow making asserts about execution time and memory usage of certain operations in terms of assymptotic complexity.
